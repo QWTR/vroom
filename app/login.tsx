@@ -16,6 +16,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
 import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
+import { normalizeReferralInput } from '../lib/referralInput';
 import { markAuthSessionActive } from '../lib/authSessionExpiry';
 import {
   assertAppleState,
@@ -190,7 +191,7 @@ export default function LoginScreen() {
           email: email.trim(),
           password,
           username: username.trim(),
-          referralCode: referralCode.trim() || undefined,
+          referralCode: normalizeReferralInput(referralCode) || undefined,
           acceptUgcTerms: acceptedUgcTerms,
         }),
       });
@@ -400,6 +401,9 @@ export default function LoginScreen() {
       maxLength?: number;
       autoCapitalize?: any;
       error?: boolean;
+      autoCorrect?: boolean;
+      spellCheck?: boolean;
+      onEndEditing?: () => void;
     } = {}
   ) => (
     <View style={{ marginBottom: 16 }}>
@@ -414,10 +418,13 @@ export default function LoginScreen() {
           placeholderTextColor="#ffffff20"
           keyboardType={opts.keyboardType}
           autoCapitalize={opts.autoCapitalize ?? 'none'}
+          autoCorrect={opts.autoCorrect ?? false}
+          spellCheck={opts.spellCheck ?? false}
           secureTextEntry={opts.secure}
           maxLength={opts.maxLength}
           value={value}
           onChangeText={onChange}
+          onEndEditing={opts.onEndEditing}
           clearButtonMode="while-editing"
         />
         {!!value && !opts.showToggle && (
@@ -544,7 +551,11 @@ enabled={Platform.OS === 'ios'} style={s.root}>
           {/* Formularz */}
           {screen === 'register' && renderField('NAZWA UŻYTKOWNIKA', 'person-outline', username, setUsername, { placeholder: 'np. NightRider_PL' })}
           {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
-          {screen === 'register' && renderField('KOD / LINK POLECAJĄCY (opcjonalnie)', 'group-add', referralCode, (t) => setReferralCode(t.toUpperCase()), { placeholder: 'np. NIGHT1234 lub pełny link' })}
+          {screen === 'register' && renderField('KOD / LINK POLECAJĄCY (opcjonalnie)', 'group-add', referralCode, setReferralCode, {
+            placeholder: 'np. NIGHT1234 lub pełny link',
+            autoCapitalize: 'characters',
+            onEndEditing: () => setReferralCode(normalizeReferralInput(referralCode)),
+          })}
           {renderField('HASŁO', 'lock-outline', password, setPassword, {
             placeholder: '••••••••',
             secure: !showPass,

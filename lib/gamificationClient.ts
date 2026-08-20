@@ -88,6 +88,14 @@ export type CoverageCell = {
   firstSeenAt: string;
 };
 
+export type CoverageCellsPage = {
+  cells: CoverageCell[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalInViewport: number;
+  totalRevealed: number;
+};
+
 type GamificationPing = {
   lat: number;
   lng: number;
@@ -353,20 +361,28 @@ export async function fetchAsphaltSummary(): Promise<AsphaltDistrict[]> {
 export async function fetchCoverageCells(options: {
   userId?: number;
   bbox?: string;
+  cursor?: string | null;
   limit?: number;
-} = {}): Promise<CoverageCell[]> {
+} = {}): Promise<CoverageCellsPage> {
   // The server repairs coverage from saved activities. Live ping retries stay
   // best-effort and must never block opening the discovery map.
   void flushGamificationPingOutbox().catch(() => undefined);
   const params = new URLSearchParams();
   if (options.userId != null) params.set('userId', String(options.userId));
   if (options.bbox) params.set('bbox', options.bbox);
+  if (options.cursor) params.set('cursor', options.cursor);
   if (options.limit != null) params.set('limit', String(options.limit));
   const suffix = params.toString() ? `?${params.toString()}` : '';
-  const data = await gamificationFetch<{ cells?: CoverageCell[] }>(
+  const data = await gamificationFetch<Partial<CoverageCellsPage>>(
     `/api/gamification/coverage${suffix}`,
   );
-  return data?.cells ?? [];
+  return {
+    cells: data?.cells ?? [],
+    nextCursor: data?.nextCursor ? String(data.nextCursor) : null,
+    hasMore: Boolean(data?.hasMore),
+    totalInViewport: Number(data?.totalInViewport ?? data?.cells?.length ?? 0),
+    totalRevealed: Number(data?.totalRevealed ?? data?.cells?.length ?? 0),
+  };
 }
 
 export async function fetchTurfCrowns(): Promise<

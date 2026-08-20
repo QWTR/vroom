@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -110,20 +110,52 @@ export default function HistoryRidesScreen() {
   const router = useRouter();
   const { theme, isDark, presetId } = useTheme();
   const headerTop = useScreenHeaderTop(8);
-  const { activityHistory, fetchActivityHistory } = useProfile();
+  const {
+    activityHistory,
+    activityHistoryHasMore,
+    activityHistoryLoadingMore,
+    activityHistoryAccessLimit,
+    fetchActivityHistory,
+    fetchNextActivityHistoryPage,
+    fetchActivityRoute,
+  } = useProfile();
   const cameraRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAllHistoryOnMap, setShowAllHistoryOnMap] = useState(true);
   const [selectedHistoryRoute, setSelectedHistoryRoute] = useState<any | null>(null);
   const [historyMapEnabled, setHistoryMapEnabled] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [snappedCoordsById, setSnappedCoordsById] = useState<Record<number, [number, number][]>>({});
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await fetchActivityHistory({ includeRoute: true, allPages: true, limit: 50 });
+      await fetchActivityHistory({ reset: true, limit: 20 });
       setLoading(false);
     })();
+  }, [fetchActivityHistory]);
+
+  const hydrateLoadedRoutesForMap = useCallback(async () => {
+    const candidates = filterVisibleRideHistory(activityHistory)
+      .slice(0, MAX_HISTORY_ROUTES_ON_MAP)
+      .filter((item: any) => item?.hasRoute && !Array.isArray(item?.routePoints));
+    if (!candidates.length) return;
+    setRouteLoading(true);
+    try {
+      await Promise.all(candidates.map((item: any) => fetchActivityRoute(Number(item.id))));
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [activityHistory, fetchActivityRoute]);
+
+  const refreshHistory = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchActivityHistory({ reset: true, limit: 20 });
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchActivityHistory]);
 
   useEffect(() => {
@@ -240,7 +272,11 @@ export default function HistoryRidesScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={{ borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center', borderWidth: 1, borderColor: historyMapEnabled ? '#4de92640' : theme.border, backgroundColor: historyMapEnabled ? '#4de92618' : theme.surface }}
-            onPress={() => setHistoryMapEnabled(v => !v)}
+            onPress={() => {
+              const enabling = !historyMapEnabled;
+              setHistoryMapEnabled(enabling);
+              if (enabling) void hydrateLoadedRoutesForMap();
+            }}
           >
             <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: historyMapEnabled ? '#4de926' : theme.textDim }}>
               {historyMapEnabled ? 'UKRYJ MAPE' : 'POKAZ MAPE'}
@@ -278,7 +314,7 @@ export default function HistoryRidesScreen() {
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface }}>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
-                {loading ? 'Ladowanie historii...' : historyShapeGeoJson ? 'Kliknij POKAZ MAPE' : 'Brak danych tras do mapy'}
+                {loading || routeLoading ? 'Ladowanie historii...' : historyShapeGeoJson ? 'Kliknij POKAZ MAPE' : 'Brak danych tras do mapy'}
               </Text>
             </View>
           )}
@@ -290,45 +326,72 @@ export default function HistoryRidesScreen() {
           </Text>
         )}
 
-        <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
-          {loading ? (
-            <ActivityIndicator color="#e33835" style={{ marginTop: 20 }} />
-          ) : visibleActivityHistory.map((a: any) => {
-            const hasRoute = (a?.routePoints?.length ?? 0) > 1;
-            const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
-            return (
-              <TouchableOpacity
-                key={a.id}
-                style={{
-                  backgroundColor: selected ? '#e3383515' : theme.surface,
-                  borderWidth: 1,
-                  borderColor: selected ? '#e3383540' : theme.border,
-                  borderRadius: 10,
-                  padding: 10,
-                  marginBottom: 8,
-                }}
-                onPress={() => {
-                  if (!hasRoute) return;
-                  setSelectedHistoryRoute(a);
-                  setShowAllHistoryOnMap(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text }}>
-                  {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Number(a.distance || 0).toFixed(1)} km
-                </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
-                  Max: {Number(a.maxSpeed || 0).toFixed(1)} km/h · Avg: {Number(a.avgSpeed || 0).toFixed(1)} km/h
-                </Text>
-                {!hasRoute && (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>
-                    Brak zapisanego sladu mapy dla tego przejazdu.
+        {activityHistoryAccessLimit === 20 && (
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>
+            Konto Free pokazuje 20 najnowszych przejazdow. Pelna historia jest w Premium.
+          </Text>
+        )}
+
+        {loading ? (
+          <ActivityIndicator color="#e33835" style={{ marginTop: 20 }} />
+        ) : (
+          <FlatList
+            style={{ maxHeight: 320 }}
+            data={visibleActivityHistory}
+            keyExtractor={(item: any) => String(item.id)}
+            showsVerticalScrollIndicator={false}
+            onEndReachedThreshold={0.35}
+            onEndReached={() => {
+              if (activityHistoryHasMore && !activityHistoryLoadingMore) {
+                void fetchNextActivityHistoryPage();
+              }
+            }}
+            refreshControl={(
+              <RefreshControl refreshing={refreshing} onRefresh={refreshHistory} tintColor="#e33835" />
+            )}
+            ListFooterComponent={activityHistoryLoadingMore
+              ? <ActivityIndicator color="#e33835" style={{ marginVertical: 12 }} />
+              : null}
+            renderItem={({ item: a }: { item: any }) => {
+              const routeLoaded = (a?.routePoints?.length ?? 0) > 1;
+              const hasRoute = a?.hasRoute !== false;
+              const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
+              return (
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: selected ? '#e3383515' : theme.surface,
+                    borderWidth: 1,
+                    borderColor: selected ? '#e3383540' : theme.border,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginBottom: 8,
+                  }}
+                  onPress={async () => {
+                    if (!hasRoute) return;
+                    const hydrated = routeLoaded ? a : await fetchActivityRoute(Number(a.id));
+                    if ((hydrated?.routePoints?.length ?? 0) < 2) return;
+                    setSelectedHistoryRoute(hydrated);
+                    setShowAllHistoryOnMap(false);
+                    setHistoryMapEnabled(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text }}>
+                    {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Number(a.distance || 0).toFixed(1)} km
                   </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
+                    Max: {Number(a.maxSpeed || 0).toFixed(1)} km/h · Avg: {Number(a.avgSpeed || 0).toFixed(1)} km/h
+                  </Text>
+                  {!hasRoute && (
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>
+                      Brak zapisanego sladu mapy dla tego przejazdu.
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )}
       </View>
     </View>
   );

@@ -2,6 +2,9 @@ import type { LocationState, RouteInfo } from '../../constants/types';
 import type { DirectionsResult } from '../../hooks/useGoogleDirections';
 
 export type PersistedNavSession = {
+  version: 1 | 2;
+  tripSessionId: string | null;
+  mode: 'navigation' | 'freeDrive';
   savedAt: number;
   isOffroadRoute: boolean;
   startLocation: LocationState | null;
@@ -22,4 +25,3 @@ export type LoadedRouteContext = {
   isOffroad: boolean;
   points: { latitude: number; longitude: number }[];
 };
-

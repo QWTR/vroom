@@ -394,6 +394,8 @@ export default function ClubChatScreen() {
   const canPin    = myRole === 'owner' || hasRankPermission('canPin');
   const canKick   = myRole === 'owner' || hasRankPermission('canKick');
   const canMute   = myRole === 'owner' || hasRankPermission('canMute');
+  const canManage = myRole === 'owner' || hasRankPermission('canManage');
+  const canOpenManagement = canManage || canKick || canMute;
   const canWriteReadOnly = myRole === 'owner' || hasRankPermission('canWriteReadOnly');
 
   const unifiedMessages = useMemo(
@@ -755,10 +757,12 @@ export default function ClubChatScreen() {
                 <MaterialIcons name="share" size={17} color={theme.textDim} />
               </TouchableOpacity>
 
-              {myRole === 'owner' && (
+              {canOpenManagement && (
                 <TouchableOpacity
                   style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
                   onPress={() => setEditVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Otwórz zarządzanie klubem"
                 >
                   <MaterialIcons name="settings" size={18} color={theme.textDim} />
                 </TouchableOpacity>
@@ -995,7 +999,15 @@ export default function ClubChatScreen() {
         club={clubData}
         channels={channels}
         onClose={() => setEditVisible(false)}
-        onUpdated={(updated) => { setClubName(updated.name); setClubData(updated); setChannels(updated.channels ?? channels); setCategories(updated.categories ?? categories); setEditVisible(false); }}
+        onUpdated={(updated) => {
+          setClubName(updated.name);
+          setClubData(updated);
+          setChannels(updated.channels ?? channels);
+          setCategories(updated.categories ?? categories);
+          setMyRole(updated.myRole);
+          setMyRanks(Array.isArray(updated.myRanks) ? updated.myRanks : (updated.myRank ? [updated.myRank] : []));
+          setEditVisible(false);
+        }}
       />
 
       <Modal visible={!!previewPhoto} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPreviewPhoto(null)}>

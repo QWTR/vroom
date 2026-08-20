@@ -155,7 +155,7 @@ export default function ProfileScreen() {
         fetchParticipated(),
       ]);
       setTimeout(() => {
-        fetchActivityHistory({ includeRoute: true });
+        fetchActivityHistory({ reset: true, limit: 20 });
         fetchMonthlyStats();
       }, 400);
     })();
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
           await flushPendingTripCheckpoint();
           await fetchProfile();
           await Promise.all([
-            fetchActivityHistory({ includeRoute: true }),
+            fetchActivityHistory({ reset: true, limit: 20 }),
             fetchMonthlyStats(),
           ]);
         })();
@@ -196,7 +196,7 @@ export default function ProfileScreen() {
       fetchUserSpots(userId),
       fetchMyRoutes({ includeGeometry: true }),
       fetchParticipated(),
-      fetchActivityHistory({ includeRoute: true }),
+      fetchActivityHistory({ reset: true, limit: 20 }),
       fetchMonthlyStats(),
     ]);
   };

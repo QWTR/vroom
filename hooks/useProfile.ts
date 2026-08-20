@@ -89,6 +89,12 @@ export function useProfile() {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [activityHistory, setActivityHistory] = useState<any[]>([]);
+  const [activityHistoryNextCursor, setActivityHistoryNextCursor] = useState<string | null>(null);
+  const [activityHistoryHasMore, setActivityHistoryHasMore] = useState(false);
+  const [activityHistoryLoadingMore, setActivityHistoryLoadingMore] = useState(false);
+  const [activityHistoryAccessLimit, setActivityHistoryAccessLimit] = useState<number | null>(null);
+  const activityHistoryRequestRef = useRef(false);
+  const routeRequestsRef = useRef<Set<number>>(new Set());
   const [monthlyStats, setMonthlyStats] = useState<any[]>([]);
   const [monthlyCompare, setMonthlyCompare] = useState<any | null>(null);
   const profileRef = useRef<UserProfile | null>(null);
@@ -346,43 +352,89 @@ export function useProfile() {
     }
   }, []);
 
-  const fetchActivityHistory = useCallback(async (opts?: { page?: number; includeRoute?: boolean; limit?: number; allPages?: boolean }) => {
+  const fetchActivityHistory = useCallback(async (opts?: {
+    cursor?: string | null;
+    append?: boolean;
+    reset?: boolean;
+    limit?: number;
+  }) => {
+    if (activityHistoryRequestRef.current) return;
+    activityHistoryRequestRef.current = true;
+    const append = !!opts?.append && !opts?.reset;
+    setActivityHistoryLoadingMore(append);
     try {
       const token = await getToken();
       if (!token) return;
-      const page = opts?.page ?? 1;
-      const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
-      const includeRoute = (opts?.includeRoute ?? true) ? 'true' : 'false';
-      if (opts?.allPages) {
-        const allItems: any[] = [];
-        let nextPage = 1;
-        let totalPages = 1;
-        do {
-          const res = await fetch(`${API_URL}/api/activity/history?page=${nextPage}&limit=${limit}&includeRoute=${includeRoute}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!res.ok) break;
-          const data = await res.json();
-          allItems.push(...filterVisibleRideHistory(data.items ?? []));
-          totalPages = Number(data.pages ?? 1);
-          nextPage += 1;
-        } while (nextPage <= totalPages);
-        setActivityHistory(allItems);
-        return;
-      }
-      const res = await fetch(`${API_URL}/api/activity/history?page=${page}&limit=${limit}&includeRoute=${includeRoute}`, {
+      const limit = Math.min(20, Math.max(1, opts?.limit ?? 20));
+      const cursor = opts?.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : '';
+      const res = await fetch(`${API_URL}/api/activity/history?limit=${limit}${cursor}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
       const data = await res.json();
-      setActivityHistory(filterVisibleRideHistory(data.items ?? []));
-    } catch {}
+      const items = filterVisibleRideHistory(data.items ?? []);
+      setActivityHistory((previous) => {
+        if (!append) return items;
+        const merged = new Map<number, any>();
+        for (const item of previous) merged.set(Number(item.id), item);
+        for (const item of items) merged.set(Number(item.id), item);
+        return Array.from(merged.values());
+      });
+      setActivityHistoryNextCursor(data.nextCursor ? String(data.nextCursor) : null);
+      setActivityHistoryHasMore(Boolean(data.hasMore));
+      setActivityHistoryAccessLimit(
+        data.accessLimit != null && Number.isFinite(Number(data.accessLimit))
+          ? Number(data.accessLimit)
+          : null,
+      );
+    } catch {
+      /* keep the already loaded page */
+    } finally {
+      activityHistoryRequestRef.current = false;
+      setActivityHistoryLoadingMore(false);
+    }
+  }, []);
+
+  const fetchNextActivityHistoryPage = useCallback(async () => {
+    if (!activityHistoryHasMore || !activityHistoryNextCursor) return;
+    await fetchActivityHistory({
+      cursor: activityHistoryNextCursor,
+      append: true,
+      limit: 20,
+    });
+  }, [activityHistoryHasMore, activityHistoryNextCursor, fetchActivityHistory]);
+
+  const fetchActivityRoute = useCallback(async (activityId: number) => {
+    const id = Number(activityId);
+    if (!Number.isInteger(id) || id <= 0 || routeRequestsRef.current.has(id)) return null;
+    routeRequestsRef.current.add(id);
+    try {
+      const token = await getToken();
+      if (!token) return null;
+      const res = await fetch(`${API_URL}/api/activity/history/${id}/route`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const routePoints = Array.isArray(data?.routePoints) ? data.routePoints : [];
+      let hydrated: any = null;
+      setActivityHistory((previous) => previous.map((item) => {
+        if (Number(item.id) !== id) return item;
+        hydrated = { ...item, routePoints, hasRoute: routePoints.length > 1 };
+        return hydrated;
+      }));
+      return hydrated ?? { id, routePoints, hasRoute: routePoints.length > 1 };
+    } catch {
+      return null;
+    } finally {
+      routeRequestsRef.current.delete(id);
+    }
   }, []);
 
   useEffect(() => {
     return onProfileStatsUpdated(() => {
       void fetchProfile();
-      void fetchActivityHistory({ includeRoute: true, limit: 50 });
+      void fetchActivityHistory({ reset: true, limit: 20 });
     });
   }, [fetchProfile, fetchActivityHistory]);
 
@@ -407,8 +459,9 @@ export function useProfile() {
 
   return {
     profile, loading, avatarLoading, error,
-    activityHistory, monthlyStats, monthlyCompare,
+    activityHistory, activityHistoryNextCursor, activityHistoryHasMore,
+    activityHistoryLoadingMore, activityHistoryAccessLimit, monthlyStats, monthlyCompare,
     fetchProfile, fetchPublicProfile, updateProfile, uploadAvatar,
-    fetchActivityHistory, fetchMonthlyStats,
+    fetchActivityHistory, fetchNextActivityHistoryPage, fetchActivityRoute, fetchMonthlyStats,
   };
 }

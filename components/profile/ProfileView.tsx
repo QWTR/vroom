@@ -1159,7 +1159,6 @@ export default function ProfileView({
                 <ExplorationCoverageMap
                   userId={isOwner ? undefined : profile?.id}
                   height={220}
-                  limit={1200}
                   interactive
                   autoRefreshMs={isOwner ? 60_000 : 0}
                 />

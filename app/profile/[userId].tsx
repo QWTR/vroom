@@ -1069,7 +1069,7 @@ export default function PublicProfileScreen() {
               </View>
 
               <View style={{ marginBottom: 14 }}>
-                <ExplorationCoverageMap userId={profile.id} height={220} limit={1200} interactive />
+                <ExplorationCoverageMap userId={profile.id} height={220} interactive />
               </View>
 
               {(fogOfWar?.topRegions?.length ?? 0) > 0 ? (

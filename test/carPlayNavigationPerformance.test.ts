@@ -85,4 +85,13 @@ describe("CarPlay navigation performance safeguards", () => {
     expect(coordinator).toContain("updateNativeGuidanceIfNeeded(pose)");
     expect(coordinator).toContain("lastEstimateUpdateAt");
   });
+
+  it("dismisses alerts, debounces GPS loss, and scales symbols for the car display", () => {
+    expect(coordinator).toContain("interfaceController.dismissTemplate(animated: true");
+    expect(coordinator).toContain('key: "gps-failure"');
+    expect(coordinator).toContain("!self.gpsSignalLost");
+    expect(coordinator).toContain("carWindow?.traitCollection");
+    expect(coordinator).toContain("UIImage.SymbolConfiguration(");
+    expect(coordinator).not.toContain('recenter.image = UIImage(systemName:');
+  });
 });

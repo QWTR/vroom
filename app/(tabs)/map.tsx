@@ -127,6 +127,11 @@ import {
   logSnapPipelineEnd,
 } from '../../lib/mapScreen/snapPipeline';
 import type { PersistedNavSession, LoadedRouteContext } from '../../lib/mapScreen/types';
+import {
+  isFreshPersistedNavSession,
+  parsePersistedNavSession,
+  PERSISTED_NAV_SESSION_VERSION,
+} from '../../lib/mapScreen/persistedNavSession';
 
 import { coldStartNavigationTarget, useDriveMarkerV3 } from '../../hooks/useDriveMarkerV3';
 import { useDriveNavigationV3 } from '../../hooks/useDriveNavigationV3';
@@ -2803,6 +2808,22 @@ function MapScreenInner() {
           profileTotalDistanceKmRef.current += Math.max(0, ok.creditedDeltaKm);
         }
         await persistTripCheckpointSavedKm(tripCheckpointSavedKmRef.current);
+        for (const achievement of ok.newAchievements ?? []) {
+          const key = String(
+            achievement?.definition?.key ?? achievement?.key ?? achievement?.id ?? '',
+          );
+          if (!key || liveAchUnlockedKeysRef.current.has(key)) continue;
+          liveAchUnlockedKeysRef.current.add(key);
+          Toast.show({
+            type: 'success',
+            text1: 'Nowe osiągnięcie',
+            text2: String(
+              achievement?.definition?.label
+                ?? achievement?.label
+                ?? 'Nowe osiągnięcie',
+            ),
+          });
+        }
         if (__DEV__) {
           console.log('[TripCheckpoint] saved', {
             reason: opts?.reason ?? 'periodic',
@@ -4337,19 +4358,12 @@ function MapScreenInner() {
         ]);
         if (cancelled) return;
         if (state?.active === true && state.mode === 'navigation') return;
-        if (navRaw) {
-          try {
-            const navSession: PersistedNavSession = JSON.parse(navRaw);
-            if (
-              navSession?.endLocation
-              && navSession.savedAt
-              && Date.now() - navSession.savedAt <= NAV_SESSION_MAX_AGE_MS
-            ) {
-              return;
-            }
-          } catch {
-            // stale/corrupt session can fall through to flag cleanup
-          }
+        const navSession = parsePersistedNavSession(navRaw);
+        if (isFreshPersistedNavSession(navSession, {
+          tripSessionId: state?.tripSessionId ?? null,
+          maxAgeMs: NAV_SESSION_MAX_AGE_MS,
+        })) {
+          return;
         }
       } catch {
         // best effort cleanup below
@@ -8653,16 +8667,22 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   useEffect(() => {
     if (!locationReady || emergencyTripRestoredRef.current) return;
     emergencyTripRestoredRef.current = true;
+    // This is the only cold-start coordinator. The older Android and navigation
+    // restore effects below are guarded before their asynchronous work begins.
+    didColdStartBgDriveRestoreRef.current = true;
+    didRestoreNavSessionRef.current = true;
+    navSessionColdStartGuardUntilRef.current = 0;
     void (async () => {
       try {
         await consumeNativeDriveStatsToStorage();
-        const [drivingFlag, navFlag, emergency, savedKm, nativeState, activeSessionId] = await Promise.all([
+        const [drivingFlag, navFlag, emergency, savedKm, nativeState, activeSessionId, navRaw] = await Promise.all([
           AsyncStorage.getItem(BG_IS_DRIVING_KEY),
           AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
           readEmergencyTripSave(),
           loadTripCheckpointSavedKm(),
           BackgroundDriveController.getState(),
           AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
+          AsyncStorage.getItem(NAV_SESSION_KEY),
         ]);
         tripCheckpointSavedKmRef.current = savedKm;
         const hadActiveFlag = drivingFlag === 'true' || navFlag === 'true';
@@ -8714,6 +8734,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
 
         const ledger = await loadTripSessionLedger();
+        const navSession = parsePersistedNavSession(navRaw);
+        const freshNavigation = isFreshPersistedNavSession(navSession, {
+          tripSessionId: ledger?.tripSessionId ?? activeSessionId,
+          maxAgeMs: NAV_SESSION_MAX_AGE_MS,
+        });
         if (
           ledger?.active
           && hadActiveFlag
@@ -8730,7 +8755,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
         if (
           ledger?.active
-          && ledger.distanceKm >= TRIP_CHECKPOINT_FORCE_MIN_KM
+          && ledger.finalization.state === 'open'
           && !crashRecoveryPromptedRef.current
         ) {
           crashRecoveryPromptedRef.current = true;
@@ -8752,6 +8777,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                     });
                     await setNavigatingFlag(false);
                     await setDrivingFlag(false);
+                    await AsyncStorage.removeItem(NAV_SESSION_KEY);
+                    setIsNavigating(false);
+                    setIsDriving(false);
+                    isNavigatingRef.current = false;
+                    isDrivingRef.current = false;
                   })();
                 },
               },
@@ -8759,12 +8789,59 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                 text: 'Wznów jazdę',
                 onPress: () => {
                   void (async () => {
+                    await AsyncStorage.setItem(TRIP_SESSION_ID_KEY, ledger.tripSessionId);
+                    if (!passiveTripStartedRef.current) {
+                      startTrip(routeDurationMinutesToSeconds(navSession?.routeInfo?.duration));
+                      passiveTripStartedRef.current = true;
+                    }
+                    restoreTripSnapshot({
+                      tripSessionId: ledger.tripSessionId,
+                      distanceKm: ledger.distanceKm,
+                      trackedPoints: ledger.routePoints,
+                      speedSamples: ledger.speedSamples,
+                      startTimeMs: new Date(ledger.startedAt).getTime(),
+                      estimatedSec: routeDurationMinutesToSeconds(navSession?.routeInfo?.duration),
+                      floorKm: ledger.distanceKm,
+                      savedAt: ledger.updatedAt || Date.now(),
+                    });
                     tripCheckpointActiveRef.current = true;
-                    if (ledger.mode === 'navigation') {
+                    if (ledger.mode === 'navigation' && freshNavigation && navSession) {
+                      setIsOffroadRoute(navSession.isOffroadRoute);
+                      setStartLocation(navSession.startLocation);
+                      setEndLocation(navSession.endLocation);
+                      setNavStartLoc(navSession.navStartLoc ?? navSession.startLocation);
+                      setRouteInfo(navSession.routeInfo);
+                      setCurrentStep(navSession.currentStep);
+                      currentStepRef.current = navSession.currentStep;
+                      offroadLoadedPointsRef.current = navSession.offroadPoints;
+                      if (navSession.routeSnapshot?.points?.length) {
+                        setNavRouteOverride(navSession.routeSnapshot);
+                        routePointsRef.current = navSession.routeSnapshot.points;
+                        navV3.setRoutePolyline(
+                          navSession.routeSnapshot.points.map((point) => ({
+                            lat: point.latitude,
+                            lng: point.longitude,
+                          })),
+                        );
+                      }
+                      isNavigatingRef.current = true;
+                      isDrivingRef.current = false;
+                      setIsNavigating(true);
+                      setIsDriving(false);
                       await startDriveSession('navigation');
                     } else {
+                      await AsyncStorage.removeItem(NAV_SESSION_KEY);
+                      await setNavigatingFlag(false);
+                      isNavigatingRef.current = false;
+                      isDrivingRef.current = true;
+                      setIsNavigating(false);
+                      setIsDriving(true);
                       await startDriveSession('freeDrive');
                     }
+                    setTripCameraActive(true);
+                    setFollowMode('drivingFollow');
+                    foregroundGpsIntentionallyStoppedRef.current = false;
+                    startGPS();
                   })();
                 },
               },
@@ -8774,7 +8851,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
       } catch { /* ignore */ }
     })();
-  }, [locationReady, restoreTripSnapshot, finalizeTripSession]);
+  }, [
+    locationReady,
+    restoreTripSnapshot,
+    finalizeTripSession,
+    startTrip,
+    navV3,
+    setFollowMode,
+    startGPS,
+  ]);
 
   // W trybie przeglądania wyczyść geometrię snapu z poprzedniej jazdy — unika teleportów na starą drogę.
   useEffect(() => {
@@ -11094,32 +11179,42 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       return;
     }
 
-    const payload: PersistedNavSession = {
-      savedAt: Date.now(),
-      isOffroadRoute,
-      startLocation,
-      endLocation,
-      navStartLoc,
-      routeInfo,
-      routeSnapshot: activeRoute?.points?.length
-        ? {
-            ...activeRoute,
-            index: Number.isFinite(Number((activeRoute as any).index))
-              ? Number((activeRoute as any).index)
-              : 0,
-            duration: Number.isFinite(Number((activeRoute as any).duration))
-              ? Number((activeRoute as any).duration)
-              : Number(routeInfo?.duration ?? 0),
-            durationText: typeof (activeRoute as any).durationText === 'string'
-              ? String((activeRoute as any).durationText)
-              : (routeInfo?.duration ? formatDuration(routeInfo.duration) : ''),
-          } as DirectionsResult
-        : null,
-      currentStep,
-      offroadPoints: isOffroadRoute ? offroadLoadedPointsRef.current : [],
+    let cancelled = false;
+    void (async () => {
+      const tripSessionId = await ensureTripSessionId();
+      const payload: PersistedNavSession = {
+        version: PERSISTED_NAV_SESSION_VERSION,
+        tripSessionId,
+        mode: 'navigation',
+        savedAt: Date.now(),
+        isOffroadRoute,
+        startLocation,
+        endLocation,
+        navStartLoc,
+        routeInfo,
+        routeSnapshot: activeRoute?.points?.length
+          ? {
+              ...activeRoute,
+              index: Number.isFinite(Number((activeRoute as any).index))
+                ? Number((activeRoute as any).index)
+                : 0,
+              duration: Number.isFinite(Number((activeRoute as any).duration))
+                ? Number((activeRoute as any).duration)
+                : Number(routeInfo?.duration ?? 0),
+              durationText: typeof (activeRoute as any).durationText === 'string'
+                ? String((activeRoute as any).durationText)
+                : (routeInfo?.duration ? formatDuration(routeInfo.duration) : ''),
+            } as DirectionsResult
+          : null,
+        currentStep,
+        offroadPoints: isOffroadRoute ? offroadLoadedPointsRef.current : [],
+      };
+      if (cancelled || !isNavigatingRef.current) return;
+      await AsyncStorage.setItem(NAV_SESSION_KEY, JSON.stringify(payload));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
     };
-
-    AsyncStorage.setItem(NAV_SESSION_KEY, JSON.stringify(payload)).catch(() => {});
   }, [
     isNavigating,
     isOffroadRoute,

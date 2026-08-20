@@ -379,6 +379,12 @@ type CheckpointSaveResult = {
   checkpointDistanceKm: number;
   userTotalDistance?: number;
   dailyDistance?: number;
+  newAchievements?: Array<{
+    id?: string | number;
+    key?: string;
+    label?: string;
+    definition?: { key?: string; label?: string };
+  }>;
 };
 
 async function fetchWithTripTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -435,6 +441,9 @@ async function postPendingTripCheckpoint(
       dailyDistance: Number.isFinite(Number(data?.dailyDistance))
         ? Number(data.dailyDistance)
         : undefined,
+      newAchievements: Array.isArray(data?.newAchievements)
+        ? data.newAchievements
+        : [],
     };
     await acknowledgePendingTripCheckpoint(pending.tripSessionId, result.checkpointDistanceKm);
     await applyOptimisticProfileDistanceKm(result.userTotalDistance, result.creditedDeltaKm);

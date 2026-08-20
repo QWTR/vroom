@@ -25,6 +25,9 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var mapLoadedAt: Date?
   private var lastWarningKey = ""
   private var lastWarningAt = Date.distantPast
+  private var activeAlertKey: String?
+  private var dismissedAlertKeys: [String: Date] = [:]
+  private var gpsSignalLost = false
   private var lastRerouteAt = Date.distantPast
   private var lastAuthoritativeGuidanceAt = Date.distantPast
   private var lastNativeGuidanceAt = Date.distantPast
@@ -65,14 +68,23 @@ public final class VroomCarPlayCoordinator: NSObject {
     engine.onPose = { [weak self] pose in
       // CADisplayLink already calls this on the main run loop. Enqueuing every
       // frame again let camera work pile up and made CarPlay several frames late.
+      if self?.gpsSignalLost == true {
+        self?.gpsSignalLost = false
+        self?.dismissedAlertKeys.removeValue(forKey: "gps-failure")
+      }
       self?.handle(pose: pose)
     }
     engine.onLocationFailure = { [weak self] _ in
       DispatchQueue.main.async {
-        self?.locationFailureCount += 1
-        self?.showAlert(
+        guard let self, !self.gpsSignalLost else {
+          return
+        }
+        self.gpsSignalLost = true
+        self.locationFailureCount += 1
+        self.showAlert(
           title: "Brak sygnału GPS",
-          subtitle: "VROOM spróbuje wznowić prowadzenie automatycznie."
+          subtitle: "VROOM spróbuje wznowić prowadzenie automatycznie.",
+          key: "gps-failure"
         )
       }
     }
@@ -167,6 +179,9 @@ public final class VroomCarPlayCoordinator: NSObject {
     lastNativeGuidanceAt = .distantPast
     lastNativeRouteKey = ""
     lastNativeRouteFraction = 0
+    activeAlertKey = nil
+    dismissedAlertKeys.removeAll()
+    gpsSignalLost = false
     isFinishingNavigation = false
   }
 
@@ -306,11 +321,11 @@ public final class VroomCarPlayCoordinator: NSObject {
     let recenter = CPMapButton { [weak self] _ in
       self?.mapViewController?.recenter()
     }
-    recenter.image = UIImage(systemName: "location.fill")
+    recenter.image = carPlaySymbol("location.fill")
     let theme = CPMapButton { [weak self] _ in
       self?.cycleTheme()
     }
-    theme.image = UIImage(systemName: "circle.lefthalf.filled")
+    theme.image = carPlaySymbol("circle.lefthalf.filled")
     let voice = CPMapButton { [weak self] button in
       guard let self else {
         return
@@ -319,24 +334,24 @@ public final class VroomCarPlayCoordinator: NSObject {
       if !voiceEnabled {
         synthesizer.stopSpeaking(at: .immediate)
       }
-      button.image = UIImage(
-        systemName: voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"
+      button.image = carPlaySymbol(
+        voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"
       )
     }
-    voice.image = UIImage(systemName: "speaker.wave.2.fill")
+    voice.image = carPlaySymbol("speaker.wave.2.fill")
     let report = CPMapButton { [weak self] _ in
       self?.showReportMenu()
     }
-    report.image = UIImage(systemName: "exclamationmark.bubble.fill")
+    report.image = carPlaySymbol("exclamationmark.bubble.fill")
     template.mapButtons = [recenter, theme, voice, report]
 
     let search = CPBarButton(
-      image: UIImage(systemName: "magnifyingglass") ?? UIImage()
+      image: carPlaySymbol("magnifyingglass")
     ) { [weak self] _ in
       self?.showSearch()
     }
     let menu = CPBarButton(
-      image: UIImage(systemName: "line.3.horizontal") ?? UIImage()
+      image: carPlaySymbol("line.3.horizontal")
     ) { [weak self] _ in
       self?.showMenu()
     }
@@ -499,7 +514,7 @@ public final class VroomCarPlayCoordinator: NSObject {
       let item = CPListItem(
         text: title,
         detailText: "Zgłoś w bieżącej lokalizacji",
-        image: UIImage(systemName: symbol)
+        image: carPlaySymbol(symbol)
       )
       item.handler = { [weak self] _, completion in
         self?.submitReport(type: type, label: title)
@@ -1217,7 +1232,7 @@ public final class VroomCarPlayCoordinator: NSObject {
       nearest.0.kind == .camera
       ? "Fotoradar\(cameraLimit) za \(distance) m"
       : "Uwaga za \(distance) m"
-    showAlert(title: title, subtitle: nearest.0.label)
+    showAlert(title: title, subtitle: nearest.0.label, key: key)
     guard !spokenWarningKeys.contains(key), !pendingSpeechKeys.contains(key) else {
       return
     }
@@ -1236,16 +1251,44 @@ public final class VroomCarPlayCoordinator: NSObject {
     }
   }
 
-  private func showAlert(title: String, subtitle: String) {
+  private func showAlert(title: String, subtitle: String, key: String? = nil) {
     guard let interfaceController, interfaceController.presentedTemplate == nil else {
       return
     }
-    let action = CPAlertAction(title: "OK", style: .default) { _ in }
+    let alertKey = key ?? "\(title)|\(subtitle)"
+    if let dismissedAt = dismissedAlertKeys[alertKey],
+      Date().timeIntervalSince(dismissedAt) < 30
+    {
+      return
+    }
+    activeAlertKey = alertKey
+    let action = CPAlertAction(title: "OK", style: .default) { [weak self] _ in
+      guard let self else {
+        return
+      }
+      dismissedAlertKeys[alertKey] = Date()
+      activeAlertKey = nil
+      interfaceController.dismissTemplate(animated: true, completion: nil)
+    }
     let template = CPAlertTemplate(
       titleVariants: [title, subtitle],
       actions: [action]
     )
     interfaceController.presentTemplate(template, animated: true, completion: nil)
+  }
+
+  private func carPlaySymbol(_ name: String, pointSize: CGFloat = 18) -> UIImage {
+    let configuration = UIImage.SymbolConfiguration(
+      pointSize: pointSize,
+      weight: .semibold,
+      scale: .medium
+    )
+    let traitCollection = carWindow?.traitCollection
+    return UIImage(
+      systemName: name,
+      compatibleWith: traitCollection
+    )?.applyingSymbolConfiguration(configuration)?
+      .withRenderingMode(.alwaysTemplate) ?? UIImage()
   }
 
   private func cycleTheme() {
@@ -1553,7 +1596,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     case .straight:
       symbol = "arrow.up"
     }
-    return UIImage(systemName: symbol)
+    return carPlaySymbol(symbol, pointSize: 22)
   }
 
   private func formatDuration(_ seconds: Int) -> String {

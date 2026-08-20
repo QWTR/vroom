@@ -19,8 +19,8 @@ import CreateClubModal        from '../../../components/clubs/CreateClubModal';
 import ClubDetailModal        from '../../../components/clubs/ClubDetailModal';
 import { InviteModal }        from '../../../components/clubs/InviteModal';
 import EditClubModal          from '../../../components/clubs/EditClubModal';
-import RanksModal             from '../../../components/clubs/RanksModal';
 import { Club }               from '../../../components/clubs/types';
+import type { ClubManagementTab } from '../../../components/clubs/clubManagementModel';
 import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
 import { MyClubsModal }       from '../../../components/clubs/MyClubsModal';
 import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
@@ -68,9 +68,9 @@ export default function ClubsScreen() {
 
   const [createVisible, setCreateVisible] = useState(false);
   const [detailClub,    setDetailClub]    = useState<Club | null>(null);
-  const [ranksClub,     setRanksClub]     = useState<Club | null>(null);
   const [inviteClubId,  setInviteClubId]  = useState<number | null>(null);
   const [editClub,      setEditClub]      = useState<Club | null>(null);
+  const [editInitialTab, setEditInitialTab] = useState<ClubManagementTab>('overview');
 
   const [invitesVisible, setInvitesVisible] = useState(false);
   const [inviteCount,    setInviteCount]    = useState(0);
@@ -372,7 +372,7 @@ export default function ClubsScreen() {
       method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
     });
     const data = await res.json();
-    if (!res.ok) { Toast.show({ type: 'error', text1: data.error }); return; }
+    if (!res.ok) throw new Error(data.error ?? 'Nie udało się utworzyć klubu');
     setClubs(prev => [data, ...prev]);
     setCreateVisible(false);
     void fetchMyClub();
@@ -620,7 +620,16 @@ export default function ClubsScreen() {
         onLeave={handleLeave}
         onDelete={handleDelete}
         onChatOpen={c => { setDetailClub(null); router.push(`/Community/clubs/${c.id}` as any); }}
-        onRanksOpen={c => { setDetailClub(null); setTimeout(() => setRanksClub(c), IOS_MODAL_SWAP_MS); }}
+        onRanksOpen={async c => {
+          setDetailClub(null);
+          const detail = await fetchClubDetail(c.id);
+          if (!detail.ok || !detail.club) {
+            Toast.show({ type: 'error', text1: 'Nie można otworzyć ról', text2: detail.error });
+            return;
+          }
+          setEditInitialTab('roles');
+          setTimeout(() => setEditClub(detail.club), IOS_MODAL_SWAP_MS);
+        }}
         onInviteRequest={c => {
           setDetailClub(null);
           setTimeout(() => setInviteClubId(c.id), IOS_MODAL_SWAP_MS);
@@ -636,6 +645,7 @@ export default function ClubsScreen() {
             });
             return;
           }
+          setEditInitialTab('overview');
           setTimeout(() => setEditClub(detail.club), IOS_MODAL_SWAP_MS);
         }}
         joining={joining}
@@ -656,6 +666,7 @@ export default function ClubsScreen() {
         visible={!!editClub}
         club={editClub}
         channels={editClub?.channels ?? []}
+        initialTab={editInitialTab}
         onClose={() => setEditClub(null)}
         onUpdated={(updated) => {
           setEditClub(null);
@@ -664,28 +675,6 @@ export default function ClubsScreen() {
           fetchClubs({ q: search, sortMode: clubSort, append: false });
         }}
       />
-
-      {ranksClub && (
-        <RanksModal
-          visible={!!ranksClub}
-          onClose={() => setRanksClub(null)}
-          clubId={ranksClub.id}
-          ranks={ranksClub.ranks ?? []}
-          onRefresh={async () => {
-            const detail = await fetchClubDetail(ranksClub.id);
-            if (!detail.ok || !detail.club) {
-              setRanksClub(null);
-              Toast.show({
-                type: 'info',
-                text1: 'Brak dostępu',
-                text2: detail.error ?? 'Nie można odświeżyć rang',
-              });
-              return;
-            }
-            setRanksClub(detail.club);
-          }}
-        />
-      )}
 
       <MyInvitesModal
         visible={invitesVisible}

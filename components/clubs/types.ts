@@ -16,6 +16,7 @@ export interface ClubMemberItem {
   // Bezpośrednio lub zagnieżdżone w user{} — defensive w komponencie
   username:  string;
   avatarUrl: string | null;
+  province?:  string | null;
   role:      string;
   ranks?:    ClubRank[];
   /** Compatibility with older API responses. */

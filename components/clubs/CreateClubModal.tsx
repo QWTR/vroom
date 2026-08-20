@@ -30,25 +30,44 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
   const [creating, setCreating]   = useState(false);
 
   const pick = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8,
-    });
-    if (!r.canceled) setAvatar(r.assets[0].uri);
+    try {
+      const r = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!r.canceled && r.assets?.[0]?.uri) setAvatar(r.assets[0].uri);
+    } catch {
+      Toast.show({ type: 'error', text1: 'Nie udało się wybrać logo' });
+    }
   };
 
   const submit = async () => {
     if (!name.trim()) { Toast.show({ type: 'error', text1: 'Podaj nazwę klubu' }); return; }
     setCreating(true);
-    await onCreate({ name: name.trim(), description: desc.trim(), isPrivate: priv, avatarUri: avatar });
-    setCreating(false);
-    setName(''); setDesc(''); setPriv(false); setAvatar(null);
+    try {
+      await onCreate({ name: name.trim(), description: desc.trim(), isPrivate: priv, avatarUri: avatar });
+      setName(''); setDesc(''); setPriv(false); setAvatar(null);
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się utworzyć klubu',
+        text2: error instanceof Error ? error.message : 'Spróbuj ponownie',
+      });
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
     <ModalKeyboardSheet visible={visible} onClose={onClose} sheetStyle={{ padding: 20, paddingHorizontal: 20 }}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
             <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 18 }}>
-              STWÓRZ KLUB
+              NOWY KLUB
+            </Text>
+            <Text style={{ color: theme.textDim, fontSize: 11, lineHeight: 16, marginTop: -10, marginBottom: 16 }}>
+              Nadaj klubowi tożsamość. Kanały, role i członków ustawisz od razu po utworzeniu.
             </Text>
 
             {/* Avatar picker */}
@@ -94,6 +113,20 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
               multiline maxLength={200}
             />
 
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12,
+              backgroundColor: `${theme.primary}10`, borderRadius: 11, padding: 12,
+              borderWidth: 1, borderColor: `${theme.primary}35`,
+            }}>
+              <MaterialCommunityIcons name="view-list-outline" size={19} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>GOTOWY START</Text>
+                <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 3, lineHeight: 14 }}>
+                  Dodamy kategorię Ogólne oraz kanały #powitania i #czat-ogolny.
+                </Text>
+              </View>
+            </View>
+
             {/* Prywatny toggle */}
             <TouchableOpacity
               style={{
@@ -125,7 +158,7 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
               ) : (
                 <>
                   <MaterialCommunityIcons name="shield-crown" size={15} color="#fff" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>STWÓRZ</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>UTWÓRZ KLUB</Text>
                 </>
               )}
             </TouchableOpacity>

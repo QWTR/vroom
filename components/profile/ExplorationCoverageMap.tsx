@@ -8,7 +8,6 @@ import { fetchCoverageCells, fetchGamificationStatus, type CoverageCell } from '
 
 type Props = {
   userId?: number | null;
-  limit?: number;
   height?: number;
   interactive?: boolean;
   autoRefreshMs?: number;
@@ -51,7 +50,6 @@ function getCameraForCells(cells: CoverageCell[]): { center: [number, number]; z
 
 export function ExplorationCoverageMap({
   userId,
-  limit = 700,
   height = 170,
   interactive = false,
   autoRefreshMs = 0,
@@ -61,45 +59,77 @@ export function ExplorationCoverageMap({
   const [cells, setCells] = useState<CoverageCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [totalRevealed, setTotalRevealed] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenCameraRef = useRef<Mapbox.Camera>(null);
   const cameraStateRef = useRef<{ center: [number, number]; zoom: number }>(getCameraForCells([]));
+  const coverageByIdRef = useRef<Map<string, CoverageCell>>(new Map());
+  const requestVersionRef = useRef(0);
+  const loadedAllRef = useRef(false);
+  const loadedViewportRef = useRef<Set<string>>(new Set());
 
-  const loadCells = useCallback((silent = false) => {
-    let cancelled = false;
-    if (!silent) setLoading(true);
-    Promise.all([
-      fetchCoverageCells({ userId: userId ?? undefined, limit }),
-      userId == null ? fetchGamificationStatus() : Promise.resolve(null),
-    ])
-      .then((next) => {
-        if (!cancelled) {
-          setCells(next[0]);
-          setSyncing(
-            Number(next[1]?.bufferedPings ?? 0) > 0
-            || Number(next[1]?.activityCoverageSync?.pending ?? 0) > 0,
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+  const loadCells = useCallback(async (options?: { silent?: boolean; bbox?: string; force?: boolean }) => {
+    const viewportKey = options?.bbox ?? null;
+    if (
+      !options?.force
+      && (loadedAllRef.current || (viewportKey && loadedViewportRef.current.has(viewportKey)))
+    ) return;
+    const requestVersion = ++requestVersionRef.current;
+    if (!options?.silent) setLoading(true);
+    let cursor: string | null = null;
+    try {
+      do {
+        const page = await fetchCoverageCells({
+          userId: userId ?? undefined,
+          bbox: options?.bbox,
+          cursor,
+          limit: 400,
+        });
+        if (requestVersion !== requestVersionRef.current) return;
+        for (const cell of page.cells) coverageByIdRef.current.set(cell.cellId, cell);
+        setCells(Array.from(coverageByIdRef.current.values()));
+        setTotalRevealed(Math.max(0, page.totalRevealed));
+        setLoading(false);
+        cursor = page.hasMore ? page.nextCursor : null;
+      } while (cursor);
+
+      if (requestVersion === requestVersionRef.current) {
+        if (viewportKey) loadedViewportRef.current.add(viewportKey);
+        else loadedAllRef.current = true;
+      }
+
+      if (userId == null) {
+        const status = await fetchGamificationStatus();
+        if (requestVersion !== requestVersionRef.current) return;
+        setSyncing(
+          Number(status?.bufferedPings ?? 0) > 0
+          || Number(status?.activityCoverageSync?.pending ?? 0) > 0,
+        );
+      }
+    } finally {
+      if (requestVersion === requestVersionRef.current) setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    coverageByIdRef.current = new Map();
+    loadedAllRef.current = false;
+    loadedViewportRef.current = new Set();
+    setCells([]);
+    setTotalRevealed(0);
+    void loadCells();
     return () => {
-      cancelled = true;
+      requestVersionRef.current += 1;
     };
-  }, [limit, userId]);
-
-  useEffect(() => loadCells(), [loadCells]);
+  }, [loadCells]);
 
   useEffect(() => {
     if (!isFocused || !autoRefreshMs || autoRefreshMs < 30_000) return undefined;
     const timer = setInterval(() => {
-      fetchCoverageCells({ userId: userId ?? undefined, limit })
-        .then((next) => setCells(next))
-        .catch(() => undefined);
+      void loadCells({ silent: true, force: true });
     }, autoRefreshMs);
     return () => clearInterval(timer);
-  }, [autoRefreshMs, isFocused, limit, userId]);
+  }, [autoRefreshMs, isFocused, loadCells]);
 
   const shape = useMemo(() => ({
     type: 'FeatureCollection' as const,
@@ -158,10 +188,30 @@ export function ExplorationCoverageMap({
         zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)),
       };
     }
-  }, []);
+    const bounds = event?.properties?.bounds;
+    const northEast = bounds?.ne ?? bounds?.northEast ?? bounds?.[0];
+    const southWest = bounds?.sw ?? bounds?.southWest ?? bounds?.[1];
+    if (
+      Array.isArray(northEast)
+      && Array.isArray(southWest)
+      && northEast.length >= 2
+      && southWest.length >= 2
+    ) {
+      const bbox = [
+        Number(southWest[0]),
+        Number(southWest[1]),
+        Number(northEast[0]),
+        Number(northEast[1]),
+      ];
+      if (bbox.every(Number.isFinite)) {
+        const viewportBbox = bbox.map((value) => value.toFixed(3)).join(',');
+        void loadCells({ silent: true, bbox: viewportBbox });
+      }
+    }
+  }, [loadCells]);
 
   const progressLabel = cells.length > 0
-    ? `${cells.length} kafelkow`
+    ? `${totalRevealed || cells.length} kafelkow`
     : syncing ? 'Synchronizuje przejazd' : '0 kafelkow';
 
   return (
