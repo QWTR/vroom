@@ -38,6 +38,9 @@ import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileT
 import { DiscordProfileCard } from '../../components/profile/DiscordProfileCard';
 import { ExplorationCoverageMap } from '../../components/profile/ExplorationCoverageMap';
 import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/screenHeaderInsets';
+import { apiRequest } from '../../lib/api/client';
+import { queryClient } from '../../lib/query/client';
+import { enqueueSocialOperation, subscribeSocialQueue } from '../../lib/socialQueue';
 
 const RED = '#e33835';
 
@@ -96,6 +99,18 @@ interface PublicSpot {
   isLiked?:      boolean;
 }
 type FriendStatus = 'none' | 'pending_sent' | 'pending_received' | 'accepted';
+type CursorPage<T> = { items: T[]; nextCursor: string | null; hasMore: boolean };
+type ProfileSummaryResponse = {
+  profile: PublicProfile & { counts: { followers: number; following: number } };
+  viewer: {
+    isFollowing: boolean;
+    friendshipId: number | null;
+    friendshipStatus: 'pending' | 'accepted' | null;
+    friendshipRequesterId: number | null;
+    isBlockedByMe: boolean;
+    hasBlockedMe: boolean;
+  };
+};
 
 function toSpot(s: PublicSpot): Spot {
   return {
@@ -144,11 +159,28 @@ export default function PublicProfileScreen() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
   const [profileMusicMuted, setProfileMusicMuted] = useState(false);
+  const [loadHeavySections, setLoadHeavySections] = useState(false);
 
   const { startConversation } = useChat({ realtime: false, autoFetch: false });
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
+  const pendingFollowRef = useRef(new Map<string, { following: boolean; count: number }>());
+
+  useEffect(() => subscribeSocialQueue((event) => {
+    const previous = pendingFollowRef.current.get(event.operationId);
+    if (!previous) return;
+    if (event.status === 'failed') {
+      setIsFollowing(previous.following);
+      setFollowersCount(previous.count);
+      Toast.show({ type: 'error', text1: 'NIE WYSŁANO', text2: 'Dotknij ponownie, aby spróbować jeszcze raz.' } as any);
+    }
+    if (event.status === 'pending' && event.error) setFollowLoading(false);
+    if (event.status === 'failed' || event.status === 'completed') {
+      pendingFollowRef.current.delete(event.operationId);
+      setFollowLoading(false);
+    }
+  }), []);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -165,114 +197,76 @@ export default function PublicProfileScreen() {
   useEffect(() => {
     (async () => {
       const raw = await AsyncStorage.getItem('user');
-      if (raw) { const u = JSON.parse(raw); setMyUserId(u.userId ?? u.id); }
-      await loadAll();
+      let localUserId: number | null = null;
+      if (raw) {
+        const u = JSON.parse(raw);
+        localUserId = Number(u.userId ?? u.id) || null;
+        setMyUserId(localUserId);
+      }
+      setLoadHeavySections(false);
+      await loadAll(localUserId);
     })();
   }, [userId]);
 
-  const loadAll = async () => {
+  const loadAll = async (viewerUserId = myUserId) => {
     setLoading(true);
     setProfileMusicMuted(false);
     try {
-      const token = await getToken();
-      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes, followCountRes, blocksRes] = await Promise.all([
-        fetch(`${API_URL}/api/profile/${userId}`,              { headers }),
-        fetch(`${API_URL}/api/profile/${userId}/cars`,         { headers }),
-        fetch(`${API_URL}/api/profile/${userId}/spots`,        { headers }),
-        fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers }),
-        fetch(`${API_URL}/api/chat/friends/status/${userId}`,  { headers }),
-        fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
-        fetch(`${API_URL}/api/follow/counts/${userId}`,        { headers }),
-        fetch(`${API_URL}/api/moderation/blocks`,              { headers }),
-      ]);
-
-      // Accumulate follow counts from whichever endpoint(s) provide them
-      let resolvedFollowers = 0;
-      let resolvedFollowing = 0;
-      let resolvedIsFollowing = false;
-
-      if (profileRes.ok) {
-        const pd = await profileRes.json();
-        setProfile(pd);
-        // Profile endpoint may embed follower counts
-        if (typeof pd.followersCount === 'number') resolvedFollowers = pd.followersCount;
-        else if (typeof pd.followers === 'number') resolvedFollowers = pd.followers;
-        if (typeof pd.followingCount === 'number') resolvedFollowing = pd.followingCount;
-        else if (typeof pd.following === 'number') resolvedFollowing = pd.following;
-      }
-      if (carsRes.ok)    setCars(await carsRes.json());
-      if (spotsRes.ok) {
-        const s = await spotsRes.json();
-        setLocalSpots(s);
-      }
-      if (achRes.ok) {
-        const data = await achRes.json();
-        const list = Array.isArray(data) ? data : [];
-        setAchievements(list.map((a: any) => ({
-          ...a,
-          active:         true,
-          unlocked:       true,
-          progress:       100,
-          currentValue:   a.conditionValue ?? 0,
-          conditionValue: a.conditionValue ?? 0,
-          conditionField: a.conditionField ?? '',
-        })));
-      }
-      if (fsRes.ok) {
-        const s = await fsRes.json();
-        let mappedStatus: FriendStatus = 'none';
-        if (s.status === 'accepted') {
-          mappedStatus = 'accepted';
-        } else if (s.status === 'pending') {
-          mappedStatus = s.isSender ? 'pending_sent' : 'pending_received';
-        }
-        setFriendStatus(mappedStatus);
-        setFriendshipId(s.friendshipId ?? null);
-      }
-      if (followRes.ok) {
-        const f = await followRes.json();
-        resolvedIsFollowing = f.isFollowing ?? false;
-        // Status endpoint may also carry counts
-        if (typeof f.followersCount === 'number') resolvedFollowers = f.followersCount;
-        else if (typeof f.followers === 'number') resolvedFollowers = f.followers;
-        if (typeof f.followingCount === 'number') resolvedFollowing = f.followingCount;
-        else if (typeof f.following === 'number') resolvedFollowing = f.following;
-      }
-      if (followCountRes.ok) {
-        const fc = await followCountRes.json();
-        const fc_followers = fc.followers ?? fc.followersCount ?? fc.count;
-        const fc_following = fc.following ?? fc.followingCount;
-        if (typeof fc_followers === 'number') resolvedFollowers = fc_followers;
-        if (typeof fc_following === 'number') resolvedFollowing = fc_following;
-      } else {
-        // Fallback: legacy single endpoint (followers only)
-        try {
-          const legacyRes = await fetch(`${API_URL}/api/follow/count/${userId}`, { headers });
-          if (legacyRes.ok) {
-            const lc = await legacyRes.json();
-            const lc_followers = lc.followersCount ?? lc.count;
-            if (typeof lc_followers === 'number') resolvedFollowers = lc_followers;
-          }
-        } catch {}
-      }
-      if (blocksRes.ok) {
-        const b = await blocksRes.json();
-        const ids: number[] = Array.isArray(b?.blockedUserIds) ? b.blockedUserIds : [];
-        setIsBlocked(ids.includes(Number(userId)));
-      }
-
-      // Safety floor: if the current user is following this person, they have at least 1 follower
-      if (resolvedIsFollowing && resolvedFollowers === 0) resolvedFollowers = 1;
-
-      setIsFollowing(resolvedIsFollowing);
-      setFollowersCount(resolvedFollowers);
-      setFollowingCount(resolvedFollowing);
+      const summary = await queryClient.fetchQuery({
+        queryKey: ['profile', Number(userId), 'summary'],
+        queryFn: () => apiRequest<ProfileSummaryResponse>(`/v2/profiles/${userId}/summary`, { priority: 'critical' }),
+        staleTime: 30_000,
+      });
+      const { profile: nextProfile, viewer } = summary;
+      setProfile(nextProfile);
+      setFollowersCount(nextProfile.counts.followers);
+      setFollowingCount(nextProfile.counts.following);
+      setIsFollowing(viewer.isFollowing);
+      setIsBlocked(viewer.isBlockedByMe);
+      setFriendshipId(viewer.friendshipId);
+      setFriendStatus(viewer.friendshipStatus === 'accepted'
+        ? 'accepted'
+        : viewer.friendshipStatus === 'pending'
+          ? (viewer.friendshipRequesterId === viewerUserId ? 'pending_sent' : 'pending_received')
+          : 'none');
       runEntrance();
+      setLoading(false);
+
+      void queryClient.fetchQuery({
+        queryKey: ['profile', Number(userId), 'cars', 'first'],
+        queryFn: () => apiRequest<CursorPage<PublicCar>>(`/v2/profiles/${userId}/cars?limit=12`, { priority: 'visible' }),
+        staleTime: 30_000,
+      }).then(page => setCars(page.items)).catch(() => {});
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można załadować profilu.' });
     } finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    if (!loadHeavySections || !userId) return;
+    void Promise.allSettled([
+      queryClient.fetchQuery({
+        queryKey: ['profile', Number(userId), 'spots', 'first'],
+        queryFn: () => apiRequest<CursorPage<PublicSpot>>(`/v2/profiles/${userId}/spots?limit=12`, { priority: 'prefetch' }),
+        staleTime: 30_000,
+      }).then(page => setLocalSpots(page.items)),
+      queryClient.fetchQuery({
+        queryKey: ['profile', Number(userId), 'achievements', 'first'],
+        queryFn: () => apiRequest<CursorPage<any>>(`/v2/profiles/${userId}/achievements?limit=20`, { priority: 'prefetch' }),
+        staleTime: 60_000,
+      }).then(page => setAchievements(page.items.map((row: any) => ({
+        ...row.definition,
+        id: row.id,
+        unlockedAt: row.unlockedAt,
+        active: true,
+        unlocked: true,
+        progress: 100,
+        currentValue: row.definition?.conditionValue ?? 0,
+        conditionValue: row.definition?.conditionValue ?? 0,
+        conditionField: row.definition?.conditionField ?? '',
+      })))),
+    ]);
+  }, [loadHeavySections, userId]);
 
   useEffect(() => {
     if (myUserId && profile && myUserId === profile.id) router.replace('/(tabs)/account');
@@ -382,31 +376,38 @@ export default function PublicProfileScreen() {
   }, [userId, startConversation, router]);
 
   const handleFollowToggle = useCallback(async () => {
+    if (!myUserId || followLoading) return;
+    const previous = { following: isFollowing, count: followersCount };
+    const nextFollowing = !isFollowing;
+    const operationId = `follow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    pendingFollowRef.current.clear();
+    pendingFollowRef.current.set(operationId, previous);
+    setIsFollowing(nextFollowing);
+    setFollowersCount(count => Math.max(0, count + (nextFollowing ? 1 : -1)));
     setFollowLoading(true);
     try {
-      const token = await getToken();
-      if (isFollowing) {
-        const res = await fetch(`${API_URL}/api/follow/${userId}`, {
-          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          setIsFollowing(false);
-          setFollowersCount(prev => Math.max(0, prev - 1));
-          Toast.show({ type: 'success', text1: '✅ Przestałeś obserwować' });
-        }
-      } else {
-        const res = await fetch(`${API_URL}/api/follow/${userId}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          setIsFollowing(true);
-          setFollowersCount(prev => prev + 1);
-          Toast.show({ type: 'success', text1: '✅ Obserwujesz!' });
-        }
-      }
-    } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' }); }
-    finally { setFollowLoading(false); }
-  }, [userId, isFollowing]);
+      await enqueueSocialOperation({
+        userId: myUserId,
+        type: 'follow',
+        entityKey: `follow:${userId}`,
+        operationId,
+        coalesce: true,
+        request: {
+          path: `/v2/social/users/${userId}/follow`,
+          method: nextFollowing ? 'PUT' : 'DELETE',
+          optimisticEntity: { userId: Number(userId), isFollowing: nextFollowing },
+          invalidateKeys: [['profile', Number(userId), 'summary']],
+        },
+      });
+      Toast.show({ type: 'success', text1: nextFollowing ? '✅ Obserwujesz!' : '✅ Przestałeś obserwować' } as any);
+    } catch {
+      pendingFollowRef.current.delete(operationId);
+      setIsFollowing(previous.following);
+      setFollowersCount(previous.count);
+      setFollowLoading(false);
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się zapisać operacji.' } as any);
+    }
+  }, [followLoading, followersCount, isFollowing, myUserId, userId]);
 
   const handleBlockUser = useCallback(() => {
     if (!profile?.id || !myUserId || profile.id === myUserId) return;
@@ -686,6 +687,10 @@ export default function PublicProfileScreen() {
           style={{ flex: 1, backgroundColor: 'transparent', zIndex: 1 }}
           contentContainerStyle={{ paddingBottom: scrollBottomPad }}
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={100}
+          onScroll={(event) => {
+            if (!loadHeavySections && event.nativeEvent.contentOffset.y > 240) setLoadHeavySections(true);
+          }}
         >
           {/* ══ HERO — wyśrodkowana tożsamość ══ */}
           <Animated.View

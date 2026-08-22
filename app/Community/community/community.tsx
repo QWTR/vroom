@@ -46,6 +46,8 @@ import {
 import { TabTrasy }    from './TabTrasy';
 import { invalidateQuestTrack } from '../../../lib/questTrack';
 import { SeasonSpotlightCard } from '../../../components/seasons/SeasonSpotlightCard';
+import { apiRequest } from '../../../lib/api/client';
+import { enqueueSocialOperation, subscribeSocialQueue } from '../../../lib/socialQueue';
 
 const PAGE_SIZE = 20;
 const POSTS_CACHE_PREFIX = 'vroom_discussions_first_page_v2';
@@ -83,6 +85,15 @@ export default function CommunityScreen() {
   const postsCacheKeyRef = useRef(`${POSTS_CACHE_PREFIX}:anonymous`);
   postsRef.current = posts;
   const freshPostsLoadedRef = useRef(false);
+  const pendingPostStateRef = useRef(new Map<string, {
+    operationId: string;
+    kind: 'like' | 'repost';
+    previous: Partial<Pick<Post, 'isLiked' | 'likesCount' | 'isReposted' | 'repostsCount'>>;
+  }>());
+  const pendingCommentLikeRef = useRef(new Map<number, {
+    operationId: string;
+    previous: Pick<Comment, 'isLiked' | 'likesCount'>;
+  }>());
 
   // Routes
   const [routes,        setRoutes]        = useState<PublicRoute[]>([]);
@@ -185,16 +196,15 @@ export default function CommunityScreen() {
   // ── Fetch functions ──────────────────────────────────────
   const fetchPosts = useCallback(async (cursor?: number) => {
     try {
-      const token = await getToken();
       const categoryParam = discussionCategory !== DISCUSSION_ALL_CATEGORIES
         ? `&category=${encodeURIComponent(discussionCategory)}`
         : '';
-      const url   = cursor
-        ? `${API_URL}/api/posts?cursor=${cursor}&limit=${PAGE_SIZE}${categoryParam}`
-        : `${API_URL}/api/posts?limit=${PAGE_SIZE}${categoryParam}`;
-      const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const path = cursor
+        ? `/posts?cursor=${cursor}&limit=${PAGE_SIZE}${categoryParam}`
+        : `/posts?limit=${PAGE_SIZE}${categoryParam}`;
+      const data = await apiRequest<{ posts?: Post[]; nextCursor?: number | null }>(path, {
+        priority: cursor ? 'background' : 'visible',
+      });
       const newPosts = data.posts ?? [];
       if (cursor) setPosts(prev => [...prev, ...newPosts]);
       else {
@@ -220,12 +230,12 @@ export default function CommunityScreen() {
   const fetchRoutes = useCallback(async (cursor?: number) => {
     if (!cursor) setLoadingR(true);
     try {
-      const token = await getToken();
-      const url   = cursor
-        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}&lite=1`
-        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}&lite=1`;
-      const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const json  = await res.json();
+      const path = cursor
+        ? `/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}&lite=1`
+        : `/routes/community?limit=${PAGE_SIZE}&lite=1`;
+      const json = await apiRequest<PublicRoute[] | { routes?: PublicRoute[]; nextCursor?: number | null }>(path, {
+        priority: cursor ? 'background' : 'visible',
+      });
       const newRoutes  = Array.isArray(json) ? json : json.routes ?? [];
       const nextCursor = Array.isArray(json) ? null : (json.nextCursor ?? null);
       if (cursor) setRoutes(prev => [...prev, ...newRoutes]);
@@ -241,7 +251,7 @@ export default function CommunityScreen() {
     setHasMoreP(true); setHasMoreR(true);
     fetchPosts();
     void syncBlockedUserIdsFromServer().then(setBlockedIds);
-  }, []));
+  }, [fetchPosts]));
 
   useEffect(() => {
     if (activeTab !== 'trasy' || routesInitialLoadAttemptedRef.current) return;
@@ -258,22 +268,81 @@ export default function CommunityScreen() {
   }, [fetchLeaderboard, fetchRuns]);
 
   // ── Actions ──────────────────────────────────────────────
-  const handleLikePost = useCallback(async (id: number) => {
-    setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isLiked: !p.isLiked, likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1 }));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/posts/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-  }, []);
+  useEffect(() => subscribeSocialQueue((event) => {
+    if (event.type === 'post.comment.like.set') {
+      const commentId = Number(event.entityKey.split(':')[1]);
+      const pending = pendingCommentLikeRef.current.get(commentId);
+      if (!pending || pending.operationId !== event.operationId) return;
+      if (event.status === 'completed') pendingCommentLikeRef.current.delete(commentId);
+      else if (event.status === 'failed') {
+        setComments((previous) => previous.map((comment) => comment.id === commentId ? { ...comment, ...pending.previous } : comment));
+        pendingCommentLikeRef.current.delete(commentId);
+        Toast.show({ type: 'error', text1: 'Nie udało się polubić komentarza' });
+      }
+      return;
+    }
+    if (!['post.like.set', 'post.repost.set'].includes(event.type)) return;
+    const postId = Number(event.entityKey.split(':')[1]);
+    const kind = event.type === 'post.like.set' ? 'like' : 'repost';
+    const pendingKey = `${postId}:${kind}`;
+    const pending = pendingPostStateRef.current.get(pendingKey);
+    if (!pending || pending.operationId !== event.operationId) return;
+    if (event.status === 'completed') {
+      pendingPostStateRef.current.delete(pendingKey);
+    } else if (event.status === 'failed') {
+      setPosts((previous) => previous.map((post) => post.id === postId ? { ...post, ...pending.previous } : post));
+      pendingPostStateRef.current.delete(pendingKey);
+      Toast.show({ type: 'error', text1: 'Nie udało się zapisać reakcji' });
+    }
+  }), []);
 
-  const handleRepost = useCallback(async (id: number) => {
-    setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isReposted: !p.isReposted, repostsCount: p.isReposted ? p.repostsCount - 1 : p.repostsCount + 1 }));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/posts/${id}/repost`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-  }, []);
+  const queuePostState = useCallback(async (id: number, kind: 'like' | 'repost') => {
+    const current = postsRef.current.find((post) => post.id === id);
+    if (!current || !myId) return;
+    const enabled = kind === 'like' ? !current.isLiked : !current.isReposted;
+    const previous = kind === 'like'
+      ? { isLiked: current.isLiked, likesCount: current.likesCount }
+      : { isReposted: current.isReposted, repostsCount: current.repostsCount };
+    const operationId = `post-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const pendingKey = `${id}:${kind}`;
+    pendingPostStateRef.current.set(pendingKey, { operationId, kind, previous });
+    setPosts((items) => items.map((post) => {
+      if (post.id !== id) return post;
+      return kind === 'like'
+        ? { ...post, isLiked: enabled, likesCount: Math.max(0, post.likesCount + (enabled ? 1 : -1)) }
+        : { ...post, isReposted: enabled, repostsCount: Math.max(0, post.repostsCount + (enabled ? 1 : -1)) };
+    }));
+    try {
+      await enqueueSocialOperation({
+        userId: myId,
+        type: `post.${kind}.set`,
+        entityKey: `post:${id}:${kind}`,
+        operationId,
+        coalesce: true,
+        request: {
+          path: `/v2/posts/${id}/${kind}`,
+          method: enabled ? 'PUT' : 'DELETE',
+          invalidateKeys: [['community', 'posts']],
+        },
+      });
+    } catch {
+      pendingPostStateRef.current.delete(pendingKey);
+      setPosts((items) => items.map((post) => post.id === id ? { ...post, ...previous } : post));
+    }
+  }, [myId]);
+
+  const handleLikePost = useCallback((id: number) => queuePostState(id, 'like'), [queuePostState]);
+  const handleRepost = useCallback((id: number) => queuePostState(id, 'repost'), [queuePostState]);
 
   const handleDeletePost = useCallback(async (id: number) => {
+    const removed = postsRef.current.find((post) => post.id === id);
     setPosts(prev => prev.filter(p => p.id !== id));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    try {
+      await apiRequest(`/posts/${id}`, { method: 'DELETE' });
+    } catch {
+      if (removed) setPosts((previous) => previous.some((post) => post.id === id) ? previous : [removed, ...previous]);
+      Toast.show({ type: 'error', text1: 'Nie udało się usunąć posta' });
+    }
   }, []);
 
   const [editingPost, setEditingPost] = useState<Post | null>(null);
@@ -297,17 +366,10 @@ export default function CommunityScreen() {
     }
     setSavingEditPost(true);
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/posts/${editingPost.id}`, {
+      const updated = await apiRequest<Partial<Post>>(`/posts/${editingPost.id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: { content },
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Nie udało się zapisać');
-      }
-      const updated = await res.json();
       setPosts(prev => prev.map(p => (
         p.id === editingPost.id
           ? { ...p, content: updated.content ?? content, editedAt: updated.editedAt ?? new Date().toISOString() }
@@ -343,17 +405,10 @@ export default function CommunityScreen() {
     }
     setSavingEditComment(true);
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/posts/comments/${editingComment.id}`, {
+      const updated = await apiRequest<Partial<Comment>>(`/posts/comments/${editingComment.id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: { content },
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Nie udało się zapisać');
-      }
-      const updated = await res.json();
       setComments(prev => prev.map(c => (
         c.id === editingComment.id
           ? { ...c, content: updated.content ?? content, editedAt: updated.editedAt ?? new Date().toISOString() }
@@ -394,21 +449,14 @@ export default function CommunityScreen() {
 
   const handleLikeRoute = useCallback(async (id: number) => {
     setRoutes(prev => prev.map(r => r.id !== id ? r : { ...r, isLiked: !r.isLiked, likesCount: r.isLiked ? r.likesCount - 1 : r.likesCount + 1 }));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/routes/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    await apiRequest(`/routes/${id}/like`, { method: 'POST' });
   }, []);
 
   const handleNavigateRoute = useCallback(async (route: PublicRoute) => {
     let points = route.points;
     if (!points || points.length < 2) {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/routes/${route.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const full = await res.json();
-        points = full?.points;
-      }
+      const full = await apiRequest<{ points?: PublicRoute['points'] }>(`/routes/${route.id}`);
+      points = full?.points;
     }
     if (!points || points.length < 2) {
       Toast.show({ type: 'error', text1: 'Brak geometrii trasy' });
@@ -421,14 +469,8 @@ export default function CommunityScreen() {
   const handleNavigateRoutePreview = useCallback(async (data: RoutePreviewData) => {
     let points = data.points;
     if (!points || points.length < 2) {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/routes/${data.routeId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const full = await res.json();
-        points = full?.points ?? [];
-      }
+      const full = await apiRequest<{ points?: PublicRoute['points'] }>(`/routes/${data.routeId}`);
+      points = full?.points ?? [];
     }
     if (!points || points.length < 2) {
       Toast.show({ type: 'error', text1: 'Brak geometrii trasy' });
@@ -546,12 +588,7 @@ export default function CommunityScreen() {
       if (title?.trim()) form.append('title', title.trim());
       if (poll) form.append('poll', JSON.stringify(poll));
       photos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `p${i}.${ext}`, type: `image/${ext}` } as any); });
-      const res  = await fetch(`${API_URL}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error ?? 'Błąd');
-      }
-      const post = await res.json();
+      const post = await apiRequest<Post>('/posts', { method: 'POST', body: form });
       invalidateQuestTrack();
       setPosts(prev => {
         if (discussionCategory !== DISCUSSION_ALL_CATEGORIES && post.category !== discussionCategory) {
@@ -566,17 +603,10 @@ export default function CommunityScreen() {
 
   const handlePollVote = useCallback(async (postId: number, optionIdx: number) => {
     try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/posts/${postId}/poll/vote`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ optionIdx }),
+      const data = await apiRequest<{ voteCounts: number[]; totalVotes: number; myVote: number }>(`/posts/${postId}/poll/vote`, {
+        method: 'POST',
+        body: { optionIdx },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        Toast.show({ type: 'error', text1: data?.error ?? 'Nie udało się zagłosować' });
-        return null;
-      }
       let updated: Post['poll'] = null;
       setPosts(prev => prev.map(p => {
         if (p.id !== postId || !p.poll) return p;
@@ -599,10 +629,8 @@ export default function CommunityScreen() {
   const openShareRoute = async (route: PublicRoute) => {
     setShareRoute(route); setShareSent([]); setShareLoading(true);
     try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/chat/conversations`, { headers: { Authorization: `Bearer ${token}` } });
-      const json  = await res.json();
-      setShareConvs(Array.isArray(json) ? json : json.conversations ?? []);
+      const json = await apiRequest<{ items?: any[] }>('/v2/chat/conversations?limit=30');
+      setShareConvs(json.items ?? []);
     } catch {} finally { setShareLoading(false); }
   };
 
@@ -610,11 +638,19 @@ export default function CommunityScreen() {
     if (!shareRoute) return;
     setShareSending(convId);
     try {
-      const token   = await getToken();
       const content = JSON.stringify({ type: 'route', routeId: shareRoute.id, name: shareRoute.name, distance: shareRoute.distance, points: (shareRoute.points ?? []).slice(0, 50), isPublic: shareRoute.isPublic });
-      const form    = new FormData();
-      form.append('content', content);
-      await fetch(`${API_URL}/api/chat/conversations/${convId}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+      if (!myId) throw new Error('Brak aktywnej sesji');
+      await enqueueSocialOperation({
+        userId: myId,
+        type: 'chat.message.route',
+        entityKey: `conversation:${convId}:messages`,
+        request: {
+          path: `/v2/chat/conversations/${convId}/messages`,
+          method: 'POST',
+          body: { content },
+          invalidateKeys: [['chat', 'conversations'], ['chat', 'messages', convId]],
+        },
+      });
       setShareSent(prev => [...prev, convId]);
     } catch {} finally { setShareSending(null); }
   };
@@ -624,23 +660,15 @@ export default function CommunityScreen() {
     setCommentPostExpanded(false);
     setCommentMentionUsers([]);
     setCommentAuthorFollowing(false);
-    if (post.author.id !== myId && myId) {
-      try {
-        const token = await getToken();
-        const res = await fetch(`${API_URL}/api/follow/status/${post.author.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCommentAuthorFollowing(!!data.isFollowing);
-        }
-      } catch {}
-    }
     try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/posts/${post.id}/comments`, { headers: { Authorization: `Bearer ${token}` } });
-      const data  = await res.json();
+      const [data, follow] = await Promise.all([
+        apiRequest<Comment[]>(`/posts/${post.id}/comments`),
+        post.author.id !== myId && myId
+          ? apiRequest<{ isFollowing?: boolean }>(`/follow/status/${post.author.id}`, { priority: 'background' }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       setComments(Array.isArray(data) ? data : []);
+      if (follow) setCommentAuthorFollowing(!!follow.isFollowing);
     } catch {} finally { setLoadingComments(false); }
   }, [myId]);
 
@@ -660,24 +688,27 @@ export default function CommunityScreen() {
     if (!commentPost || commentPost.author.id === myId) return;
     setCommentFollowLoading(true);
     try {
-      const token = await getToken();
-      if (commentAuthorFollowing) {
-        const res = await fetch(`${API_URL}/api/follow/${commentPost.author.id}`, {
-          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      if (!myId) throw new Error('Brak aktywnej sesji');
+      const previousFollowing = commentAuthorFollowing;
+      const nextFollowing = !previousFollowing;
+      setCommentAuthorFollowing(nextFollowing);
+      try {
+        await enqueueSocialOperation({
+          userId: myId,
+          type: 'follow',
+          entityKey: `follow:${commentPost.author.id}`,
+          coalesce: true,
+          request: {
+            path: `/v2/social/users/${commentPost.author.id}/follow`,
+            method: nextFollowing ? 'PUT' : 'DELETE',
+            invalidateKeys: [['profile', commentPost.author.id, 'summary'], ['connections']],
+          },
         });
-        if (res.ok) {
-          setCommentAuthorFollowing(false);
-          Toast.show({ type: 'success', text1: 'Przestałeś obserwować' });
-        }
-      } else {
-        const res = await fetch(`${API_URL}/api/follow/${commentPost.author.id}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          setCommentAuthorFollowing(true);
-          Toast.show({ type: 'success', text1: 'Obserwujesz!' });
-        }
+      } catch (error) {
+        setCommentAuthorFollowing(previousFollowing);
+        throw error;
       }
+      Toast.show({ type: 'success', text1: nextFollowing ? 'Obserwujesz!' : 'Przestałeś obserwować' });
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });
     } finally {
@@ -689,17 +720,13 @@ export default function CommunityScreen() {
     const post = posts.find(p => p.id === postId);
     const hasMine = !!post?.reactions?.find(r => r.emoji === emoji)?.myReaction;
     try {
-      const token = await getToken();
       const endpoint = hasMine
-        ? `${API_URL}/api/posts/${postId}/reactions/${encodeURIComponent(emoji)}`
-        : `${API_URL}/api/posts/${postId}/reactions`;
-      const res = await fetch(endpoint, {
+        ? `/posts/${postId}/reactions/${encodeURIComponent(emoji)}`
+        : `/posts/${postId}/reactions`;
+      const data = await apiRequest<{ reactions?: Post['reactions'] }>(endpoint, {
         method: hasMine ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+        ...(hasMine ? {} : { body: { emoji } }),
       });
-      if (!res.ok) return;
-      const data = await res.json();
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, reactions: data.reactions ?? [] } : p));
       setCommentPost(prev => (prev?.id === postId ? { ...prev, reactions: data.reactions ?? [] } : prev));
     } catch {
@@ -711,17 +738,13 @@ export default function CommunityScreen() {
     const comment = comments.find(c => c.id === commentId);
     const hasMine = !!comment?.reactions?.find(r => r.emoji === emoji)?.myReaction;
     try {
-      const token = await getToken();
       const endpoint = hasMine
-        ? `${API_URL}/api/posts/comments/${commentId}/reactions/${encodeURIComponent(emoji)}`
-        : `${API_URL}/api/posts/comments/${commentId}/reactions`;
-      const res = await fetch(endpoint, {
+        ? `/posts/comments/${commentId}/reactions/${encodeURIComponent(emoji)}`
+        : `/posts/comments/${commentId}/reactions`;
+      const data = await apiRequest<{ reactions?: Comment['reactions'] }>(endpoint, {
         method: hasMine ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+        ...(hasMine ? {} : { body: { emoji } }),
       });
-      if (!res.ok) return;
-      const data = await res.json();
       setComments(prev => prev.map(c => c.id === commentId ? { ...c, reactions: data.reactions ?? [] } : c));
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });
@@ -730,41 +753,44 @@ export default function CommunityScreen() {
 
   const handleLikeComment = useCallback(async (commentId: number) => {
     const comment = comments.find(c => c.id === commentId);
-    if (!comment) return;
+    if (!comment || !myId) return;
     const nextLiked = !comment.isLiked;
     const nextCount = Math.max(0, (comment.likesCount ?? 0) + (nextLiked ? 1 : -1));
     setComments(prev => prev.map(c => c.id === commentId ? { ...c, isLiked: nextLiked, likesCount: nextCount } : c));
+    const operationId = `post-comment-like-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    pendingCommentLikeRef.current.set(commentId, {
+      operationId,
+      previous: { isLiked: comment.isLiked, likesCount: comment.likesCount },
+    });
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/posts/comments/${commentId}/like`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      await enqueueSocialOperation({
+        userId: myId,
+        type: 'post.comment.like.set',
+        entityKey: `comment:${commentId}:like`,
+        operationId,
+        coalesce: true,
+        request: {
+          path: `/v2/posts/comments/${commentId}/like`,
+          method: nextLiked ? 'PUT' : 'DELETE',
+          invalidateKeys: [['community', 'post-comments', commentPost?.id]],
+        },
       });
-      if (!res.ok) {
-        setComments(prev => prev.map(c => c.id === commentId ? comment : c));
-        return;
-      }
-      const data = await res.json();
-      setComments(prev => prev.map(c => c.id === commentId
-        ? { ...c, isLiked: !!data.liked, likesCount: data.likesCount ?? nextCount }
-        : c,
-      ));
     } catch {
+      pendingCommentLikeRef.current.delete(commentId);
       setComments(prev => prev.map(c => c.id === commentId ? comment : c));
     }
-  }, [comments]);
+  }, [commentPost?.id, comments, myId]);
 
   const handleSendComment = async () => {
     if (!commentText.trim() && commentPhotos.length === 0) return;
     if (!commentPost) return;
     setPostingComment(true);
     try {
-      const token = await getToken();
       const form  = new FormData();
       form.append('content', commentText.trim());
       if (replyTo) form.append('replyToId', String(replyTo.id));
       commentPhotos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `cp${i}.${ext}`, type: `image/${ext}` } as any); });
-      const res     = await fetch(`${API_URL}/api/posts/${commentPost.id}/comments`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-      const comment = await res.json();
+      const comment = await apiRequest<Comment>(`/posts/${commentPost.id}/comments`, { method: 'POST', body: form });
       setComments(prev => [...prev, comment]);
       setCommentText(''); setCommentPhotos([]); setReplyTo(null);
       setPosts(prev => prev.map(p => p.id === commentPost.id ? { ...p, commentsCount: p.commentsCount + 1 } : p));
@@ -797,10 +823,7 @@ export default function CommunityScreen() {
       setActiveTab('dyskusje');
       if (existing) { openComments(existing); return; }
       try {
-        const token = await getToken();
-        const res   = await fetch(`${API_URL}/api/posts/${postId}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) openComments(await res.json());
-        else Toast.show({ type: 'info', text1: 'Ta treść nie jest już dostępna' });
+        openComments(await apiRequest<Post>(`/posts/${postId}`));
       } catch {
         Toast.show({ type: 'info', text1: 'Ta treść nie jest już dostępna' });
       }

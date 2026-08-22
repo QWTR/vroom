@@ -49,6 +49,7 @@ import {
   type PendingTripCheckpoint,
 } from '../lib/tripPersistenceCoordinator';
 import type { NavMode } from '../lib/navigationV3/types';
+import { sendLiveLocation } from '../lib/liveLocationBroker';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -1182,10 +1183,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     if (sharingFlag !== 'true') {
       // Ghost Mode / live off — skip live location entirely.
     } else {
-      await fetch(`${API_URL}/api/live/location`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
+      await sendLiveLocation({
           protocolVersion: 2,
           lat: latitude,
           lng: longitude,
@@ -1199,7 +1197,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
           fixId: `background:${fixAt}:${Number(latitude).toFixed(6)}:${Number(longitude).toFixed(6)}`,
           fixAgeMs: Math.max(0, Date.now() - fixAt),
           source: 'background',
-        }),
       }).catch(() => {});
     }
 

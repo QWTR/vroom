@@ -9,13 +9,22 @@ import { useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { io, Socket } from 'socket.io-client';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { ConversationInfoSheet } from '../../../components/chat/ConversationInfoSheet';
 import { CommunityScreenHeader } from '../../../components/community';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
+import { apiRequest } from '../../../lib/api/client';
+import { currentSharedSocket, joinSharedRoom, subscribeSharedSocket } from '../../../lib/sharedSocket';
+import {
+  copyMediaToSocialQueue,
+  enqueueSocialOperation,
+  listSocialOperations,
+  removeSocialOperation,
+  retrySocialOperation,
+  subscribeSocialQueue,
+} from '../../../lib/socialQueue';
 import {
   ChatScreenShell,
   ChatMessageList,
@@ -28,8 +37,6 @@ import {
   type UnifiedChatMessage,
 } from '../../../components/chat/v2';
 
-const API = 'https://v-room.app/api/chat';
-const WS = 'https://v-room.app';
 const PAGE_SIZE = 30;
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -57,6 +64,9 @@ interface Message {
     sender: { id: number; username: string };
   } | null;
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
+  clientRequestId?: string | null;
+  deliveryStatus?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  deliveryError?: string | null;
 }
 
 interface ConvInfo {
@@ -66,6 +76,24 @@ interface ConvInfo {
   avatarUrl: string | null;
   online: boolean;
   participants: ChatUser[];
+}
+
+type MessagePage = { items: Message[]; nextCursor: string | null; hasMore: boolean };
+type MessageAck = { operationId: string; status: 'accepted' | 'completed'; entity: Message };
+
+function mergeMessage(current: Message[], incoming: Message): Message[] {
+  const index = current.findIndex((message) => (
+    message.id === incoming.id
+    || (!!incoming.clientRequestId && message.clientRequestId === incoming.clientRequestId)
+  ));
+  if (index < 0) return [...current, incoming];
+  const next = [...current];
+  next[index] = { ...current[index], ...incoming };
+  return next;
+}
+
+function operationId(): string {
+  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export default function ChatScreen() {
@@ -81,7 +109,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -92,8 +120,6 @@ export default function ChatScreen() {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const listRef = useRef<FlatList>(null);
-  const socketRef = useRef<Socket | null>(null);
-  const tokenRef = useRef<string>('');
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftHydratedRef = useRef(false);
   const draftKey = `@vroom/chat_draft:v1:${convId}`;
@@ -148,80 +174,127 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!isFocused) return;
-    (async () => {
+    let disposed = false;
+    const cleanups: Array<() => void> = [];
+    const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
+      setConv(prev => {
+        if (!prev) return prev;
+        const uid = Number(userId);
+        return {
+          ...prev,
+          online: prev.participants.some(p => p.id === uid) ? online : prev.online,
+          participants: prev.participants.map(p => p.id === uid ? { ...p, online } : p),
+        };
+      });
+    };
+
+    void (async () => {
       const raw = await AsyncStorage.getItem('user');
-      const token = (await AsyncStorage.getItem('token')) ?? '';
-      tokenRef.current = token;
-      if (raw) setMyId(JSON.parse(raw).userId);
+      if (raw) {
+        try {
+          const user = JSON.parse(raw) as { id?: number; userId?: number };
+          setMyId(Number(user.userId ?? user.id) || null);
+        } catch { /* session bootstrap will refresh malformed local data */ }
+      }
+      if (disposed) return;
 
-      const socket = io(WS, { auth: { token }, transports: ['websocket'] });
-      socket.emit('chat:join', convId);
+      const queued = await listSocialOperations({ entityKey: `chat:${convId}` });
+      if (!disposed && queued.length) {
+        setMessages(prev => queued.reduce((all, row) => {
+          const entity = row.request.optimisticEntity as Message | undefined;
+          return entity
+            ? mergeMessage(all, {
+                ...entity,
+                clientRequestId: row.operationId,
+                deliveryStatus: row.status === 'failed' ? 'failed' : 'sending',
+              })
+            : all;
+        }, prev));
+      }
 
-      socket.on('chat:message', (msg: Message) => {
-        if (msg.conversationId === convId) {
-          setMessages(prev => [...prev, msg]);
+      const unsubscribers = await Promise.all([
+        joinSharedRoom(`chat:${convId}`, 'chat:join', 'chat:leave', convId),
+        subscribeSharedSocket<Message>('chat:message', (msg) => {
+          if (msg.conversationId !== convId) return;
+          setMessages(prev => mergeMessage(prev, { ...msg, deliveryStatus: msg.deliveryStatus || 'sent' }));
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-        }
-      });
-      socket.on('chat:reaction', ({ messageId, reactions }: { messageId: number; reactions: Message['reactions'] }) => {
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-      });
-      socket.on('chat:typing', ({ isTyping, username }: { isTyping: boolean; username?: string }) => {
-        if (!username) return;
-        setTypingUsers(prev => {
-          const next = { ...prev };
-          if (isTyping) next[username] = true;
-          else delete next[username];
-          return next;
-        });
-      });
-
-      const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
-        setConv(prev => {
-          if (!prev) return prev;
-          const uid = Number(userId);
-          return {
-            ...prev,
-            online: prev.participants.some(p => p.id === uid) ? online : prev.online,
-            participants: prev.participants.map(p =>
-              p.id === uid ? { ...p, online } : p,
-            ),
-          };
-        });
-      };
-
-      socket.on('presence:update', applyPresence);
-      socket.on('user:online', applyPresence);
-      socketRef.current = socket;
-      await Promise.all([fetchConv(token), fetchMessages(token)]);
+        }),
+        subscribeSharedSocket<{ messageId: number; reactions: Message['reactions'] }>('chat:reaction', ({ messageId: incomingId, reactions }) => {
+          setMessages(prev => prev.map(message => message.id === incomingId ? { ...message, reactions } : message));
+        }),
+        subscribeSharedSocket<{ conversationId: number; userId: number; messageId: number }>('chat:read', (receipt) => {
+          if (receipt.conversationId !== convId) return;
+          setMessages(prev => prev.map(message => (
+            message.id > 0 && message.id <= receipt.messageId && message.senderId !== receipt.userId
+              ? { ...message, deliveryStatus: 'read' }
+              : message
+          )));
+        }),
+        subscribeSharedSocket<{ isTyping: boolean; username?: string }>('chat:typing', ({ isTyping, username }) => {
+          if (!username) return;
+          setTypingUsers(prev => {
+            const next = { ...prev };
+            if (isTyping) next[username] = true;
+            else delete next[username];
+            return next;
+          });
+        }),
+        subscribeSharedSocket<{ userId: number; online: boolean }>('presence:update', applyPresence),
+        subscribeSharedSocket<{ userId: number; online: boolean }>('user:online', applyPresence),
+      ]);
+      if (disposed) unsubscribers.forEach(unsubscribe => unsubscribe());
+      else cleanups.push(...unsubscribers);
+      await Promise.all([fetchConv(), fetchMessages()]);
     })();
 
+    const unsubscribeQueue = subscribeSocialQueue((event) => {
+      if (event.entityKey !== `chat:${convId}`) return;
+      if (event.status === 'failed') {
+        setMessages(prev => prev.map(message => message.clientRequestId === event.operationId
+          ? { ...message, deliveryStatus: 'failed', deliveryError: event.error || 'Nie udało się wysłać' }
+          : message));
+        return;
+      }
+      if (event.status === 'pending' || event.status === 'sending') {
+        setMessages(prev => prev.map(message => message.clientRequestId === event.operationId
+          ? { ...message, deliveryStatus: 'sending' }
+          : message));
+        return;
+      }
+      const response = event.response as MessageAck | Message | undefined;
+      const entity = response && 'entity' in response ? response.entity : response;
+      if (entity && typeof entity.id === 'number') {
+        setMessages(prev => mergeMessage(
+          prev.filter(message => message.clientRequestId !== event.operationId || message.id < 0),
+          { ...entity, clientRequestId: entity.clientRequestId || event.operationId, deliveryStatus: 'sent' },
+        ));
+      }
+    });
+
     return () => {
-      socketRef.current?.emit('chat:leave', convId);
-      socketRef.current?.disconnect();
+      disposed = true;
+      cleanups.forEach(cleanup => cleanup());
+      unsubscribeQueue();
+      if (typingTimer.current) clearTimeout(typingTimer.current);
     };
   }, [convId, isFocused]);
 
-  const fetchConv = async (token: string) => {
+  const fetchConv = async () => {
     try {
-      const r = await fetch(`${API}/conversations/${convId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setConv(await r.json());
+      setConv(await apiRequest<ConvInfo>(`/chat/conversations/${convId}`, { priority: 'critical' }));
     } catch (e) { console.error('fetchConv:', e); }
   };
 
-  const fetchMessages = async (token: string) => {
+  const fetchMessages = async () => {
     setLoading(true);
     try {
-      const r = await fetch(
-        `${API}/conversations/${convId}/messages?limit=${PAGE_SIZE}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const d = await r.json();
-      setMessages(d.messages ?? []);
-      setNextCursor(d.nextCursor ?? null);
-      setHasMore(!!d.nextCursor);
+      const page = await apiRequest<MessagePage>(`/v2/chat/conversations/${convId}/messages?limit=${PAGE_SIZE}`, { priority: 'critical' });
+      setMessages(current => {
+        const optimistic = current.filter(message => message.deliveryStatus === 'sending' || message.deliveryStatus === 'failed');
+        return optimistic.reduce((all, message) => mergeMessage(all, message), page.items ?? []);
+      });
+      setNextCursor(page.nextCursor ?? null);
+      setHasMore(page.hasMore);
       scrollChatToEndAfterLayout(listRef, false);
     } catch (e) { console.error('fetchMessages:', e); }
     finally { setLoading(false); }
@@ -231,16 +304,15 @@ export default function ChatScreen() {
     if (!nextCursor || loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const r = await fetch(
-        `${API}/conversations/${convId}/messages?cursor=${nextCursor}&limit=${PAGE_SIZE}`,
-        { headers: { Authorization: `Bearer ${tokenRef.current}` } },
+      const page = await apiRequest<MessagePage>(
+        `/v2/chat/conversations/${convId}/messages?cursor=${encodeURIComponent(nextCursor)}&limit=${PAGE_SIZE}`,
+        { priority: 'visible' },
       );
-      const d = await r.json();
-      const msgs = d.messages ?? [];
+      const msgs = page.items ?? [];
       if (msgs.length === 0) { setHasMore(false); return; }
       setMessages(prev => [...msgs, ...prev]);
-      setNextCursor(d.nextCursor ?? null);
-      setHasMore(!!d.nextCursor);
+      setNextCursor(page.nextCursor ?? null);
+      setHasMore(page.hasMore);
     } catch (e) { console.error('loadMore:', e); }
     finally { setLoadingMore(false); }
   }, [convId, nextCursor, loadingMore, hasMore]);
@@ -250,32 +322,85 @@ export default function ChatScreen() {
     const t = text.trim();
     const p = [...photos];
     const reply = replyTo;
+    const clientRequestId = operationId();
+    const sender = conv?.participants.find(participant => participant.id === myId) || {
+      id: myId || 0,
+      username: 'TY',
+      avatarUrl: null,
+    };
+    const optimistic: Message = {
+      id: -Date.now(),
+      content: t,
+      photos: p,
+      createdAt: new Date().toISOString(),
+      senderId: myId || sender.id,
+      sender,
+      conversationId: convId,
+      replyTo: reply ? {
+        id: reply.id,
+        content: reply.content,
+        sender: { id: reply.sender.id, username: reply.sender.username },
+      } : null,
+      clientRequestId,
+      deliveryStatus: 'sending',
+    };
+    setMessages(prev => mergeMessage(prev, optimistic));
     setText('');
     setPhotos([]);
     setReplyTo(null);
     void AsyncStorage.removeItem(draftKey);
-
-    const form = new FormData();
-    if (t) form.append('content', t);
-    if (reply?.id) form.append('replyToId', String(reply.id));
-    p.forEach((uri, i) => {
-      form.append('photos', { uri, type: 'image/jpeg', name: `photo_${i}.jpg` } as any);
-    });
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
 
     try {
-      await fetch(`${API}/conversations/${convId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-        body: form,
+      if (!myId) throw new Error('Brak aktywnego użytkownika');
+      const queuedPhotos = await Promise.all(p.map(copyMediaToSocialQueue));
+      await enqueueSocialOperation({
+        userId: myId,
+        type: 'chat.message.send',
+        entityKey: `chat:${convId}`,
+        operationId: clientRequestId,
+        request: queuedPhotos.length ? {
+          path: `/chat/conversations/${convId}/messages`,
+          method: 'POST',
+          multipart: {
+            fields: {
+              ...(t ? { content: t } : {}),
+              ...(reply?.id && reply.id > 0 ? { replyToId: String(reply.id) } : {}),
+              clientRequestId,
+            },
+            files: queuedPhotos.map((uri, index) => ({
+              fieldName: 'photos',
+              uri,
+              type: 'image/jpeg',
+              name: `photo_${index}.jpg`,
+            })),
+          },
+          invalidateKeys: [['chat', 'conversations']],
+          optimisticEntity: { ...optimistic, photos: queuedPhotos },
+        } : {
+          path: `/v2/chat/conversations/${convId}/messages`,
+          method: 'POST',
+          body: {
+            content: t,
+            ...(reply?.id && reply.id > 0 ? { replyToId: reply.id } : {}),
+            clientRequestId,
+          },
+          invalidateKeys: [['chat', 'conversations']],
+          optimisticEntity: optimistic,
+        },
       });
-    } catch (e) { console.error('sendMessage:', e); }
-  }, [text, photos, replyTo, convId, draftKey]);
+    } catch (e) {
+      setMessages(prev => prev.map(message => message.clientRequestId === clientRequestId
+        ? { ...message, deliveryStatus: 'failed', deliveryError: e instanceof Error ? e.message : 'Nie udało się wysłać' }
+        : message));
+    }
+  }, [text, photos, replyTo, convId, draftKey, conv, myId]);
 
   const emitTyping = useCallback(() => {
-    socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: true });
+    currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: true });
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: false });
+      currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: false });
     }, 2000);
   }, [convId]);
 
@@ -295,14 +420,12 @@ export default function ChatScreen() {
       const msg = messages.find(m => m.id === msgId);
       const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
       const endpoint = hasMine
-        ? `${API}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
-        : `${API}/messages/${msgId}/reactions`;
-      const res = await fetch(endpoint, {
+        ? `/chat/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
+        : `/chat/messages/${msgId}/reactions`;
+      await apiRequest(endpoint, {
         method: hasMine ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
-        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+        ...(hasMine ? {} : { body: { emoji } }),
       });
-      if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
     } catch {
       Toast.show({ type: 'error', text1: 'Brak połączenia' });
     }
@@ -317,6 +440,24 @@ export default function ChatScreen() {
     }));
     router.push('/(tabs)/map');
   }, [router]);
+
+  const renderDeliveryFooter = useCallback((message: UnifiedChatMessage) => {
+    if (message.deliveryStatus !== 'failed' || !message.clientRequestId) return null;
+    const requestId = message.clientRequestId;
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginRight: 6, marginBottom: 8 }}>
+        <TouchableOpacity onPress={() => retrySocialOperation(requestId)}>
+          <Text style={{ color: theme.primary, fontSize: 10 }}>SPRÓBUJ PONOWNIE</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => {
+          void removeSocialOperation(requestId);
+          setMessages(prev => prev.filter(item => item.clientRequestId !== requestId));
+        }}>
+          <Text style={{ color: theme.textDim, fontSize: 10 }}>USUŃ</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }, [theme.primary, theme.textDim]);
 
   const otherParticipant = conv?.participants?.find(p => p.id !== myId);
   const convName = conv?.isGroup ? conv.name : (otherParticipant?.username ?? '...');
@@ -483,6 +624,7 @@ export default function ChatScreen() {
           onReact={handleReact}
           onPressPhoto={setPreviewPhoto}
           onNavigateRoute={handleNavigateRoute}
+          renderMessageFooter={renderDeliveryFooter}
         />
       )}
 

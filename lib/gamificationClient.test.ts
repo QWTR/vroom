@@ -13,7 +13,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-vi.mock('../constants/config', () => ({ API_URL: 'https://api.test' }));
+vi.mock('../constants/config', () => ({ API_URL: 'https://api.test', REQUEST_TIMEOUT_MS: 10_000 }));
 
 import {
   buildOwnGamificationProfileSummary,
@@ -22,11 +22,13 @@ import {
   flushGamificationPingOutbox,
   ingestGamificationPing,
 } from './gamificationClient';
+import { clearAuthTokenMemory } from './api/authTokenMemory';
 
 const OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
 
 describe('gamification discovery ping outbox', () => {
   beforeEach(() => {
+    clearAuthTokenMemory();
     mocks.storage.clear();
     mocks.storage.set('userToken', 'token');
     vi.unstubAllGlobals();
@@ -46,14 +48,14 @@ describe('gamification discovery ping outbox', () => {
 
     expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(1);
 
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
     await flushGamificationPingOutbox();
 
     expect(mocks.storage.has(OUTBOX_KEY)).toBe(false);
   });
 
   it('does not lose discovery when the server is temporarily unavailable', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ retryable: true }) })));
 
     await expect(ingestGamificationPing({
       lat: 51.2,
@@ -72,7 +74,7 @@ describe('gamification discovery ping outbox', () => {
       mode: 'freeDrive',
       ts: Date.now() + index,
     }))));
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
     vi.stubGlobal('fetch', fetchMock);
 
     await flushGamificationPingOutbox();
@@ -111,6 +113,7 @@ describe('own profile gamification summary', () => {
 
 describe('city territory API contract', () => {
   beforeEach(() => {
+    clearAuthTokenMemory();
     mocks.storage.clear();
     mocks.storage.set('userToken', 'token');
     vi.unstubAllGlobals();

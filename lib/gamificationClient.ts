@@ -1,39 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '../constants/config';
 import type { GamificationProfileSummary } from '../constants/profile';
 import type { NavMode } from './navigationV3/types';
-
-async function getToken(): Promise<string | null> {
-  return (
-    (await AsyncStorage.getItem('userToken'))
-    ?? (await AsyncStorage.getItem('token'))
-  );
-}
+import { apiRequest, ApiRequestError, type ApiRequestOptions } from './api/client';
 
 async function gamificationFetch<T>(
   path: string,
-  init?: RequestInit,
+  init?: ApiRequestOptions,
 ): Promise<T | null> {
-  const token = await getToken();
-  if (!token) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    return await apiRequest<T>(path, {
       ...init,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...(init?.headers ?? {}),
-      },
+      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+      timeoutMs: 10_000,
+      priority: String(init?.method || 'GET').toUpperCase() === 'GET' ? 'background' : 'mutation',
     });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -191,25 +173,15 @@ async function writeGamificationPingOutbox(pings: GamificationPing[]): Promise<b
 }
 
 async function postGamificationPing(ping: GamificationPing): Promise<'sent' | 'retry' | 'discard'> {
-  const token = await getToken();
-  if (!token) return 'discard';
   try {
-    const res = await fetch(`${API_URL}/api/gamification/ingest`, {
+    await apiRequest('/gamification/ingest', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(ping),
+      body: ping,
+      priority: 'mutation',
     });
-    if (res.ok) return 'sent';
-    // A temporary authorization/backend rollout problem must not erase map
-    // discovery. Only payloads the server explicitly marks as invalid are
-    // discarded; every other non-2xx response stays durable for a retry.
-    return res.status === 400 || res.status === 409 || res.status === 422
-      ? 'discard'
-      : 'retry';
-  } catch {
+    return 'sent';
+  } catch (error) {
+    if (error instanceof ApiRequestError && [400, 401, 409, 422].includes(error.status)) return 'discard';
     return 'retry';
   }
 }
@@ -321,16 +293,10 @@ export async function claimGeoDrop(
   rewardPool?: GeoDropRewardPreview[];
   rollSeed?: string | null;
 }> {
-  const token = await getToken();
-  if (!token) return { ok: false, error: 'NO_TOKEN' };
   try {
-    const res = await fetch(`${API_URL}/api/gamification/drops/${dropId}/claim`, {
+    const data = await apiRequest<Record<string, unknown>>(`/gamification/drops/${dropId}/claim`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
+      body: {
         relaxed: true,
         lat: ping.lat,
         lng: ping.lng,
@@ -338,12 +304,8 @@ export async function claimGeoDrop(
         headingDeg: ping.headingDeg,
         speedKmh: ping.speedKmh,
         ts: ping.ts ?? Date.now(),
-      }),
+      },
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return { ok: false, error: (data as { error?: string })?.error || `HTTP_${res.status}` };
-    }
     return { ok: true, ...(data as object) } as {
       ok: boolean;
       nitroGranted?: number;
@@ -353,8 +315,11 @@ export async function claimGeoDrop(
       rewardPool?: GeoDropRewardPreview[];
       rollSeed?: string | null;
     };
-  } catch {
-    return { ok: false, error: 'NETWORK_ERROR' };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof ApiRequestError ? error.code || error.message : 'NETWORK_ERROR',
+    };
   }
 }
 

@@ -2,18 +2,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, Image,
   ScrollView, TextInput, ActivityIndicator, FlatList,
-  Animated, Dimensions, Modal, KeyboardAvoidingView, Platform,
+  Animated, Dimensions, Modal, KeyboardAvoidingView, Platform, StyleSheet,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import AsyncStorage  from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme }  from '../../contexts/ThemeContext';
 import { useModalSheetPadding } from '../layout/ModalKeyboardSheet';
+import { apiRequest } from '../../lib/api/client';
+import { queryClient } from '../../lib/query/client';
 
 const { height: SCREEN_H, width: W } = Dimensions.get('window');
 const THUMB  = (W - 6) / 3;
-const API    = 'https://v-room.app/api/chat';
-
 interface ChatUser  { id: number; username: string; avatarUrl: string | null; online?: boolean; }
 interface MediaItem { url: string; messageId: number; createdAt: string; sender: string; }
 interface SearchResult { id: number; content: string; createdAt: string; sender: ChatUser; }
@@ -50,70 +49,90 @@ export function ConversationInfoSheet({
   const [groupName,      setGroupName]      = useState(convName);
   const [editingName,    setEditingName]    = useState(false);
   const [saving,         setSaving]         = useState(false);
-  const tokenRef = useRef('');
   const sheetPaddingBottom = useModalSheetPadding(visible);
 
   useEffect(() => {
     if (visible) {
       setTab('info'); setSearchQuery(''); setSearchResults([]);
       Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-      init();
     } else {
       Animated.timing(slideAnim, { toValue: SCREEN_H, duration: 250, useNativeDriver: true }).start();
     }
-  }, [visible]);
+  }, [slideAnim, visible]);
 
-  const init = async () => {
-    const token = (await AsyncStorage.getItem('token')) ?? '';
-    tokenRef.current = token;
-    fetchMedia(token);
-    fetchFriendStatuses(token);
-  };
-
-  const fetchMedia = async (token: string) => {
+  const fetchMedia = useCallback(async () => {
     setMediaLoading(true);
     try {
-      const r = await fetch(`${API}/conversations/${convId}/media`, { headers: { Authorization: `Bearer ${token}` } });
-      setMedia(await r.json());
+      const nextMedia = await queryClient.fetchQuery({
+        queryKey: ['chat', 'conversation-media', convId],
+        queryFn: ({ signal }) => apiRequest<MediaItem[]>(`/chat/conversations/${convId}/media`, { signal, priority: 'visible' }),
+        staleTime: 60_000,
+      });
+      setMedia(nextMedia);
     } catch {}
     finally { setMediaLoading(false); }
-  };
+  }, [convId]);
 
-  const fetchFriendStatuses = async (token: string) => {
+  const fetchFriendStatuses = useCallback(async () => {
     const others = participants.filter(p => p.id !== myId);
-    const statuses: Record<number, any> = {};
-    await Promise.all(others.map(async p => {
-      try {
-        const r = await fetch(`${API}/friends/status/${p.id}`, { headers: { Authorization: `Bearer ${token}` } });
-        statuses[p.id] = await r.json();
-      } catch {}
-    }));
-    setFriendStatuses(statuses);
-  };
+    if (!others.length) return setFriendStatuses({});
+    try {
+      const userIds = others.map(participant => participant.id).join(',');
+      const result = await queryClient.fetchQuery({
+        queryKey: ['social', 'friend-statuses', userIds],
+        queryFn: ({ signal }) => apiRequest<{ statuses: Record<number, any> }>(`/v2/social/friend-statuses?userIds=${userIds}`, { signal, priority: 'visible' }),
+        staleTime: 30_000,
+      });
+      setFriendStatuses(result.statuses);
+    } catch {}
+  }, [myId, participants]);
+
+  useEffect(() => {
+    if (!visible) return;
+    void fetchFriendStatuses();
+  }, [fetchFriendStatuses, visible]);
+
+  useEffect(() => {
+    if (!visible || tab !== 'media') return;
+    void fetchMedia();
+  }, [fetchMedia, tab, visible]);
 
   const handleFriendAction = async (userId: number) => {
     const status = friendStatuses[userId];
     try {
       if (!status || status.status === 'none') {
-        await fetch(`${API}/friends/request`, { method: 'POST', headers: { Authorization: `Bearer ${tokenRef.current}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) });
+        await apiRequest('/chat/friends/request', { method: 'POST', body: { userId } });
         setFriendStatuses(prev => ({ ...prev, [userId]: { status: 'pending', isSender: true } }));
       } else if (status.status === 'accepted') {
-        await fetch(`${API}/friends/${status.friendshipId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tokenRef.current}` } });
+        await apiRequest(`/chat/friends/${status.friendshipId}`, { method: 'DELETE' });
         setFriendStatuses(prev => ({ ...prev, [userId]: { status: 'none' } }));
       }
+      await queryClient.invalidateQueries({ queryKey: ['social', 'friend-statuses'] });
     } catch (e) { console.error(e); }
   };
 
-  const handleSearch = useCallback(async (q: string) => {
+  const handleSearch = useCallback((q: string) => {
     setSearchQuery(q);
-    if (q.length < 2) { setSearchResults([]); return; }
-    setSearchLoading(true);
-    try {
-      const r = await fetch(`${API}/conversations/${convId}/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
-      setSearchResults(await r.json());
-    } catch {}
-    finally { setSearchLoading(false); }
-  }, [convId]);
+    if (q.trim().length < 2) setSearchResults([]);
+  }, []);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!visible || tab !== 'search' || query.length < 2) return;
+    const queryKey = ['chat', 'conversation-search', convId, query];
+    const timer = setTimeout(() => {
+      setSearchLoading(true);
+      void queryClient.fetchQuery({
+        queryKey,
+        queryFn: ({ signal }) => apiRequest<SearchResult[]>(`/chat/conversations/${convId}/search?q=${encodeURIComponent(query)}`, { signal, priority: 'visible' }),
+        staleTime: 30_000,
+      }).then(setSearchResults).catch(() => {}).finally(() => setSearchLoading(false));
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      void queryClient.cancelQueries({ queryKey });
+    };
+  }, [convId, searchQuery, tab, visible]);
 
   const handleSaveName = async () => {
     if (!groupName.trim()) return;
@@ -121,7 +140,7 @@ export function ConversationInfoSheet({
     try {
       const form = new FormData();
       form.append('name', groupName.trim());
-      await fetch(`${API}/conversations/${convId}`, { method: 'PATCH', headers: { Authorization: `Bearer ${tokenRef.current}` }, body: form });
+      await apiRequest(`/chat/conversations/${convId}`, { method: 'PATCH', body: form });
       onConvUpdated(groupName.trim(), convAvatar);
       setEditingName(false);
     } catch {}
@@ -136,8 +155,7 @@ export function ConversationInfoSheet({
     try {
       const form = new FormData();
       form.append('avatar', { uri, type: 'image/jpeg', name: 'avatar.jpg' } as any);
-      const res = await fetch(`${API}/conversations/${convId}`, { method: 'PATCH', headers: { Authorization: `Bearer ${tokenRef.current}` }, body: form });
-      const d = await res.json();
+      const d = await apiRequest<{ avatarUrl: string | null }>(`/chat/conversations/${convId}`, { method: 'PATCH', body: form });
       onConvUpdated(convName, d.avatarUrl);
     } catch {}
     finally { setSaving(false); }
@@ -184,7 +202,7 @@ export function ConversationInfoSheet({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
       >
-      <TouchableOpacity style={{ ...require('react-native').StyleSheet.absoluteFillObject, backgroundColor: theme.overlay }} onPress={onClose} activeOpacity={1} />
+      <TouchableOpacity style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlay }} onPress={onClose} activeOpacity={1} />
 
       <Animated.View style={{
         position: 'absolute', bottom: 0, left: 0, right: 0,

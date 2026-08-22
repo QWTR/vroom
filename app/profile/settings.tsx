@@ -2,9 +2,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
-  Dimensions, KeyboardAvoidingView, Keyboard, Platform, Linking, Alert,
+  KeyboardAvoidingView, Keyboard, Platform, Linking, Alert, Text,
 } from 'react-native';
-import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ResizeMode, Video } from 'expo-av';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -31,7 +30,6 @@ import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow, normalizePickerHex } from '../../components/settings/ColorWheelPickerSheet';
 import { ProfileMusicSearchField } from '../../components/settings/ProfileMusicSearchField';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
-import { TrackStartScrubber } from '../../components/shared/TrackStartScrubber';
 import { MusicTrimSheet } from '../../components/shared/MusicTrimSheet';
 import { fetchProfileMusicPreviewUrl } from '../../utils/freshAudioPreview';
 import { defaultTrimSelectionMs, isFullTrackSource, PREVIEW_CLIP_MS } from '../../utils/musicPreviewLimits';
@@ -59,6 +57,11 @@ import {
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { unregisterPushToken } from '../../hooks/usePushNotifications';
+import { clearAuthTokenMemory } from '../../lib/api/authTokenMemory';
+import { apiRequest } from '../../lib/api/client';
+import { clearPersistedQueryCaches, queryClient } from '../../lib/query/client';
+import { clearSocialQueue } from '../../lib/socialQueue';
+import { destroySharedSocket } from '../../lib/sharedSocket';
 import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
 import ProfileAnimationSettingsPreview from '../../components/profile/ProfileAnimationSettingsPreview';
 import { HERO_MOTION_LABELS, VISIT_ENTRANCE_LABELS } from '../../constants/profileAnimationLabels';
@@ -69,8 +72,6 @@ import {
   type ProfilePremiumExtras,
   type ProfileSectionAccentMode,
   type ProfileAvatarRingAnim,
-  type ProfileVisitEntranceAnim,
-  type ProfileHeroMotion,
   type ProfileBannerFocusPoint,
 } from '../../constants/profilePremiumExtras';
 import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
@@ -89,9 +90,6 @@ WebBrowser.maybeCompleteAuthSession();
 const showDiscordToast = (options: { type: string; text1: string; text2?: string }) => {
   Toast.show(options as any);
 };
-
-const getToken = async () =>
-  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 const BUG_CATEGORIES = [
   { key: 'crash',   label: '💥 Crash / zamrożenie', color: '#e33835' },
@@ -190,7 +188,6 @@ export default function SettingsScreen() {
   const cancelBg  = theme.surface2;
   const cancelBorder= theme.border2;
   const scanLine  = isDark ? '#ffffff03' : '#00000003';
-  const hudColor  = isDark ? RED         : RED;
   const heroGrad  = isDark
     ? ['#1a0404', '#0e0202', bg] as const
     : ['#fff0f0', '#fce8e8', bg] as const;
@@ -495,15 +492,13 @@ export default function SettingsScreen() {
   }, [settings.profilePremiumExtras, settings.spotifyProfileTrack?.url]);
 
   const loadReferralData = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
     setRefLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/referral/my-code`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const json = await queryClient.fetchQuery({
+        queryKey: ['referral', 'my-code'],
+        queryFn: ({ signal }) => apiRequest<any>('/referral/my-code', { signal, priority: 'background' }),
+        staleTime: 60_000,
       });
-      const json = await res.json().catch(() => ({} as any));
-      if (!res.ok) return;
       const code = String(json?.code ?? '').toUpperCase();
       setRefCodeCurrent(code);
       setRefCodeInput(code);
@@ -672,20 +667,10 @@ export default function SettingsScreen() {
   };
 
   const handleConnectDiscord = async () => {
-    const token = await getToken();
-    if (!token) {
-      showDiscordToast({ type: 'error', text1: 'Sesja wygasła', text2: 'Zaloguj się ponownie.' });
-      return;
-    }
     setDiscordBusy(true);
     try {
-      const response = await fetch(`${API_URL}/api/profile/discord/authorize`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const payload = await response.json().catch(() => ({} as any));
-      if (!response.ok || !payload?.authorizationUrl) {
-        throw new Error(payload?.error || 'Nie udało się uruchomić logowania Discord');
-      }
+      const payload = await apiRequest<any>('/profile/discord/authorize', { priority: 'critical' });
+      if (!payload?.authorizationUrl) throw new Error('Nie udało się uruchomić logowania Discord');
 
       const result = await WebBrowser.openAuthSessionAsync(
         String(payload.authorizationUrl),
@@ -723,16 +708,9 @@ export default function SettingsScreen() {
   };
 
   const disconnectDiscord = async () => {
-    const token = await getToken();
-    if (!token) return;
     setDiscordBusy(true);
     try {
-      const response = await fetch(`${API_URL}/api/profile/discord`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const payload = await response.json().catch(() => ({} as any));
-      if (!response.ok) throw new Error(payload?.error || 'Nie udało się odłączyć Discorda');
+      await apiRequest('/profile/discord', { method: 'DELETE' });
       await fetchProfile();
       showDiscordToast({ type: 'success', text1: 'Discord odłączony' });
     } catch (e) {
@@ -761,6 +739,10 @@ export default function SettingsScreen() {
     setLogoutModal(false);
     await unregisterPushToken();
     await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+    clearAuthTokenMemory();
+    await clearPersistedQueryCaches().catch(() => {});
+    await clearSocialQueue().catch(() => {});
+    destroySharedSocket();
     await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
     await syncRevenueCatLoginFromStorage();
     Toast.show({ type: 'success', text1: '👋 DO ZOBACZENIA!' });
@@ -771,20 +753,12 @@ export default function SettingsScreen() {
     if (deleteConfirm !== 'USUŃ') { Toast.show({ type: 'error', text1: 'Wpisz USUŃ aby potwierdzić' }); return; }
     setDeleteLoading(true);
     try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/auth/delete-account`, {
-        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-      });
-      const payload = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        const apiError = typeof payload?.error === 'string' ? payload.error : null;
-        const fallback =
-          res.status === 401 ? 'Sesja wygasła, zaloguj się ponownie'
-          : res.status === 503 ? 'Usuwanie kont jest chwilowo niedostępne'
-          : 'Nie można usunąć konta';
-        throw new Error(apiError || fallback);
-      }
+      await apiRequest('/auth/delete-account', { method: 'DELETE' });
       await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+      clearAuthTokenMemory();
+      await clearPersistedQueryCaches().catch(() => {});
+      await clearSocialQueue().catch(() => {});
+      destroySharedSocket();
       await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
       await syncRevenueCatLoginFromStorage();
       setDeleteModal(false);
@@ -812,7 +786,6 @@ export default function SettingsScreen() {
     if (bugDescription.trim().length < 10) { Toast.show({ type: 'error', text1: 'Opis musi mieć min. 10 znaków' }); return; }
     setBugLoading(true);
     try {
-      const token = await getToken();
       const form  = new FormData();
       form.append('category',    bugCategory);
       form.append('description', bugDescription.trim());
@@ -820,11 +793,7 @@ export default function SettingsScreen() {
         const ext = uri.split('.').pop() ?? 'jpg';
         form.append('photos', { uri, name: `bug_photo_${i}.${ext}`, type: `image/${ext}` } as any);
       });
-      const res = await fetch(`${API_URL}/api/settings/bug-report`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || 'Błąd');
+      const json = await apiRequest<{ id?: number }>('/settings/bug-report', { method: 'POST', body: form });
       const newId = json.id as number | undefined;
       setBugModal(false); setBugCategory(''); setBugDescription(''); setBugPhotos([]);
       Toast.show({ type: 'success', text1: '🐛 ZGŁOSZENIE WYSŁANE' });
@@ -839,30 +808,13 @@ export default function SettingsScreen() {
     url?: string;
     previewAutoplay?: boolean;
   }) => {
-    const token = await getToken();
-    if (!token) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
-      return false;
-    }
     setSpotifySaving(true);
     try {
       const useProfileEndpoint = !!body.sourceType && !!body.trackId && !body.url;
-      const res = await fetch(
-        `${API_URL}/api/settings/${useProfileEndpoint ? 'profile-track' : 'spotify-track'}`,
-        {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        },
-      );
-      const json = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się ustawić utworu' });
-        return false;
-      }
+      const json = await apiRequest<any>(`/settings/${useProfileEndpoint ? 'profile-track' : 'spotify-track'}`, {
+        method: 'PATCH',
+        body,
+      });
       await fetchSettings();
       if (json?.spotifyProfileTrack?.url) {
         setSpotifyTrackUrl(json.spotifyProfileTrack.url);
@@ -901,21 +853,9 @@ export default function SettingsScreen() {
   );
 
   const handleClearSpotifyTrack = async () => {
-    const token = await getToken();
-    if (!token) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
-      return;
-    }
     setSpotifySaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się usunąć utworu' });
-        return;
-      }
+      await apiRequest('/settings/spotify-track', { method: 'DELETE' });
       await fetchSettings();
       setSpotifyTrackUrl('');
       Toast.show({ type: 'success', text1: 'Muzyka profilu', text2: 'Utwór usunięty z profilu' });
@@ -927,26 +867,12 @@ export default function SettingsScreen() {
   };
 
   const handleSpotifyPreviewAutoplay = async (val: boolean) => {
-    const token = await getToken();
-    if (!token) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
-      return;
-    }
     setSpotifySaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/settings/profile-track`, {
+      await apiRequest('/settings/profile-track', {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ previewAutoplay: val }),
+        body: { previewAutoplay: val },
       });
-      const json = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać' });
-        return;
-      }
       await fetchSettings();
       Toast.show({
         type: 'success',
@@ -961,18 +887,11 @@ export default function SettingsScreen() {
   };
 
   const handleProfilePreviewStart = async (ms: number) => {
-    const token = await getToken();
-    if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/settings/profile-track`, {
+      await apiRequest('/settings/profile-track', {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ previewStartMs: ms }),
+        body: { previewStartMs: ms },
       });
-      if (!res.ok) return;
       await fetchSettings();
     } catch {
       /* ignore */
@@ -992,23 +911,13 @@ export default function SettingsScreen() {
       Toast.show({ type: 'error', text1: 'Kod musi mieć 4-24 znaki A-Z/0-9' });
       return;
     }
-    const token = await getToken();
-    if (!token) return;
     setRefSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/referral/my-code`, {
+      const json = await apiRequest<any>('/referral/my-code', {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code }),
+        body: { code },
       });
-      const json = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać kodu' });
-        return;
-      }
+      queryClient.setQueryData(['referral', 'my-code'], json);
       const nextCode = String(json?.code ?? code).toUpperCase();
       setRefCodeCurrent(nextCode);
       setRefCodeInput(nextCode);
@@ -1034,14 +943,11 @@ export default function SettingsScreen() {
 
   // ── Loading (max 4s — potem pokaż UI z cache) ──
   const fetchReferralPromoUrl = useCallback(async (media: 'png' | 'mp4') => {
-    const token = await getToken();
-    if (!token) return '';
-    const res = await fetch(
-      `${API_URL}/api/referral/promo-ticket?media=${media}&format=${promoFormat}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const json = await res.json().catch(() => ({} as any));
-    if (!res.ok) throw new Error(json?.error ?? 'Nie udało się przygotować materiału');
+    const json = await queryClient.fetchQuery({
+      queryKey: ['referral', 'promo-ticket', media, promoFormat],
+      queryFn: ({ signal }) => apiRequest<any>(`/referral/promo-ticket?media=${media}&format=${promoFormat}`, { signal, priority: 'visible' }),
+      staleTime: 60_000,
+    });
     return String(json?.url ? `${API_URL}${json.url}` : (json?.absoluteUrl || ''));
   }, [promoFormat]);
 
@@ -1073,23 +979,13 @@ export default function SettingsScreen() {
       (Toast.show as any)({ type: 'error', text1: 'Kod musi mieć 4-24 znaki A-Z/0-9' });
       return false;
     }
-    const token = await getToken();
-    if (!token) return false;
     setRefSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/referral/my-code`, {
+      const json = await apiRequest<any>('/referral/my-code', {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code }),
+        body: { code },
       });
-      const json = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        (Toast.show as any)({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać kodu' });
-        return false;
-      }
+      queryClient.setQueryData(['referral', 'my-code'], json);
       const nextCode = String(json?.code ?? code).toUpperCase();
       setRefCodeCurrent(nextCode);
       setRefCodeInput(nextCode);

@@ -22,9 +22,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ToastOriginal from 'react-native-toast-message';
 
-import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getAuthToken } from '../../lib/getAuthToken';
+import { apiRequest } from '../../lib/api/client';
+import { queryClient } from '../../lib/query/client';
 import { UAv } from './ClubCard';
 import {
   buildDraftStructure,
@@ -84,15 +84,6 @@ const TABS: { key: ClubManagementTab; label: string; icon: React.ComponentProps<
   { key: 'roles', label: 'Role', icon: 'shield' },
   { key: 'members', label: 'Ludzie', icon: 'group' },
 ];
-
-async function parseResponse<T = unknown>(response: Response): Promise<T> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = typeof data?.error === 'string' ? data.error : 'Nie udało się zapisać zmian';
-    throw new Error(message);
-  }
-  return data as T;
-}
 
 async function clubAvatarFromLibrary(): Promise<string | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
@@ -165,12 +156,11 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
   const refreshClub = useCallback(async (markChanged = false) => {
     const clubId = latestClubRef.current?.id ?? club?.id;
     if (!clubId) return null;
-    const token = await getAuthToken();
-    if (!token) throw new Error('Zaloguj się ponownie');
-    const response = await fetch(`${API_URL}/api/clubs/${clubId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const nextClub = await queryClient.fetchQuery({
+      queryKey: ['clubs', 'detail', clubId],
+      queryFn: ({ signal }) => apiRequest<Club>(`/clubs/${clubId}`, { signal, priority: 'visible' }),
+      staleTime: markChanged ? 0 : 15_000,
     });
-    const nextClub = await parseResponse<Club>(response);
     applyClub(nextClub, markChanged);
     return nextClub;
   }, [applyClub, club?.id]);
@@ -180,12 +170,12 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     if (!clubId) return;
     setInvitesLoading(true);
     try {
-      const token = await getAuthToken();
-      if (!token) return;
-      const response = await fetch(`${API_URL}/api/clubs/${clubId}/invites`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const nextInvites = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'invites', clubId],
+        queryFn: ({ signal }) => apiRequest<PendingInvite[]>(`/clubs/${clubId}/invites`, { signal, priority: 'visible' }),
+        staleTime: 10_000,
       });
-      if (response.ok) setInvites(await response.json());
+      setInvites(nextInvites);
     } finally {
       setInvitesLoading(false);
     }
@@ -262,20 +252,17 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     }
     setSaving(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
       const form = new FormData();
       form.append('name', name.trim());
       form.append('description', description.trim());
       form.append('isPrivate', String(isPrivate));
       form.append('joinNotificationChannelId', localClub.joinNotificationChannelId ? String(localClub.joinNotificationChannelId) : 'null');
       if (avatarUri) form.append('avatar', { uri: avatarUri, name: 'club-avatar.jpg', type: 'image/jpeg' } as never);
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}`, {
+      const updated = await apiRequest<Club>(`/clubs/${localClub.id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const updated = await parseResponse<Club>(response);
+      queryClient.setQueryData(['clubs', 'detail', localClub.id], updated);
       applyClub(updated, true);
       Toast.show({ type: 'success', text1: 'Profil klubu zapisany' });
     } catch (error) {
@@ -344,19 +331,15 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     }
     setSaving(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
       const categoryIds = new Map<string, number>();
       for (const category of categories) {
         if (category.id) {
           categoryIds.set(category.key, category.id);
           continue;
         }
-        const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/categories`, {
-          method: 'POST', headers, body: JSON.stringify({ name: category.name.trim() }),
+        const created = await apiRequest<{ id: number }>(`/clubs/${localClub.id}/categories`, {
+          method: 'POST', body: { name: category.name.trim() },
         });
-        const created = await parseResponse<{ id: number }>(response);
         categoryIds.set(category.key, created.id);
       }
 
@@ -366,23 +349,20 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
           channelIds.set(channel.key, channel.id);
           continue;
         }
-        const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/channels`, {
+        const created = await apiRequest<{ id: number }>(`/clubs/${localClub.id}/channels`, {
           method: 'POST',
-          headers,
-          body: JSON.stringify({
+          body: {
             name: channel.name.trim(),
             categoryId: channel.categoryKey ? categoryIds.get(channel.categoryKey) ?? null : null,
             isReadOnly: channel.isReadOnly,
-          }),
+          },
         });
-        const created = await parseResponse<{ id: number }>(response);
         channelIds.set(channel.key, created.id);
       }
 
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/structure`, {
+      const updated = await apiRequest<Club>(`/clubs/${localClub.id}/structure`, {
         method: 'PATCH',
-        headers,
-        body: JSON.stringify({
+        body: {
           categories: categories.map((category, position) => ({
             id: categoryIds.get(category.key),
             name: category.name.trim(),
@@ -397,9 +377,9 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
           })),
           joinNotificationChannelId: joinChannelKey ? channelIds.get(joinChannelKey) ?? null : null,
           pruneMissing: true,
-        }),
+        },
       });
-      const updated = await parseResponse<Club>(response);
+      queryClient.setQueryData(['clubs', 'detail', localClub.id], updated);
       applyClub(updated, true);
       Toast.show({ type: 'success', text1: 'Układ kanałów zapisany' });
     } catch (error) {
@@ -440,19 +420,16 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     }
     setSaving(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/ranks${rankDraft.id ? `/${rankDraft.id}` : ''}`, {
+      await apiRequest(`/clubs/${localClub.id}/ranks${rankDraft.id ? `/${rankDraft.id}` : ''}`, {
         method: rankDraft.id ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
+        body: {
           name: rankDraft.name.trim(),
           color: rankDraft.color,
           priority: Number(rankDraft.priority) || 0,
           ...rankDraft.permissions,
-        }),
+        },
       });
-      await parseResponse(response);
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', localClub.id] });
       await refreshClub(true);
       setRankDraft(null);
       Toast.show({ type: 'success', text1: rankDraft.id ? 'Rola zapisana' : 'Rola utworzona' });
@@ -472,12 +449,10 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
         style: 'destructive',
         onPress: async () => {
           try {
-            const token = await getAuthToken();
-            if (!token) throw new Error('Zaloguj się ponownie');
-            const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/ranks/${rank.id}`, {
-              method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+            await apiRequest(`/clubs/${localClub.id}/ranks/${rank.id}`, {
+              method: 'DELETE',
             });
-            await parseResponse(response);
+            await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', localClub.id] });
             await refreshClub(true);
             if (rankDraft?.id === rank.id) setRankDraft(null);
           } catch (error) {
@@ -497,14 +472,11 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     if (!localClub || !selectedMember || !isOwner || memberBusy) return;
     setMemberBusy(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/members/${selectedMember.userId}/ranks`, {
+      await apiRequest(`/clubs/${localClub.id}/members/${selectedMember.userId}/ranks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ rankIds: selectedRankIds }),
+        body: { rankIds: selectedRankIds },
       });
-      await parseResponse(response);
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', localClub.id] });
       await refreshClub(true);
       Toast.show({ type: 'success', text1: `Role ${selectedMember.username} zapisane` });
     } catch (error) {
@@ -518,14 +490,11 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     if (!localClub || !selectedMember || !canMute || memberBusy) return;
     setMemberBusy(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/members/${selectedMember.userId}/mute`, {
+      await apiRequest(`/clubs/${localClub.id}/members/${selectedMember.userId}/mute`, {
         method: selectedMember.isMuted ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: selectedMember.isMuted ? undefined : JSON.stringify({ durationMinutes: 60 }),
+        body: selectedMember.isMuted ? undefined : { durationMinutes: 60 },
       });
-      await parseResponse(response);
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', localClub.id] });
       await refreshClub(true);
       Toast.show({ type: 'success', text1: selectedMember.isMuted ? 'Członek odciszony' : 'Członek wyciszony na godzinę' });
     } catch (error) {
@@ -543,14 +512,11 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
         text: 'Wyrzuć', style: 'destructive', onPress: async () => {
           setMemberBusy(true);
           try {
-            const token = await getAuthToken();
-            if (!token) throw new Error('Zaloguj się ponownie');
-            const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/members/${selectedMember.userId}/kick`, {
+            await apiRequest(`/clubs/${localClub.id}/members/${selectedMember.userId}/kick`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ reason: 'Moderacja klubu' }),
+              body: { reason: 'Moderacja klubu' },
             });
-            await parseResponse(response);
+            await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', localClub.id] });
             setSelectedMemberId(null);
             await refreshClub(true);
             Toast.show({ type: 'success', text1: `${selectedMember.username} usunięty z klubu` });
@@ -568,15 +534,12 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
     if (!localClub || !canManage || !inviteUsername.trim() || inviteBusy) return;
     setInviteBusy(true);
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
       const username = inviteUsername.trim();
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/invites`, {
+      await apiRequest(`/clubs/${localClub.id}/invites`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ username }),
+        body: { username },
       });
-      await parseResponse(response);
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'invites', localClub.id] });
       setInviteUsername('');
       await loadInvites();
       Toast.show({ type: 'success', text1: `Zaproszono ${username}` });
@@ -590,12 +553,12 @@ export default function EditClubModal({ visible, club, initialTab = 'overview', 
   const cancelInvite = async (inviteId: number) => {
     if (!localClub || !canManage) return;
     try {
-      const token = await getAuthToken();
-      if (!token) throw new Error('Zaloguj się ponownie');
-      const response = await fetch(`${API_URL}/api/clubs/${localClub.id}/invites/${inviteId}`, {
-        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      await apiRequest(`/clubs/${localClub.id}/invites/${inviteId}`, {
+        method: 'DELETE',
       });
-      await parseResponse(response);
+      queryClient.setQueryData<PendingInvite[]>(['clubs', 'invites', localClub.id], (current) => (
+        current?.filter((invite) => invite.id !== inviteId) ?? []
+      ));
       setInvites((current) => current.filter((invite) => invite.id !== inviteId));
     } catch (error) {
       Toast.show({ type: 'error', text1: 'Nie anulowano zaproszenia', text2: error instanceof Error ? error.message : undefined });

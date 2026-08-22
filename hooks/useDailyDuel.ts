@@ -1,218 +1,152 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
-import { API_URL } from '../constants/config';
-import { usePerformance } from '../contexts/PerformanceContext';
-import { useManagedInterval } from './useManagedInterval';
+import { useCallback, useMemo } from 'react';
+import Toast from 'react-native-toast-message';
 import type {
   DailyDuelCarSide,
   DailyDuelData,
   DailyDuelSubmission,
 } from '../components/community/dailyDuelTypes';
+import { usePerformance } from '../contexts/PerformanceContext';
+import { apiRequest } from '../lib/api/client';
 
-const getToken = async () =>
-  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+type DuelCardResponse = { duel: DailyDuelData | null };
+type DuelHistoryResponse = { history: DailyDuelData[] };
+type DuelSubmissionResponse = { submission: DailyDuelSubmission | null; cars: DailyDuelCarSide[] };
+type UseDailyDuelOptions = { includeHistory?: boolean; includeSubmission?: boolean };
 
-const showToast = (type: 'success' | 'error', text1: string) => {
-  Toast.show({ type, text1 } as Parameters<typeof Toast.show>[0]);
+export const dailyDuelKeys = {
+  card: ['daily-duel', 'card'] as const,
+  history: ['daily-duel', 'history'] as const,
+  submission: ['daily-duel', 'submission'] as const,
 };
 
-export function useDailyDuel(pollMs = 30000) {
+function operationId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function toast(type: 'success' | 'error', text1: string) {
+  Toast.show({ type, text1 } as Parameters<typeof Toast.show>[0]);
+}
+
+export function useDailyDuel(pollMs = 30000, options: UseDailyDuelOptions = {}) {
   const isFocused = useIsFocused();
   const { appActive } = usePerformance();
-  const [duel, setDuel] = useState<DailyDuelData | null>(null);
-  const [history, setHistory] = useState<DailyDuelData[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [voting, setVoting] = useState(false);
-  const [submission, setSubmission] = useState<DailyDuelSubmission | null>(null);
-  const [eligibleCars, setEligibleCars] = useState<DailyDuelCarSide[]>([]);
-  const [submissionLoading, setSubmissionLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const mounted = useRef(true);
+  const queryClient = useQueryClient();
+  const enabled = isFocused && appActive;
+  const includeHistory = options.includeHistory !== false;
+  const includeSubmission = options.includeSubmission !== false;
 
-  const fetchHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/daily-duel/history?limit=10`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (mounted.current) setHistory(Array.isArray(data.history) ? data.history : []);
-    } catch {
-      /* ignore */
-    } finally {
-      if (mounted.current) setHistoryLoading(false);
-    }
-  }, []);
-
-  const fetchDuel = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/daily-duel/current`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (mounted.current) {
-        const next = data.duel ?? null;
-        setDuel(prev => {
-          if (!next) return null;
-          if (!prev || prev.id !== next.id) return next;
-          if (prev.myVoteCarId === next.myVoteCarId) {
-            return prev;
-          }
-          return next;
-        });
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      if (mounted.current && !silent) setLoading(false);
-    }
-  }, []);
-
-  const fetchSubmission = useCallback(async () => {
-    setSubmissionLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!mounted.current) return;
-      setSubmission(data?.submission ?? null);
-      setEligibleCars(Array.isArray(data?.cars) ? data.cars : []);
-    } catch {
-      /* ignore */
-    } finally {
-      if (mounted.current) setSubmissionLoading(false);
-    }
-  }, []);
-
-  const submitCar = useCallback(async (carId: number) => {
-    setSubmitting(true);
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ carId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showToast('error', data?.error ?? 'Nie udało się zgłosić auta');
-        return false;
-      }
-      setSubmission(data.submission ?? null);
-      showToast('success', 'Auto zgłoszone do pojedynku!');
-      return true;
-    } catch {
-      showToast('error', 'Błąd połączenia');
-      return false;
-    } finally {
-      setSubmitting(false);
-    }
-  }, []);
-
-  const cancelSubmission = useCallback(async () => {
-    setSubmitting(true);
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return false;
-      setSubmission(null);
-      showToast('success', 'Zgłoszenie wycofane');
-      return true;
-    } catch {
-      showToast('error', 'Błąd połączenia');
-      return false;
-    } finally {
-      setSubmitting(false);
-    }
-  }, []);
-
-  const vote = useCallback(async (carId: number) => {
-    setVoting(true);
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/daily-duel/vote`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ carId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast('error', data?.error ?? 'Nie udało się zagłosować');
-        return false;
-      }
-      setDuel(data.duel ?? null);
-      showToast('success', 'Głos oddany!');
-      return true;
-    } catch {
-      showToast('error', 'Błąd połączenia');
-      return false;
-    } finally {
-      setVoting(false);
-    }
-  }, []);
-
-  const pollDuel = useCallback(() => { void fetchDuel(true); }, [fetchDuel]);
-
-  useManagedInterval({
-    id: 'community:daily-duel-poll',
-    callback: pollDuel,
-    intervalMs: pollMs,
-    policy: 'activeOnly',
-    sceneActive: isFocused,
+  const cardQuery = useQuery({
+    queryKey: dailyDuelKeys.card,
+    queryFn: ({ signal }) => apiRequest<DuelCardResponse>('/api/v2/daily-duel/card', { signal, priority: 'critical' }),
+    enabled,
+    staleTime: 20_000,
+    refetchInterval: enabled ? pollMs : false,
+  });
+  const historyQuery = useQuery({
+    queryKey: dailyDuelKeys.history,
+    queryFn: ({ signal }) => apiRequest<DuelHistoryResponse>('/api/daily-duel/history?limit=10', { signal, priority: 'visible' }),
+    enabled: enabled && includeHistory,
+    staleTime: 60_000,
+  });
+  const submissionQuery = useQuery({
+    queryKey: dailyDuelKeys.submission,
+    queryFn: ({ signal }) => apiRequest<DuelSubmissionResponse>('/api/daily-duel/submission', { signal, priority: 'visible' }),
+    enabled: enabled && includeSubmission,
+    staleTime: 60_000,
   });
 
-  useEffect(() => {
-    if (!isFocused || !appActive) {
-      mounted.current = false;
-      return undefined;
-    }
-    mounted.current = true;
-    void fetchDuel();
-    void fetchHistory();
-    void fetchSubmission();
-    return () => {
-      mounted.current = false;
-    };
-  }, [appActive, fetchDuel, fetchHistory, fetchSubmission, isFocused]);
+  const voteMutation = useMutation({
+    networkMode: 'online',
+    mutationFn: async (carId: number) => {
+      const duel = queryClient.getQueryData<DuelCardResponse>(dailyDuelKeys.card)?.duel;
+      if (!duel) throw new Error('Brak aktywnego pojedynku');
+      const id = operationId('duel-vote');
+      return apiRequest<{ entity: { duelId: number; myVoteCarId: number } }>(`/api/v2/daily-duel/${duel.id}/vote`, {
+        method: 'PUT',
+        body: { carId },
+        idempotencyKey: id,
+        priority: 'mutation',
+      });
+    },
+    onMutate: async (carId) => {
+      await queryClient.cancelQueries({ queryKey: dailyDuelKeys.card });
+      const previous = queryClient.getQueryData<DuelCardResponse>(dailyDuelKeys.card);
+      queryClient.setQueryData<DuelCardResponse>(dailyDuelKeys.card, (current) => ({
+        duel: current?.duel ? { ...current.duel, myVoteCarId: carId } : null,
+      }));
+      return { previous };
+    },
+    onError: (_error, _carId, context) => {
+      if (context?.previous) queryClient.setQueryData(dailyDuelKeys.card, context.previous);
+    },
+  });
 
-  return {
-    duel,
-    history,
-    historyLoading,
-    loading,
-    voting,
-    submission,
-    eligibleCars,
-    submissionLoading,
-    submitting,
-    refresh: fetchDuel,
-    refreshHistory: fetchHistory,
-    refreshSubmission: fetchSubmission,
+  const submitMutation = useMutation({
+    mutationFn: (carId: number) => apiRequest<{ submission: DailyDuelSubmission }>('/api/daily-duel/submission', {
+      method: 'POST', body: { carId }, priority: 'mutation',
+    }),
+    onSuccess: (data) => queryClient.setQueryData<DuelSubmissionResponse>(dailyDuelKeys.submission, (current) => ({
+      cars: current?.cars || [], submission: data.submission,
+    })),
+  });
+  const cancelMutation = useMutation({
+    mutationFn: () => apiRequest<{ success: boolean }>('/api/daily-duel/submission', { method: 'DELETE', priority: 'mutation' }),
+    onSuccess: () => queryClient.setQueryData<DuelSubmissionResponse>(dailyDuelKeys.submission, (current) => ({
+      cars: current?.cars || [], submission: null,
+    })),
+  });
+
+  const vote = useCallback(async (carId: number) => {
+    try {
+      await voteMutation.mutateAsync(carId);
+      toast('success', 'Głos oddany!');
+      return true;
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Nie udało się zagłosować');
+      return false;
+    }
+  }, [voteMutation]);
+  const submitCar = useCallback(async (carId: number) => {
+    try {
+      await submitMutation.mutateAsync(carId);
+      toast('success', 'Auto zgłoszone do pojedynku!');
+      return true;
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Nie udało się zgłosić auta');
+      return false;
+    }
+  }, [submitMutation]);
+  const cancelSubmission = useCallback(async () => {
+    try {
+      await cancelMutation.mutateAsync();
+      toast('success', 'Zgłoszenie wycofane');
+      return true;
+    } catch {
+      toast('error', 'Błąd połączenia');
+      return false;
+    }
+  }, [cancelMutation]);
+
+  return useMemo(() => ({
+    duel: cardQuery.data?.duel ?? null,
+    history: historyQuery.data?.history ?? [],
+    historyLoading: historyQuery.isPending,
+    loading: cardQuery.isPending && !cardQuery.data,
+    voting: voteMutation.isPending,
+    submission: submissionQuery.data?.submission ?? null,
+    eligibleCars: submissionQuery.data?.cars ?? [],
+    submissionLoading: submissionQuery.isPending,
+    submitting: submitMutation.isPending || cancelMutation.isPending,
+    refresh: () => cardQuery.refetch(),
+    refreshHistory: () => historyQuery.refetch(),
+    refreshSubmission: () => submissionQuery.refetch(),
     vote,
     submitCar,
     cancelSubmission,
-  };
+  }), [
+    cancelMutation.isPending, cancelSubmission, cardQuery, historyQuery, submissionQuery,
+    submitCar, submitMutation.isPending, vote, voteMutation.isPending,
+  ]);
 }

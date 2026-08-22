@@ -47,6 +47,9 @@ export interface UnifiedChatMessage {
   routeData?: Record<string, unknown> | null;
   vroomkiData?: Record<string, unknown> | null;
   isRead?: boolean;
+  clientRequestId?: string | null;
+  deliveryStatus?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  deliveryError?: string | null;
   /** Original API message — passed back to screen handlers */
   raw?: unknown;
 }

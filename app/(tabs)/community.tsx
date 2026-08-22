@@ -200,7 +200,10 @@ export default function Community() {
   const duelVsAnimation = pickAppAnimationForValue(animations, 'community_daily_duel_vs');
   const insets = useSafeAreaInsets();
   const tabScrollBottomPad = useTabScrollBottomPadding(20);
-  const { duel, loading: duelLoading } = useDailyDuel(30000);
+  const { duel, loading: duelLoading } = useDailyDuel(30000, {
+    includeHistory: false,
+    includeSubmission: false,
+  });
   const go = (route: string) => router.push(route as any);
 
   return (

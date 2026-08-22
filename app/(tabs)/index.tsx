@@ -43,6 +43,8 @@ import { PartnerBannersSection } from "../../components/home/PartnerBannersSecti
 import { VroomShopCard } from "../../components/home/VroomShopCard";
 import { SeasonSpotlightCard } from "../../components/seasons/SeasonSpotlightCard";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
+import { apiRequest } from "../../lib/api/client";
+import { queryClient } from "../../lib/query/client";
 import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
 import { StreakUnlockFx } from "../../components/motion";
@@ -95,7 +97,7 @@ async function fetchFreshUser(): Promise<User | null> {
 	try {
 		const token = await getToken();
 		if (!token) return null;
-		const meRes = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
+		const meRes = await fetch(`${API_URL}/api/profile/me`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		if (!meRes.ok) return null;
@@ -152,14 +154,17 @@ export default function HomeScreen() {
 
 	const fetchNotifUnread = useCallback(async () => {
 		try {
-			const token = await getToken();
-			if (!token) return;
-			const r = await fetch(`${API_URL}/api/notifications?limit=1&page=1`, {
-				headers: { Authorization: `Bearer ${token}` },
+			type Bootstrap = { counters?: { unreadNotifications?: number } };
+			const cached = queryClient.getQueryData<Bootstrap>(['bootstrap']);
+			if (typeof cached?.counters?.unreadNotifications === 'number') {
+				setNotifUnread(cached.counters.unreadNotifications);
+			}
+			const bootstrap = await queryClient.fetchQuery({
+				queryKey: ['bootstrap'],
+				queryFn: () => apiRequest<Bootstrap>('/v2/bootstrap', { priority: 'background' }),
+				staleTime: 30_000,
 			});
-			if (!r.ok) return;
-			const j = await r.json();
-			setNotifUnread(typeof j.unreadCount === "number" ? j.unreadCount : 0);
+			setNotifUnread(bootstrap.counters?.unreadNotifications ?? 0);
 		} catch {
 			/* ignore */
 		}

@@ -38,6 +38,9 @@ export function mapDmMessageToUnified(msg: {
     sender: { id: number; username: string };
   } | null;
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
+  clientRequestId?: string | null;
+  deliveryStatus?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  deliveryError?: string | null;
 }): UnifiedChatMessage {
   const routeData = parseRouteMessage(msg.content);
   const vroomkiData = routeData ? null : parseVroomkiMessage(msg.content);
@@ -58,6 +61,9 @@ export function mapDmMessageToUnified(msg: {
         }
       : null,
     reactions: msg.reactions,
+    clientRequestId: msg.clientRequestId,
+    deliveryStatus: msg.deliveryStatus,
+    deliveryError: msg.deliveryError,
     routeData,
     vroomkiData,
     raw: msg,

@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useEffect, useCallback } from 'react';
 import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
-import { io, Socket } from 'socket.io-client';
+import { apiRequest } from '../lib/api/client';
+import { currentSharedSocket, subscribeSharedSocket } from '../lib/sharedSocket';
 
-const API = 'https://v-room.app/api/chat';
-const WS  = 'https://v-room.app';
+const API = '/chat';
 
 export interface ChatUser {
   id:        number;
@@ -60,132 +59,14 @@ export function useChat(options: UseChatOptions = {}) {
   const [friends,       setFriends]       = useState<ChatUser[]>([]);
   const [requests,      setRequests]      = useState<FriendRequest[]>([]);
   const [loading,       setLoading]       = useState(false);
-  const socketRef = useRef<Socket | null>(null);
-  const tokenRef  = useRef<string>('');
-
-  // ── Auth headers ─────────────────────────────────────────
-  const headers = useCallback(async () => {
-    if (!tokenRef.current) {
-      tokenRef.current = await AsyncStorage.getItem('token') ?? '';
-    }
-    return {
-      Authorization:  `Bearer ${tokenRef.current}`,
-      'Content-Type': 'application/json',
-    };
-  }, []);
-
-  // ── Init socket ──────────────────────────────────────────
-  useEffect(() => {
-    if (!realtime) return undefined;
-    (async () => {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) return;
-      tokenRef.current = token;
-
-      const socket = io(WS, {
-        auth:       { token },
-        transports: ['websocket'],
-      });
-
-      socket.on('connect', () => {
-        console.log('💬 Chat socket connected');
-      });
-
-      // Nowa wiadomość — aktualizuj listę konwersacji
-      socket.on('chat:notification', ({ conversationId, message }) => {
-        setConversations(prev => {
-          // Guard: jeśli state nie jest tablicą (race condition) — zresetuj
-          if (!Array.isArray(prev)) return [];
-
-          return prev
-            .map(c =>
-              c.id === conversationId
-                ? {
-                    ...c,
-                    unread: c.unread + 1,
-                    lastMessage: {
-                      content:    message.content,
-                      photos:     [],
-                      createdAt:  new Date().toISOString(),
-                      senderName: message.senderName,
-                      isMe:       false,
-                    },
-                  }
-                : c,
-            )
-            .sort((a, b) => {
-              const aTime = a.lastMessage?.createdAt ?? '';
-              const bTime = b.lastMessage?.createdAt ?? '';
-              return bTime.localeCompare(aTime);
-            });
-        });
-      });
-
-      // Nowa konwersacja
-      socket.on('chat:new_conversation', () => {
-        fetchConversations();
-      });
-
-      // Zaproszenie do znajomych
-      socket.on('friend:request', (data) => {
-        const normalized = {
-          id: Number(data?.id ?? data?.friendshipId),
-          status: data?.status ?? 'pending',
-          requester: data?.requester ?? data?.from,
-        };
-        if (!Number.isFinite(normalized.id) || !normalized.requester) return;
-        setRequests(prev => {
-          const src = Array.isArray(prev) ? prev : [];
-          if (src.some((r) => r.id === normalized.id)) return src;
-          return [...src, normalized as FriendRequest];
-        });
-      });
-
-      socket.on('friend:accepted', () => {
-        fetchFriends();
-      });
-
-      const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
-        const uid = Number(userId);
-        if (!Number.isFinite(uid)) return;
-        setFriends(prev =>
-          Array.isArray(prev)
-            ? prev.map(f => (f.id === uid ? { ...f, online } : f))
-            : prev,
-        );
-        setConversations(prev => {
-          if (!Array.isArray(prev)) return prev;
-          return prev.map(c => ({
-            ...c,
-            online: !c.isGroup && c.participants.some(p => p.id === uid) ? online : c.online,
-            participants: c.participants.map(p =>
-              p.id === uid ? { ...p, online } : p,
-            ),
-          }));
-        });
-      };
-
-      socket.on('presence:update', applyPresence);
-      socket.on('user:online', applyPresence);
-
-      socketRef.current = socket;
-    })();
-
-    return () => {
-      socketRef.current?.disconnect();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realtime]);
 
   // ── Fetch conversations ──────────────────────────────────
   const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
-      const h = await headers();
-      const r = await fetch(`${API}/conversations`, { headers: h });
-      const d = await r.json();
+      const d = await apiRequest<any>('/v2/chat/conversations?limit=30', { priority: 'visible' });
       // Backend zwraca { conversations, nextCursor } lub tablicę (stary format)
-      const list = Array.isArray(d) ? d : (Array.isArray(d?.conversations) ? d.conversations : []);
+      const list = Array.isArray(d) ? d : (Array.isArray(d?.items) ? d.items : (Array.isArray(d?.conversations) ? d.conversations : []));
       setConversations(list);
     } catch (e) {
       console.error('fetchConversations:', e);
@@ -193,48 +74,39 @@ export function useChat(options: UseChatOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [headers]);
+  }, []);
 
   // ── Fetch friends ────────────────────────────────────────
   const fetchFriends = useCallback(async () => {
     try {
-      const h = await headers();
-      const r = await fetch(`${API}/friends`, { headers: h });
-      const d = await r.json();
+      const d = await apiRequest<any>(`${API}/friends`, { priority: 'visible' });
       setFriends(Array.isArray(d) ? d : []);
     } catch (e) {
       console.error('fetchFriends:', e);
       setFriends([]);
     }
-  }, [headers]);
+  }, []);
 
   // ── Fetch friend requests ────────────────────────────────
   const fetchRequests = useCallback(async () => {
     try {
-      const h = await headers();
-      const r = await fetch(`${API}/friends/requests`, { headers: h });
-      const d = await r.json();
+      const d = await apiRequest<any>(`${API}/friends/requests`, { priority: 'visible' });
       setRequests(Array.isArray(d) ? d : []);
     } catch (e) {
       console.error('fetchRequests:', e);
       setRequests([]);
     }
-  }, [headers]);
+  }, []);
 
   // ── Search users ─────────────────────────────────────────
   const searchUsers = useCallback(async (q: string): Promise<ChatUser[]> => {
     try {
-      const h = await headers();
-      const r = await fetch(
-        `${API}/users/search?q=${encodeURIComponent(q)}`,
-        { headers: h },
-      );
-      const d = await r.json();
+      const d = await apiRequest<any>(`${API}/users/search?q=${encodeURIComponent(q)}`, { priority: 'critical' });
       return Array.isArray(d) ? d : [];
     } catch {
       return [];
     }
-  }, [headers]);
+  }, []);
 
   // ── Start / find conversation ────────────────────────────
   const startConversation = useCallback(async (
@@ -242,96 +114,125 @@ export function useChat(options: UseChatOptions = {}) {
     isGroup = false,
     name?: string,
   ): Promise<number | null> => {
-    const h = await headers();
-    const r = await fetch(`${API}/conversations`, {
+    const d = await apiRequest<any>(`${API}/conversations`, {
       method:  'POST',
-      headers: h,
-      body:    JSON.stringify({ userIds, isGroup, name }),
+      body:    { userIds, isGroup, name },
     });
-    const d = await r.json();
-    if (!r.ok) {
-      const err: Error & { code?: string | null; status?: number } = new Error(d?.error ?? 'startConversation failed');
-      err.code   = d?.code ?? null;
-      err.status = r.status;
-      throw err;
-    }
     if (autoFetch) await fetchConversations();
     return d.id ?? null;
-  }, [autoFetch, headers, fetchConversations]);
+  }, [autoFetch, fetchConversations]);
 
   // ── Send friend request ──────────────────────────────────
   const sendFriendRequest = useCallback(async (userId: number) => {
-    const h = await headers();
-    const r = await fetch(`${API}/friends/request`, {
+    return apiRequest(`${API}/friends/request`, {
       method:  'POST',
-      headers: h,
-      body:    JSON.stringify({ userId }),
+      body:    { userId },
     });
-    return r.json();
-  }, [headers]);
+  }, []);
 
   // ── Accept friend request ────────────────────────────────
   const acceptRequest = useCallback(async (friendshipId: number) => {
-    const h = await headers();
-    const res = await fetch(`${API}/friends/${friendshipId}/accept`, {
+    await apiRequest(`${API}/friends/${friendshipId}/accept`, {
       method:  'POST',
-      headers: h,
     });
-    if (!res.ok) throw new Error('accept_failed');
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
     emitFriendInviteHandled(friendshipId);
     fetchFriends();
-  }, [headers, fetchFriends]);
+  }, [fetchFriends]);
 
   // ── Reject friend request ────────────────────────────────
   const rejectRequest = useCallback(async (friendshipId: number) => {
-    const h = await headers();
-    const res = await fetch(`${API}/friends/${friendshipId}/reject`, {
+    await apiRequest(`${API}/friends/${friendshipId}/reject`, {
       method:  'POST',
-      headers: h,
     });
-    if (!res.ok) throw new Error('reject_failed');
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
     emitFriendInviteHandled(friendshipId);
-  }, [headers]);
+  }, []);
 
   // ── Remove friend ────────────────────────────────────────
   const removeFriend = useCallback(async (friendshipId: number) => {
-    const h = await headers();
-    const res = await fetch(`${API}/friends/${friendshipId}`, {
+    await apiRequest(`${API}/friends/${friendshipId}`, {
       method:  'DELETE',
-      headers: h,
     });
-    if (!res.ok) throw new Error('remove_failed');
     fetchFriends();
-  }, [headers, fetchFriends]);
+  }, [fetchFriends]);
 
   // ── Get friend status ────────────────────────────────────
   const getFriendStatus = useCallback(async (userId: number) => {
-    const h = await headers();
-    const r = await fetch(`${API}/friends/status/${userId}`, { headers: h });
-    return r.json();
-  }, [headers]);
+    return apiRequest(`${API}/friends/status/${userId}`, { priority: 'critical' });
+  }, []);
+
+  useEffect(() => {
+    if (!realtime) return undefined;
+    let disposed = false;
+    let unsubscribe: (() => void)[] = [];
+    const onNotification = ({ conversationId, message }: any) => {
+      setConversations((previous) => previous
+        .map((conversation) => conversation.id === conversationId ? {
+          ...conversation,
+          unread: conversation.unread + 1,
+          lastMessage: {
+            content: message.content,
+            photos: [],
+            createdAt: new Date().toISOString(),
+            senderName: message.senderName,
+            isMe: false,
+          },
+        } : conversation)
+        .sort((left, right) => (right.lastMessage?.createdAt ?? '').localeCompare(left.lastMessage?.createdAt ?? '')));
+    };
+    const onFriendRequest = (data: any) => {
+      const normalized = { id: Number(data?.id ?? data?.friendshipId), status: data?.status ?? 'pending', requester: data?.requester ?? data?.from };
+      if (!Number.isFinite(normalized.id) || !normalized.requester) return;
+      setRequests((previous) => previous.some((request) => request.id === normalized.id)
+        ? previous
+        : [...previous, normalized as FriendRequest]);
+    };
+    const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
+      const id = Number(userId);
+      if (!Number.isFinite(id)) return;
+      setFriends((previous) => previous.map((friend) => friend.id === id ? { ...friend, online } : friend));
+      setConversations((previous) => previous.map((conversation) => ({
+        ...conversation,
+        online: !conversation.isGroup && conversation.participants.some((participant) => participant.id === id) ? online : conversation.online,
+        participants: conversation.participants.map((participant) => participant.id === id ? { ...participant, online } : participant),
+      })));
+    };
+    void Promise.all([
+      subscribeSharedSocket('chat:notification', onNotification),
+      subscribeSharedSocket('chat:new_conversation', () => { void fetchConversations(); }),
+      subscribeSharedSocket('friend:request', onFriendRequest),
+      subscribeSharedSocket('friend:accepted', () => { void fetchFriends(); }),
+      subscribeSharedSocket('presence:update', applyPresence),
+      subscribeSharedSocket('user:online', applyPresence),
+    ]).then((cleanups) => {
+      if (disposed) cleanups.forEach((cleanup) => cleanup());
+      else unsubscribe = cleanups;
+    });
+    return () => {
+      disposed = true;
+      unsubscribe.forEach((cleanup) => cleanup());
+    };
+  }, [fetchConversations, fetchFriends, realtime]);
 
   // ── Init fetch ────────────────────────────────────��──────
   useEffect(() => {
     if (!autoFetch) return;
-    fetchConversations();
-    fetchFriends();
-    fetchRequests();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoFetch]);
+    void fetchConversations();
+    void fetchFriends();
+    void fetchRequests();
+  }, [autoFetch, fetchConversations, fetchFriends, fetchRequests]);
 
   return {
     conversations,
     friends,
     requests,
     loading,
-    socket:             socketRef.current,
+    socket:             currentSharedSocket(),
     fetchConversations,
     fetchFriends,
     fetchRequests,

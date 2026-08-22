@@ -3,7 +3,6 @@ import { onProfileClubUpdated } from '../lib/profileClubSync';
 import { onProfileStatsUpdated } from '../lib/profileStatsSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { API_URL } from '../constants/config';
 import type { UserProfile } from '../constants/profile';
 import { mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import {
@@ -12,14 +11,8 @@ import {
   withAvatarCacheBust,
 } from '../lib/avatarUri';
 import { filterVisibleRideHistory } from '../lib/activityHistoryFilter';
-import { fetchOwnGamificationProfileSummary } from '../lib/gamificationClient';
-
-const getToken = async (): Promise<string | null> => {
-  return (
-    (await AsyncStorage.getItem('userToken')) ??
-    (await AsyncStorage.getItem('token'))
-  );
-};
+import { apiRequest } from '../lib/api/client';
+import { queryClient } from '../lib/query/client';
 
 function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: number | null }): UserProfile {
   let avatarUrl = u.avatarUrl ?? u.avatar ?? null;
@@ -59,8 +52,8 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     spotifyProfileTrack: u.spotifyProfileTrack ?? null,
     discord: u.discord ?? null,
     club:          opts?.includeClub ? (u.club ?? null) : null,
-    followersCount: u.followersCount ?? 0,  
-    followingCount: u.followingCount ?? 0,
+    followersCount: u.followersCount ?? u.counts?.followers ?? 0,
+    followingCount: u.followingCount ?? u.counts?.following ?? 0,
     nitroBalance: u.nitroBalance ?? 0,
     shopCosmetics: u.shopCosmetics ?? null,
     gamificationSummary: u.gamificationSummary ?? null,
@@ -133,7 +126,6 @@ export function useProfile() {
     if (!hadProfile) setLoading(true);
     setError(null);
     try {
-      const token    = await getToken();
       const localRaw = await AsyncStorage.getItem('user');
 
       // 1. Pokaż natychmiast z cache, ale nie nadpisuj istniejącego cluba w UI.
@@ -151,25 +143,16 @@ export function useProfile() {
         });
       }
 
-      if (!token) throw new Error('Brak tokenu');
-
       const avatarBustRaw = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
       const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
 
-      // 2. Odśwież z serwera — tu będzie club
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      const res = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      if (res.ok) {
-        const data = await res.json();
-        const userId = Number(data?.userId ?? data?.id);
-        if (Number.isFinite(userId) && userId > 0) {
-          data.gamificationSummary = await fetchOwnGamificationProfileSummary(userId);
-        }
+      // 2. Query pokazuje świeży cache natychmiast i deduplikuje równoległe wejścia.
+      const data = await queryClient.fetchQuery({
+        queryKey: ['profile', 'me'],
+        queryFn: ({ signal }) => apiRequest<any>('/profile/me', { signal, priority: 'critical' }),
+        staleTime: 30_000,
+      });
+      if (data) {
         const mapped = mapToProfile(data, {
           includeClub: true,
           avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,
@@ -206,14 +189,12 @@ export function useProfile() {
     setLoading(true);
     setError(null);
     try {
-      const token   = await getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`${API_URL}/api/profile/${userId}`, { headers });
-      if (!res.ok) throw new Error('Błąd pobierania profilu');
-      const data = await res.json();
-      setProfile(mapToProfile(data, { includeClub: true }));
+      const data = await queryClient.fetchQuery({
+        queryKey: ['profile', userId, 'summary'],
+        queryFn: ({ signal }) => apiRequest<{ profile: any }>(`/v2/profiles/${userId}/summary`, { signal }),
+        staleTime: 30_000,
+      });
+      setProfile(mapToProfile(data.profile, { includeClub: true }));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -228,14 +209,10 @@ export function useProfile() {
     setLoading(true);
     setError(null);
     try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
+      const data = await apiRequest<any>('/profile/me', {
         method:  'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(fields),
+        body: fields,
       });
-      if (!res.ok) throw new Error('Błąd aktualizacji profilu');
-      const data   = await res.json();
       const avatarBustRaw = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
       const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
       const mapped = mapToProfile(data, {
@@ -243,8 +220,17 @@ export function useProfile() {
         avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,
       });
       setProfile((prev) => ({
+        ...(prev || mapped),
         ...mapped,
+        totalDistance: mapped.totalDistance || prev?.totalDistance || 0,
+        dailyDistance: mapped.dailyDistance || prev?.dailyDistance || 0,
+        topSpeed: mapped.topSpeed || prev?.topSpeed || 0,
+        monthlyDistance: mapped.monthlyDistance || prev?.monthlyDistance || 0,
+        weeklyDistance: mapped.weeklyDistance || prev?.weeklyDistance || 0,
+        totalRides: mapped.totalRides || prev?.totalRides || 0,
+        monthlyRides: mapped.monthlyRides || prev?.monthlyRides || 0,
         club: mapped.club ?? prev?.club ?? null,
+        gamificationSummary: mapped.gamificationSummary ?? prev?.gamificationSummary ?? null,
       }));
 
       const localRaw = await AsyncStorage.getItem('user');
@@ -256,6 +242,8 @@ export function useProfile() {
         avatar:    mapped.avatarUrl,
         club:      undefined,
       }));
+      await queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+      await queryClient.invalidateQueries({ queryKey: ['profile', mapped.id, 'summary'] });
       return true;
     } catch (e: any) {
       setError(e.message);
@@ -270,13 +258,6 @@ export function useProfile() {
     setAvatarLoading(true);
     setError(null);
     try {
-      const token = await getToken();
-      if (!token) {
-        const msg = 'Brak sesji — zaloguj się ponownie.';
-        setError(msg);
-        return { ok: false, error: msg };
-      }
-
       let uploadUri = imageUri;
       try {
         const out = await ImageManipulator.manipulateAsync(
@@ -295,28 +276,10 @@ export function useProfile() {
       const form = new FormData();
       form.append('avatar', { uri: uploadUri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
 
-      const res = await fetch(`${API_URL}/api/profile/avatar`, {
+      const data = await apiRequest<{ avatarUrl?: string }>('/profile/avatar', {
         method:  'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body:    form,
+        body: form,
       });
-
-      if (!res.ok) {
-        let msg = `Błąd serwera (${res.status})`;
-        try {
-          const j = await res.json();
-          if (j?.error && typeof j.error === 'string') msg = j.error;
-        } catch {
-          try {
-            const t = await res.text();
-            if (t?.length && t.length < 200) msg = t;
-          } catch { /* ignore */ }
-        }
-        setError(msg);
-        return { ok: false, error: msg };
-      }
-
-      const data = await res.json();
       let avatarUrl = data?.avatarUrl as string | undefined;
       if (!avatarUrl) {
         const msg = 'Serwer nie zwrócił adresu avatara.';
@@ -341,6 +304,7 @@ export function useProfile() {
         avatarUrl,
         avatar: avatarUrl,
       }));
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
 
       return { ok: true };
     } catch (e: unknown) {
@@ -363,15 +327,16 @@ export function useProfile() {
     const append = !!opts?.append && !opts?.reset;
     setActivityHistoryLoadingMore(append);
     try {
-      const token = await getToken();
-      if (!token) return;
       const limit = Math.min(20, Math.max(1, opts?.limit ?? 20));
       const cursor = opts?.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : '';
-      const res = await fetch(`${API_URL}/api/activity/history?limit=${limit}${cursor}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await queryClient.fetchQuery({
+        queryKey: ['activity', 'history', limit, opts?.cursor || null],
+        queryFn: ({ signal }) => apiRequest<any>(`/activity/history?limit=${limit}${cursor}`, {
+          signal,
+          priority: append ? 'background' : 'visible',
+        }),
+        staleTime: 20_000,
       });
-      if (!res.ok) return;
-      const data = await res.json();
       const items = filterVisibleRideHistory(data.items ?? []);
       setActivityHistory((previous) => {
         if (!append) return items;
@@ -409,13 +374,11 @@ export function useProfile() {
     if (!Number.isInteger(id) || id <= 0 || routeRequestsRef.current.has(id)) return null;
     routeRequestsRef.current.add(id);
     try {
-      const token = await getToken();
-      if (!token) return null;
-      const res = await fetch(`${API_URL}/api/activity/history/${id}/route`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await queryClient.fetchQuery({
+        queryKey: ['activity', 'history', id, 'route'],
+        queryFn: ({ signal }) => apiRequest<any>(`/activity/history/${id}/route`, { signal, priority: 'visible' }),
+        staleTime: 24 * 60 * 60_000,
       });
-      if (!res.ok) return null;
-      const data = await res.json();
       const routePoints = Array.isArray(data?.routePoints) ? data.routePoints : [];
       let hydrated: any = null;
       setActivityHistory((previous) => previous.map((item) => {
@@ -440,20 +403,20 @@ export function useProfile() {
 
   const fetchMonthlyStats = useCallback(async () => {
     try {
-      const token = await getToken();
-      if (!token) return;
-      const [statsRes, compareRes] = await Promise.all([
-        fetch(`${API_URL}/api/activity/monthly-stats?months=12`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/activity/monthly-compare`, { headers: { Authorization: `Bearer ${token}` } }),
+      const [stats, compare] = await Promise.all([
+        queryClient.fetchQuery({
+          queryKey: ['activity', 'monthly-stats', 12],
+          queryFn: ({ signal }) => apiRequest<any>('/activity/monthly-stats?months=12', { signal, priority: 'background' }),
+          staleTime: 60_000,
+        }),
+        queryClient.fetchQuery({
+          queryKey: ['activity', 'monthly-compare'],
+          queryFn: ({ signal }) => apiRequest<any>('/activity/monthly-compare', { signal, priority: 'background' }),
+          staleTime: 60_000,
+        }),
       ]);
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        setMonthlyStats(data.stats ?? []);
-      }
-      if (compareRes.ok) {
-        const data = await compareRes.json();
-        setMonthlyCompare(data);
-      }
+      setMonthlyStats(stats?.stats ?? []);
+      setMonthlyCompare(compare ?? null);
     } catch {}
   }, []);
 

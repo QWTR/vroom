@@ -46,7 +46,7 @@ export async function syncProfileStatsFromServer(): Promise<boolean> {
 
     invalidateProfileMeClientCache();
 
-    const res = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
+    const res = await fetch(`${API_URL}/api/profile/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return false;

@@ -57,6 +57,26 @@ export default function ProfileScreen() {
   const [bannerCropUri, setBannerCropUri] = useState<string | null>(null);
   const [bannerCropSize, setBannerCropSize] = useState<{ w: number; h: number } | null>(null);
   const [bannerCropVisible, setBannerCropVisible] = useState(false);
+  const loadedStagesRef = useRef(new Set<'middle' | 'deep'>());
+  const profileUserIdRef = useRef<number | null>(null);
+
+  const loadViewportStage = useCallback(async (stage: 'middle' | 'deep') => {
+    const userId = profileUserIdRef.current;
+    if (!userId || loadedStagesRef.current.has(stage)) return;
+    loadedStagesRef.current.add(stage);
+    const results = stage === 'middle'
+      ? await Promise.allSettled([
+          fetchMyAchievements(),
+          fetchMyRoutes({ includeGeometry: false }),
+          fetchParticipated(),
+        ])
+      : await Promise.allSettled([
+          fetchUserSpots(userId),
+          fetchActivityHistory({ reset: true, limit: 20 }),
+          fetchMonthlyStats(),
+        ]);
+    if (results.every((result) => result.status === 'rejected')) loadedStagesRef.current.delete(stage);
+  }, [fetchActivityHistory, fetchMonthlyStats, fetchMyAchievements, fetchMyRoutes, fetchParticipated, fetchUserSpots]);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -146,20 +166,12 @@ export default function ProfileScreen() {
       const localUser = JSON.parse(raw);
       const userId: number = localUser.userId ?? localUser.id;
       if (!userId) { router.replace('/login'); return; }
-      void fetchProfile();
-      await Promise.all([
-        fetchCars(userId),
-        fetchMyAchievements(),
-        fetchUserSpots(userId),
-        fetchMyRoutes({ includeGeometry: false }),
-        fetchParticipated(),
-      ]);
-      setTimeout(() => {
-        fetchActivityHistory({ reset: true, limit: 20 });
-        fetchMonthlyStats();
-      }, 400);
+      profileUserIdRef.current = userId;
+      loadedStagesRef.current.clear();
+      await fetchProfile();
+      void fetchCars(userId);
     })();
-  }, []);
+  }, [fetchCars, fetchProfile, router]);
 
   const focusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useFocusEffect(
@@ -170,10 +182,12 @@ export default function ProfileScreen() {
           await flushActiveTripCheckpointForProfile();
           await flushPendingTripCheckpoint();
           await fetchProfile();
-          await Promise.all([
-            fetchActivityHistory({ reset: true, limit: 20 }),
-            fetchMonthlyStats(),
-          ]);
+          if (loadedStagesRef.current.has('deep')) {
+            await Promise.allSettled([
+              fetchActivityHistory({ reset: true, limit: 20 }),
+              fetchMonthlyStats(),
+            ]);
+          }
         })();
         void refreshPremiumAccess();
         void fetchSettings();
@@ -286,6 +300,7 @@ export default function ProfileScreen() {
         activityHistory={activityHistory}
         monthlyStats={monthlyStats}
         monthlyCompare={monthlyCompare}
+        onViewportStage={loadViewportStage}
         locationFriendsOnly={effectivePremium ? !!settings.locationFriendsOnly : false}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
         onBannerChange={(arg: any) => handleBannerChange(arg)}

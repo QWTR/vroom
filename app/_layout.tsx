@@ -29,7 +29,12 @@ import { PremiumProvider } from '../contexts/PremiumContext';
 import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
 import { AppTutorialProvider, useAppTutorial } from '../contexts/AppTutorialContext';
 import { PerformanceProvider } from '../contexts/PerformanceContext';
-import { API_URL } from '../constants/config';
+import { VroomQueryProvider } from '../components/query/VroomQueryProvider';
+import { SocialQueueBootstrap } from '../components/query/SocialQueueBootstrap';
+import { SharedSocketBootstrap } from '../components/query/SharedSocketBootstrap';
+import { installGlobalApiFetchOptimizer } from '../lib/api/globalFetchOptimizer';
+import { apiRequest } from '../lib/api/client';
+import { queryClient } from '../lib/query/client';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
 import { getLegalAcceptanceStatus } from '../lib/legalActions';
@@ -85,6 +90,8 @@ import {
   isMapScreenVisible,
   setMapScreenVisible,
 } from '../lib/mapScreenVisibility';
+
+installGlobalApiFetchOptimizer();
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -171,11 +178,14 @@ if (Platform.OS === 'android') {
 // ─── REFRESH USER ─────────────────────────────────────────
 async function refreshUserData() {
   try {
-    const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-    if (!token) return;
-    const meRes = await fetch(`${API_URL}/api/profile/me`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!meRes.ok) return;
-    const fresh  = await meRes.json();
+    const bootstrap = await apiRequest<{
+      profile: Record<string, unknown> & { avatarUrl?: string };
+      counters: { unreadNotifications: number; unreadChats: number };
+      configVersions: Record<string, string>;
+      featureFlags: Record<string, boolean>;
+    }>('/api/v2/bootstrap', { priority: 'critical' });
+    queryClient.setQueryData(['bootstrap'], bootstrap);
+    const fresh = bootstrap.profile;
     const raw    = await AsyncStorage.getItem('user');
     if (!raw) return;
     const old    = JSON.parse(raw);
@@ -193,6 +203,7 @@ export default function RootLayout() {
   const application = (
       <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <VroomQueryProvider>
         <ThemeProvider>
           <PerformanceProvider>
             <SettingsProvider>
@@ -200,6 +211,8 @@ export default function RootLayout() {
                 <StartupGatesProvider>
                   <AppTutorialProvider>
                     <ErrorBoundary>
+                      <SocialQueueBootstrap />
+                      <SharedSocketBootstrap />
                       <RootLayoutInner />
                     </ErrorBoundary>
                   </AppTutorialProvider>
@@ -208,6 +221,7 @@ export default function RootLayout() {
             </SettingsProvider>
           </PerformanceProvider>
         </ThemeProvider>
+        </VroomQueryProvider>
       </SafeAreaProvider>
       </GestureHandlerRootView>
   );

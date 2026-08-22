@@ -11,21 +11,17 @@ import {
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { useTheme } from '../contexts/ThemeContext';
-import { API_URL } from '../constants/config';
 import { useScreenHeaderTop } from '../lib/screenHeaderInsets';
 import { markNotificationOpened, resolveNotificationUrl, type NotificationData } from '../lib/notifications/routing';
 import { consumeNotificationCenterEntry } from '../lib/notifications/notificationCenterAccess';
+import { apiRequest } from '../lib/api/client';
+import { queryClient } from '../lib/query/client';
 
-const CHAT_API = `${API_URL}/api/chat`;
 const PAGE_SIZE = 30;
 type Scope = 'all' | 'messages' | 'activity' | 'system';
-
-const getToken = async () =>
-  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
 type Row = {
   id: number;
@@ -68,17 +64,21 @@ export default function NotificationsScreen() {
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     try {
-      const token = await getToken();
-      if (!token) {
-        router.replace('/login');
-        return;
-      }
       const category = scope === 'all' ? '' : `&category=${scope}`;
-      const response = await fetch(`${API_URL}/api/notifications?limit=${PAGE_SIZE}&page=${nextPage}${category}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const queryKey = ['notifications', scope, nextPage] as const;
+      if (!append) {
+        const cached = queryClient.getQueryData<any>(queryKey);
+        if (cached?.notifications) {
+          setRows(cached.notifications.map((item: Row) => ({ ...item, data: parseData(item.data) })));
+          setHasMore(Boolean(cached.hasMore));
+          setLoading(false);
+        }
+      }
+      const json = await queryClient.fetchQuery<any>({
+        queryKey,
+        queryFn: () => apiRequest(`/notifications?limit=${PAGE_SIZE}&page=${nextPage}${category}`, { priority: nextPage === 1 ? 'visible' : 'background' }),
+        staleTime: 15_000,
       });
-      if (!response.ok) throw new Error();
-      const json = await response.json();
       const nextRows: Row[] = (json.notifications ?? []).map((item: Row) => ({
         ...item,
         data: parseData(item.data),
@@ -93,7 +93,7 @@ export default function NotificationsScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [router, scope]);
+  }, [scope]);
 
   useFocusEffect(useCallback(() => {
     if (!entryAllowed) return;
@@ -104,50 +104,53 @@ export default function NotificationsScreen() {
   React.useEffect(() => {
     if (!entryAllowed) return;
     const subscription = DeviceEventEmitter.addListener('vroom:notification-received', () => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
       void load(1, false);
     });
     return () => subscription.remove();
   }, [entryAllowed, load]);
 
   const markRead = async (id: number) => {
-    const token = await getToken();
-    await fetch(`${API_URL}/api/notifications/${id}/read`, {
-      method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
     setRows((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
+    queryClient.setQueriesData<any>({ queryKey: ['notifications'] }, (cached: any) => cached ? {
+      ...cached,
+      notifications: (cached.notifications || []).map((item: Row) => item.id === id ? { ...item, read: true } : item),
+    } : cached);
+    await apiRequest(`/notifications/${id}/read`, { method: 'PATCH' }).catch(() => {});
+    void queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
   };
 
   const markAll = async () => {
-    const token = await getToken();
-    await fetch(`${API_URL}/api/notifications/read-all`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(scope === 'all' ? {} : { category: scope }),
-    }).catch(() => {});
     setRows((current) => current.map((item) => ({ ...item, read: true })));
+    queryClient.setQueriesData<any>({ queryKey: ['notifications', scope] }, (cached: any) => cached ? {
+      ...cached,
+      notifications: (cached.notifications || []).map((item: Row) => ({ ...item, read: true })),
+    } : cached);
+    await apiRequest('/notifications/read-all', {
+      method: 'PATCH',
+      body: scope === 'all' ? {} : { category: scope },
+    }).catch(() => {});
+    void queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
   };
 
   const resolveFriendshipId = async (item: Row): Promise<number | null> => {
     if (item.data?.friendshipId != null) return Number(item.data.friendshipId);
     const senderId = Number(item.data?.userId);
     if (!senderId) return null;
-    const token = await getToken();
-    const response = await fetch(`${CHAT_API}/friends/requests`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) return null;
-    const requests = await response.json();
+    const requests = await queryClient.fetchQuery<any[]>({
+      queryKey: ['chat', 'friend-requests'],
+      queryFn: () => apiRequest('/chat/friends/requests', { priority: 'critical' }),
+      staleTime: 5_000,
+    });
     return requests.find((request: { id: number; requester: { id: number } }) => request.requester?.id === senderId)?.id ?? null;
   };
 
   const handleFriendAction = async (item: Row, action: 'accept' | 'reject') => {
     setFriendActionId(item.id);
     try {
-      const token = await getToken();
       const friendshipId = await resolveFriendshipId(item);
       if (!friendshipId) throw Object.assign(new Error(), { expired: true });
-      const response = await fetch(`${CHAT_API}/friends/${friendshipId}/${action}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error();
+      await apiRequest(`/chat/friends/${friendshipId}/${action}`, { method: 'POST' });
       await markRead(item.id);
       setRows((current) => current.filter((row) => row.id !== item.id));
       emitFriendInviteHandled(friendshipId);
@@ -234,7 +237,7 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={{ paddingTop: 2, paddingBottom: 40 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(1, false); }} tintColor={theme.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void queryClient.invalidateQueries({ queryKey: ['notifications', scope] }).then(() => load(1, false)); }} tintColor={theme.primary} />}
           onEndReached={() => { if (hasMore && !loadingMore) { setLoadingMore(true); void load(page + 1, true); } }}
           onEndReachedThreshold={0.35}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.primary} style={{ margin: 16 }} /> : null}

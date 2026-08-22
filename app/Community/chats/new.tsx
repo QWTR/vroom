@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   Image, StatusBar, ActivityIndicator,
@@ -12,7 +12,9 @@ import { CommunityScreenHeader } from '../../../components/community';
 export default function NewChatScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const { searchUsers, startConversation, friends } = useChat({ realtime: false });
+  const { searchUsers, startConversation, friends, fetchFriends } = useChat({ realtime: false, autoFetch: false });
+
+  useEffect(() => { void fetchFriends(); }, [fetchFriends]);
 
   const [query,     setQuery]     = useState('');
   const [results,   setResults]   = useState<ChatUser[]>([]);

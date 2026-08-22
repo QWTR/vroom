@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '../constants/config';
+import { apiRequest } from '../lib/api/client';
 
 const SESSION_KEY = 'vroom_ad_session_id';
 const CACHE_TTL_MS = 110_000;
@@ -30,10 +30,6 @@ type PlacementEntry = {
   result: SponsoredAdResult;
   fetchedAt: number;
 };
-
-async function getAuthToken(): Promise<string | null> {
-  return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-}
 
 async function getOrCreateSessionId(): Promise<string> {
   let id = await AsyncStorage.getItem(SESSION_KEY);
@@ -147,24 +143,13 @@ class SponsoredAdStore {
   private async loadFromApi(placement: AdPlacement) {
     try {
       const sessionId = await getOrCreateSessionId();
-      const token = await getAuthToken();
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(
-        `${API_URL}/api/ads/serve?placement=${encodeURIComponent(placement)}&sessionId=${encodeURIComponent(sessionId)}`,
-        { headers },
+      const data = await apiRequest<SponsoredAdResult>(
+        `/ads/serve?placement=${encodeURIComponent(placement)}&sessionId=${encodeURIComponent(sessionId)}`,
+        { auth: 'optional', priority: 'prefetch' },
       );
-
-      const result: SponsoredAdResult = res.ok
-        ? await res.json().then((data) => {
-            if (__DEV__) {
-              console.log('[SponsoredAd]', placement, data?.source, data?.campaign?.title ?? '-');
-            }
-            return data?.source === 'sponsored' && data.campaign
-              ? { source: 'sponsored' as const, campaign: data.campaign }
-              : { source: 'admob' as const };
-          })
+      if (__DEV__) console.log('[SponsoredAd]', placement, data?.source, data?.campaign?.title ?? '-');
+      const result: SponsoredAdResult = data?.source === 'sponsored' && data.campaign
+        ? { source: 'sponsored', campaign: data.campaign }
         : { source: 'admob' };
 
       this.cache.set(placement, { result, fetchedAt: Date.now() });
@@ -178,13 +163,10 @@ class SponsoredAdStore {
   async recordClick(campaignId: number) {
     try {
       const sessionId = await AsyncStorage.getItem(SESSION_KEY);
-      const token = await getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = `Bearer ${token}`;
-      await fetch(`${API_URL}/api/ads/click`, {
+      await apiRequest('/ads/click', {
         method: 'POST',
-        headers,
-        body: JSON.stringify({ campaignId, sessionId }),
+        auth: 'optional',
+        body: { campaignId, sessionId },
       });
     } catch {
       // ignore
@@ -226,10 +208,6 @@ export async function fetchDiversifiedSponsoredAd(
 ): Promise<SponsoredCampaign | null> {
   try {
     const sessionId = await getOrCreateSessionId();
-    const token = await getAuthToken();
-    const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-
     const params = new URLSearchParams({
       placement,
       sessionId,
@@ -241,9 +219,7 @@ export async function fetchDiversifiedSponsoredAd(
       params.set('excludeBusinessIds', opts.excludeBusinessIds.join(','));
     }
 
-    const res = await fetch(`${API_URL}/api/ads/serve?${params.toString()}`, { headers });
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await apiRequest<SponsoredAdResult>(`/ads/serve?${params.toString()}`, { auth: 'optional', priority: 'prefetch' });
     if (data?.source !== 'sponsored' || !data.campaign) return null;
     return data.campaign as SponsoredCampaign;
   } catch {

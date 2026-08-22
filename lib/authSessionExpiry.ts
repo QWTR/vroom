@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import { invalidateProfileMeClientCache } from './cachedProfileMe';
 import { syncRevenueCatLoginFromStorage } from './revenueCatUserSync';
+import { clearAuthTokenMemory } from './api/authTokenMemory';
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -119,6 +120,10 @@ export async function expireSessionIfCurrent(requestToken: string): Promise<bool
       );
     }
     await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
+    clearAuthTokenMemory();
+    void import('./query/client').then(({ clearPersistedQueryCaches }) => clearPersistedQueryCaches()).catch(() => {});
+    void import('./socialQueue').then(({ clearSocialQueue }) => clearSocialQueue()).catch(() => {});
+    void import('./sharedSocket').then(({ destroySharedSocket }) => destroySharedSocket()).catch(() => {});
     try {
       invalidateProfileMeClientCache();
     } catch {

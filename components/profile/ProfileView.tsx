@@ -33,7 +33,6 @@ import type { ParticipatedRoute }   from '../../hooks/useParticipatedRoutes';
 import { useChat }                  from '../../hooks/useChats';
 import { FriendsModal }             from '../modals/FriendsModal';
 import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
-import { useFollowCounts }          from '../../hooks/useFollowCounts';
 import { useSettings } from '../../hooks/useSettings';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
@@ -43,7 +42,6 @@ import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 import ShopEntranceOverlay from '../shop/ShopEntranceOverlay';
 import { NitroShopPromoCard } from '../shop/NitroShopPromoCard';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
-import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { linearGradientFromSpec } from './profileGradientUtils';
 import ProfileHeroBannerFrame from './ProfileHeroBannerFrame';
 import { getHeroBannerHeight } from '../../lib/profileBanner';
@@ -252,6 +250,7 @@ interface Props {
   activityHistory?:          any[];
   monthlyStats?:             any[];
   monthlyCompare?:           any | null;
+  onViewportStage?:          (stage: 'middle' | 'deep') => void;
 }
 
 function toSpot(s: SpotPreview): Spot {
@@ -273,13 +272,32 @@ export default function ProfileView({
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
   isPremium, isAdmin, locationFriendsOnly, onLocationFriendsOnlyChange,
   onBannerChange, bannerUploading = false,
-  activityHistory = [], monthlyStats = [], monthlyCompare = null,
+  activityHistory = [], monthlyStats = [], monthlyCompare = null, onViewportStage,
 }: Props) {
   const headerTop = useScreenHeaderTop(8);
   const scrollBottomPad = useScreenScrollBottomPadding({ inTab: !onBack });
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
   const premiumActive = !!isPremium;
+  const viewportStageRef = React.useRef(0);
+  const [viewportStage, setViewportStage] = React.useState(0);
+  React.useEffect(() => {
+    viewportStageRef.current = 0;
+    setViewportStage(0);
+  }, [profile?.id]);
+  const handleViewportScroll = React.useCallback((event: any) => {
+    const offsetY = Number(event?.nativeEvent?.contentOffset?.y || 0);
+    if (offsetY >= 300 && viewportStageRef.current < 1) {
+      viewportStageRef.current = 1;
+      setViewportStage(1);
+      onViewportStage?.('middle');
+    }
+    if (offsetY >= 950 && viewportStageRef.current < 2) {
+      viewportStageRef.current = 2;
+      setViewportStage(2);
+      onViewportStage?.('deep');
+    }
+  }, [onViewportStage]);
   /** Właściciel edytuje personalizację w Ustawieniach — zawsze stan z settings, nie /me. */
   const rawProfileThemePreset = (
     isOwner
@@ -393,9 +411,7 @@ export default function ProfileView({
     lime: ['#4de926', '#a6ff4d', '#4de926'],
   };
   const router = useRouter();
-  const { wallet: nitroWallet } = useNitroWallet();
-  const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat({ realtime: false });
-  const { counts: followCounts } = useFollowCounts(profile?.id);
+  const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat({ realtime: false, autoFetch: false });
 
   const [selectedSpot,        setSelectedSpot]        = useState<Spot | null>(null);
   const [localSpots,          setLocalSpots]          = useState<SpotPreview[]>([]);
@@ -557,9 +573,14 @@ export default function ProfileView({
   };
 
   React.useEffect(() => { setLocalSpots(spots); }, [spots]);
-  React.useEffect(() => {
-    if (isOwner) { fetchFriends(); fetchRequests(); }
-  }, [isOwner]);
+  const openFriends = React.useCallback(() => {
+    setFriendsModalVisible(true);
+    void fetchFriends();
+  }, [fetchFriends]);
+  const openInvites = React.useCallback(() => {
+    setInvitesModalVisible(true);
+    void fetchRequests();
+  }, [fetchRequests]);
 
   const handleLikeToggle = (spotId: string, liked: boolean, count: number) => {
     setLocalSpots(prev => prev.map(s => String(s.id) === spotId ? { ...s, isLiked: liked, likesCount: count } : s));
@@ -641,6 +662,8 @@ export default function ProfileView({
         style={{ flex: 1, backgroundColor: 'transparent', zIndex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollBottomPad }}
         showsVerticalScrollIndicator={false}
+        onScroll={handleViewportScroll}
+        scrollEventThrottle={120}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={onRefresh} tintColor="#e33835" colors={['#e33835']} />}
       >
 
@@ -945,7 +968,7 @@ export default function ProfileView({
 
           {isOwner && (
             <NitroShopPromoCard
-              nitroBalance={nitroWallet?.nitroBalance ?? profile?.nitroBalance ?? 0}
+              nitroBalance={profile?.nitroBalance ?? 0}
               onPress={() => router.push('/shop' as any)}
             />
           )}
@@ -1035,7 +1058,7 @@ export default function ProfileView({
             {isOwner && (
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(true) }}
-                onPress={() => setInvitesModalVisible(true)}
+                onPress={openInvites}
                 activeOpacity={0.8}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1056,7 +1079,7 @@ export default function ProfileView({
             {isOwner && (
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(!!(premiumActive && onLocationFriendsOnlyChange)) }}
-                onPress={() => setFriendsModalVisible(true)}
+                onPress={openFriends}
                 activeOpacity={0.8}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1155,12 +1178,16 @@ export default function ProfileView({
               </View>
 
               <View style={{ marginBottom: 14 }}>
-                <ExplorationCoverageMap
-                  userId={isOwner ? undefined : profile?.id}
-                  height={220}
-                  interactive
-                  autoRefreshMs={isOwner ? 60_000 : 0}
-                />
+                {viewportStage >= 1 ? (
+                  <ExplorationCoverageMap
+                    userId={isOwner ? undefined : profile?.id}
+                    height={220}
+                    interactive
+                    autoRefreshMs={isOwner ? 60_000 : 0}
+                  />
+                ) : (
+                  <View style={{ height: 220, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.035)' }} />
+                )}
               </View>
 
               {(fogOfWar?.topRegions?.length ?? 0) > 0 ? (

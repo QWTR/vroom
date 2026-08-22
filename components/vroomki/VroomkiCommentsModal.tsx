@@ -20,6 +20,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 import { API_URL } from '../../constants/config';
 import { Avatar, type Author, type VroomkiComment, type VroomkiPost } from '../../app/Community/community/communityShared';
+import { apiRequest } from '../../lib/api/client';
+import { enqueueSocialOperation, subscribeSocialQueue } from '../../lib/socialQueue';
 
 const getToken = () => AsyncStorage.getItem('token');
 
@@ -43,7 +45,9 @@ export function VroomkiCommentsModal({
   const [replyTo, setReplyTo] = useState<{ id: number; username: string } | null>(null);
   const [me, setMe] = useState<Author | null>(null);
   const pendingCommentLikesRef = useRef<Set<number>>(new Set());
+  const pendingLikeOperationsRef = useRef(new Map<string, VroomkiComment>());
   const inputRef = useRef<TextInput>(null);
+  const pendingCommentsRef = useRef(new Map<string, number>());
 
   const isLegacyCarOnly = post != null && post.id < 0;
   const useVroomkiCommentsApi = post != null && post.id > 0;
@@ -70,6 +74,32 @@ export function VroomkiCommentsModal({
     });
   }, []);
 
+  useEffect(() => subscribeSocialQueue((event) => {
+    const previousLike = pendingLikeOperationsRef.current.get(event.operationId);
+    if (previousLike) {
+      if (event.status === 'failed') {
+        setComments((previous) => previous.map((comment) => comment.id === previousLike.id ? previousLike : comment));
+      }
+      if (event.status === 'completed' || event.status === 'failed') {
+        pendingLikeOperationsRef.current.delete(event.operationId);
+        pendingCommentLikesRef.current.delete(previousLike.id);
+      }
+      if (event.status === 'pending' && event.error) pendingCommentLikesRef.current.delete(previousLike.id);
+      return;
+    }
+    const temporaryId = pendingCommentsRef.current.get(event.operationId);
+    if (temporaryId == null) return;
+    if (event.status === 'completed') {
+      const entity = (event.response as any)?.entity;
+      if (entity) setComments((previous) => previous.map((comment) => comment.id === temporaryId ? entity : comment));
+      pendingCommentsRef.current.delete(event.operationId);
+    } else if (event.status === 'failed') {
+      setComments((previous) => previous.filter((comment) => comment.id !== temporaryId));
+      pendingCommentsRef.current.delete(event.operationId);
+      Toast.show({ type: 'error', text1: 'Komentarz nie został wysłany' } as any);
+    }
+  }), []);
+
   useEffect(() => {
     setReplyTo(null);
     setText('');
@@ -93,9 +123,14 @@ export function VroomkiCommentsModal({
           legacyOnly: legacy,
         });
 
-        const res = await fetch(commentsUrl, { headers });
-        const data = await res.json();
-        let list: VroomkiComment[] = (Array.isArray(data) ? data : []).map((c: any) => mapComment(c));
+        let data: any;
+        if (useVroomkiCommentsApi) {
+          data = await apiRequest(`/v2/vroomki/${post.id}/comments?limit=50`, { priority: 'visible' });
+        } else {
+          const res = await fetch(commentsUrl, { headers });
+          data = await res.json();
+        }
+        let list: VroomkiComment[] = (Array.isArray(data) ? data : (data?.items || [])).map((c: any) => mapComment(c));
 
         if (useVroomkiCommentsApi && post.legacyCarId) {
           const carRes = await fetch(`${API_URL}/api/cars/${post.legacyCarId}/comments`, { headers });
@@ -122,7 +157,7 @@ export function VroomkiCommentsModal({
   }, [commentsUrl, post, useVroomkiCommentsApi]);
 
   const likeComment = async (commentId: number) => {
-    if (!useVroomkiCommentsApi) return;
+    if (!useVroomkiCommentsApi || !myId) return;
     if (pendingCommentLikesRef.current.has(commentId)) return;
     const current = comments.find((c) => c.id === commentId);
     if (!current) return;
@@ -130,20 +165,27 @@ export function VroomkiCommentsModal({
     const nextCount = Math.max(0, (current.likesCount ?? 0) + (nextLiked ? 1 : -1));
     pendingCommentLikesRef.current.add(commentId);
     setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, isLiked: nextLiked, likesCount: nextCount } : c)));
+    const operationId = `comment-like-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    for (const [pendingId, pending] of pendingLikeOperationsRef.current) {
+      if (pending.id === commentId) pendingLikeOperationsRef.current.delete(pendingId);
+    }
+    pendingLikeOperationsRef.current.set(operationId, current);
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/vroomki/comments/${commentId}/like`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+      await enqueueSocialOperation({
+        userId: myId,
+        type: 'vroomki-comment-like',
+        entityKey: `vroomki-comment:${commentId}:like`,
+        operationId,
+        coalesce: true,
+        request: {
+          path: `/v2/vroomki/comments/${commentId}/like`,
+          method: nextLiked ? 'PUT' : 'DELETE',
+          optimisticEntity: { commentId, isLiked: nextLiked, likesCount: nextCount },
+        },
       });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setComments((prev) => prev.map((c) => (c.id === commentId
-        ? { ...c, isLiked: !!data.liked, likesCount: data.likesCount ?? nextCount }
-        : c)));
     } catch {
+      pendingLikeOperationsRef.current.delete(operationId);
       setComments((prev) => prev.map((c) => (c.id === commentId ? current : c)));
-    } finally {
       pendingCommentLikesRef.current.delete(commentId);
     }
   };
@@ -152,10 +194,40 @@ export function VroomkiCommentsModal({
     if (!post || !commentsUrl || !text.trim() || posting) return;
     setPosting(true);
     try {
-      const token = await getToken();
       const body = isLegacyCarOnly
         ? { text: text.trim() }
         : { content: text.trim(), ...(replyTo ? { replyToId: replyTo.id } : {}) };
+      if (useVroomkiCommentsApi && myId) {
+        const operationId = `comment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        const temporaryId = -Date.now();
+        const optimistic: VroomkiComment = {
+          id: temporaryId,
+          content: text.trim(),
+          createdAt: new Date().toISOString(),
+          author: me ?? { id: myId, username: 'ty', avatarUrl: null, points: 0 },
+          replyTo,
+          likesCount: 0,
+          isLiked: false,
+        };
+        pendingCommentsRef.current.set(operationId, temporaryId);
+        setComments((previous) => [...previous, optimistic]);
+        setText('');
+        setReplyTo(null);
+        onCommentAdded(post.id);
+        await enqueueSocialOperation({
+          userId: myId,
+          type: 'vroomki-comment',
+          entityKey: `vroomki:${post.id}:comments`,
+          operationId,
+          request: {
+            path: `/v2/vroomki/${post.id}/comments`, method: 'POST', body,
+            optimisticEntity: optimistic,
+            invalidateKeys: [['vroomki', 'feed']],
+          },
+        });
+        return;
+      }
+      const token = await getToken();
       const res = await fetch(commentsUrl, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

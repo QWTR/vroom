@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,9 +12,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
+import { apiRequest } from '../../lib/api/client';
+import { queryClient } from '../../lib/query/client';
+import { enqueueSocialOperation, subscribeSocialQueue } from '../../lib/socialQueue';
 
 type Tab = 'followers' | 'following';
 type Person = {
@@ -25,10 +27,6 @@ type Person = {
   isFollowing: boolean;
   canFollow: boolean;
 };
-
-const token = async () => (
-  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'))
-);
 
 export default function ConnectionsScreen() {
   const router = useRouter();
@@ -42,11 +40,29 @@ export default function ConnectionsScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const nextCursorRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [changingId, setChangingId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [myId, setMyId] = useState<number | null>(null);
+  const pendingFollowsRef = useRef(new Map<string, Person>());
+
+  useEffect(() => {
+    void AsyncStorage.getItem('user').then((raw) => {
+      if (!raw) return;
+      try { const value = JSON.parse(raw); setMyId(Number(value.userId ?? value.id) || null); } catch { /* ignore */ }
+    });
+    return subscribeSocialQueue((event) => {
+      const previous = pendingFollowsRef.current.get(event.operationId);
+      if (!previous) return;
+      if (event.status === 'failed') {
+        setItems((current) => current.map((row) => row.id === previous.id ? previous : row));
+      }
+      if (event.status === 'completed' || event.status === 'failed') pendingFollowsRef.current.delete(event.operationId);
+    });
+  }, []);
 
   useEffect(() => {
     const timeout = setTimeout(() => setSearch(searchInput.trim()), 300);
@@ -59,20 +75,28 @@ export default function ConnectionsScreen() {
       setLoading(false);
       return;
     }
-    append ? setLoadingMore(true) : silent ? setRefreshing(true) : setLoading(true);
+    if (append) setLoadingMore(true);
+    else if (silent) setRefreshing(true);
+    else setLoading(true);
     try {
-      const authToken = await token();
       const query = new URLSearchParams({ limit: '25', ...(search ? { search } : {}) });
-      if (append && nextCursor) query.set('cursor', String(nextCursor));
-      const response = await fetch(`${API_URL}/api/follow/${userId}/${tab}?${query}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
+      const cursor = append ? nextCursorRef.current : null;
+      if (cursor) query.set('cursor', String(cursor));
+      const queryKey = ['connections', userId, tab, search, append ? cursor : 'first'] as const;
+      if (!append) {
+        const cached = queryClient.getQueryData<any>(queryKey);
+        if (cached?.items) { setItems(cached.items); setNextCursor(cached.nextCursor || null); setLoading(false); }
+      }
+      const json = await queryClient.fetchQuery<any>({
+        queryKey,
+        queryFn: () => apiRequest(`/follow/${userId}/${tab}?${query}`, { priority: append ? 'background' : 'visible' }),
+        staleTime: 20_000,
       });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json?.error || 'Nie udało się pobrać listy');
       setItems((previous) => append
         ? [...previous, ...(json.items || []).filter((person: Person) => !previous.some((row) => row.id === person.id))]
         : json.items || []);
-      setNextCursor(json.nextCursor || null);
+      nextCursorRef.current = json.nextCursor || null;
+      setNextCursor(nextCursorRef.current);
       setError('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Nie udało się pobrać listy');
@@ -82,33 +106,43 @@ export default function ConnectionsScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [nextCursor, search, tab, userId]);
+  }, [search, tab, userId]);
 
   useEffect(() => {
     setItems([]);
     setNextCursor(null);
+    nextCursorRef.current = null;
     void load();
-    // nextCursor jest celowo pominięty — zmiana kursora nie może przeładować pierwszej strony.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search, userId]);
+  }, [load, tab, search, userId]);
 
   const toggleFollow = useCallback(async (person: Person) => {
-    if (changingId) return;
+    if (changingId || !myId) return;
+    const nextFollowing = !person.isFollowing;
+    const operationId = `follow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    pendingFollowsRef.current.set(operationId, person);
     setChangingId(person.id);
-    setItems((previous) => previous.map((row) => row.id === person.id ? { ...row, isFollowing: !row.isFollowing } : row));
+    setItems((previous) => previous.map((row) => row.id === person.id ? { ...row, isFollowing: nextFollowing } : row));
     try {
-      const authToken = await token();
-      const response = await fetch(`${API_URL}/api/follow/${person.id}`, {
-        method: person.isFollowing ? 'DELETE' : 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+      await enqueueSocialOperation({
+        userId: myId,
+        type: 'follow',
+        entityKey: `follow:${person.id}`,
+        operationId,
+        coalesce: true,
+        request: {
+          path: `/v2/social/users/${person.id}/follow`,
+          method: nextFollowing ? 'PUT' : 'DELETE',
+          optimisticEntity: { userId: person.id, isFollowing: nextFollowing },
+          invalidateKeys: [['connections'], ['profile', person.id, 'summary']],
+        },
       });
-      if (!response.ok) throw new Error('Nie udało się zmienić obserwowania');
     } catch {
+      pendingFollowsRef.current.delete(operationId);
       setItems((previous) => previous.map((row) => row.id === person.id ? { ...row, isFollowing: person.isFollowing } : row));
     } finally {
       setChangingId(null);
     }
-  }, [changingId]);
+  }, [changingId, myId]);
 
   const title = useMemo(() => tab === 'followers' ? 'OBSERWUJĄCY' : 'OBSERWOWANI', [tab]);
 
@@ -144,7 +178,7 @@ export default function ConnectionsScreen() {
           data={items}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={{ padding: 16, gap: 8, flexGrow: items.length ? 0 : 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load({ silent: true })} tintColor={theme.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void queryClient.invalidateQueries({ queryKey: ['connections', userId, tab, search] }).then(() => load({ silent: true }))} tintColor={theme.primary} />}
           onEndReached={() => { if (nextCursor && !loadingMore) void load({ append: true }); }}
           onEndReachedThreshold={0.35}
           ListEmptyComponent={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.textDim }}>{error || 'Brak użytkowników'}</Text></View>}

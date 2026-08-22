@@ -18,6 +18,7 @@ import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { normalizeReferralInput } from '../lib/referralInput';
 import { markAuthSessionActive } from '../lib/authSessionExpiry';
+import { setAuthTokenInMemory } from '../lib/api/authTokenMemory';
 import {
   assertAppleState,
   buildAppleSignInBody,
@@ -146,6 +147,7 @@ export default function LoginScreen() {
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
     await AsyncStorage.setItem('needsUgcTerms', meta?.needsUgcTerms ? '1' : '0');
+    setAuthTokenInMemory(token);
     markAuthSessionActive();
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();

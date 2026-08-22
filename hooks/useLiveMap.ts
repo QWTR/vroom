@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Notifications from 'expo-notifications';
 import { API_URL } from '../constants/mapConfig';
+import { prepareLiveLocationPacket, sendLiveLocation } from '../lib/liveLocationBroker';
 import { snapToRoute } from '../scripts/navigationUtils';
 import {
   createLiveMapStore,
@@ -478,7 +479,7 @@ export function useLiveMap(
       ? previousFix.fixId
       : `${source}:${fixAt}:${loc.latitude.toFixed(6)}:${loc.longitude.toFixed(6)}`;
     latestOwnFixRef.current = { lat: loc.latitude, lng: loc.longitude, fixAt, fixId };
-    const payload: Record<string, unknown> = {
+    const payload = prepareLiveLocationPacket({
       protocolVersion: 2,
       lat: loc.latitude,
       lng: loc.longitude,
@@ -486,7 +487,8 @@ export function useLiveMap(
       fixId,
       fixAgeMs: Math.max(0, Date.now() - fixAt),
       source,
-    };
+    });
+    if (!payload) return null;
     pendingLocationPayloadRef.current = payload;
     emitPendingLocation();
     return payload;
@@ -1051,18 +1053,12 @@ export function useLiveMap(
         if (isSharingRef.current) {
           const loc = userLocationRef.current;
           if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-            void fetchWithTimeout(`${API_URL}/api/live/location`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${tokenRef.current}`,
-              },
-              body: JSON.stringify({
+            void sendLiveLocation({
                 lat: loc.latitude,
                 lng: loc.longitude,
                 shareLocation: true,
-              }),
-            }).catch(() => {});
+                source: 'foreground_resume',
+              }, { force: true }).catch(() => {});
             queueCurrentLocation('foreground_resume');
           }
         }
@@ -1189,7 +1185,9 @@ export function useLiveMap(
     if (motion?.snapSource) {
       payload.snapSource = motion.snapSource;
     }
-    pendingLocationPayloadRef.current = payload;
+    const prepared = prepareLiveLocationPacket(payload);
+    if (!prepared) return;
+    pendingLocationPayloadRef.current = prepared;
     emitPendingLocation();
   }, [isSharing, emitPendingLocation]);
 
@@ -1219,18 +1217,12 @@ export function useLiveMap(
       }
       const loc = userLocationRef.current;
       if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-        await fetchWithTimeout(`${API_URL}/api/live/location`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${tokenRef.current}`,
-          },
-          body: JSON.stringify({
+        await sendLiveLocation({
             lat: loc.latitude,
             lng: loc.longitude,
             shareLocation: true,
-          }),
-        }).catch(() => {});
+            source: 'sharing_enabled',
+          }, { force: true }).catch(() => {});
         queueCurrentLocation('sharing_enabled');
       }
       await fetchInitialData(tokenRef.current);
@@ -1240,14 +1232,7 @@ export function useLiveMap(
     if (forceOff) {
       forceLocalSharingOff();
       if (tokenRef.current) {
-        await fetchWithTimeout(`${API_URL}/api/live/location`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${tokenRef.current}`,
-          },
-          body: JSON.stringify({ shareLocation: false }),
-        }).catch(() => {});
+        await sendLiveLocation({ shareLocation: false, source: 'sharing_disabled' }, { force: true }).catch(() => {});
       }
       return false;
     }
@@ -1289,18 +1274,12 @@ export function useLiveMap(
         // stale DB coordinates until the next periodic sender tick.
         const loc = userLocationRef.current;
         if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-          await fetchWithTimeout(`${API_URL}/api/live/location`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${tokenRef.current}`,
-            },
-            body: JSON.stringify({
+          await sendLiveLocation({
               lat: loc.latitude,
               lng: loc.longitude,
               shareLocation: true,
-            }),
-          }).catch(() => {});
+              source: 'sharing_enabled',
+            }, { force: true }).catch(() => {});
           queueCurrentLocation('sharing_enabled');
         }
         await fetchInitialData(tokenRef.current);
@@ -1499,18 +1478,12 @@ export function useLiveMap(
     const loc = userLocationRef.current;
     if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
     try {
-      await fetchWithTimeout(`${API_URL}/api/live/location`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      await sendLiveLocation({
           lat: loc.latitude,
           lng: loc.longitude,
           shareLocation: true,
-        }),
-      });
+          source: 'session_resume',
+        }, { force: true });
       queueCurrentLocation('session_resume');
       setSharingStatus('on');
     } catch {

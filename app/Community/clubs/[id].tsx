@@ -14,10 +14,8 @@ import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcon
 import * as ImagePicker           from 'expo-image-picker';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
 import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSheet';
-import { io, Socket }             from 'socket.io-client';
 import Toast                      from 'react-native-toast-message';
 import { useTheme }               from '../../../contexts/ThemeContext';
-import { API_URL, SOCKET_URL }    from '../../../constants/config';
 import { UAv }                    from '../../../components/clubs/ClubCard';
 import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
@@ -37,12 +35,10 @@ import {
   type UnifiedChatMessage,
 } from '../../../components/chat/v2';
 import { EntranceIntroGate } from '../../../components/motion';
+import { ApiRequestError, apiRequest } from '../../../lib/api/client';
+import { queryClient } from '../../../lib/query/client';
+import { joinSharedRoom, subscribeSharedSocket } from '../../../lib/sharedSocket';
 
-const WS_URL   = SOCKET_URL;
-const getToken = async () => (
-  (await AsyncStorage.getItem('userToken'))
-  ?? (await AsyncStorage.getItem('token'))
-);
 const PAGE     = 30;
 
 interface ClubMessage {
@@ -108,8 +104,6 @@ export default function ClubChatScreen() {
 
   const listRef   = useRef<FlatList<UnifiedChatMessage>>(null);
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
-  const socketRef = useRef<Socket | null>(null);
-  const tokenRef  = useRef('');
   const mountedRef = useRef(true);
   const scrollTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const activeChannelIdRef = useRef<number | null>(null);
@@ -142,6 +136,8 @@ export default function ClubChatScreen() {
   useEffect(() => {
     if (!isFocused) return;
     mountedRef.current = true;
+    let disposed = false;
+    let socketCleanups: (() => void)[] = [];
 
     const onMessage = (msg: ClubMessage) => {
       if (msg.clubId === clubId && activeChannelIdRef.current != null && msg.channelId === activeChannelIdRef.current) {
@@ -174,89 +170,70 @@ export default function ClubChatScreen() {
       setPinned(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
     };
 
-    (async () => {
-      const token = await getToken() ?? '';
-      if (!mountedRef.current) return;
-      tokenRef.current = token;
-
+    void (async () => {
       const raw = await AsyncStorage.getItem('user');
       if (raw && mountedRef.current) setMyId(JSON.parse(raw).userId);
 
-      const clubRes = await fetch(`${API_URL}/api/clubs/${clubId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (clubRes.ok && mountedRef.current) {
-        const club = await clubRes.json();
+      const [club, structure] = await Promise.all([
+        queryClient.fetchQuery({
+          queryKey: ['clubs', 'detail', clubId],
+          queryFn: ({ signal }) => apiRequest<Club>(`/clubs/${clubId}`, { signal, priority: 'critical' }),
+          staleTime: 15_000,
+        }),
+        queryClient.fetchQuery({
+          queryKey: ['clubs', 'structure', clubId],
+          queryFn: ({ signal }) => apiRequest<any>(`/clubs/${clubId}/structure`, { signal, priority: 'critical' }),
+          staleTime: 30_000,
+        }),
+      ]);
+      if (mountedRef.current) {
         setClubName(club.name);
         setMyRole(club.myRole);
         setMyRanks(Array.isArray(club.myRanks) ? club.myRanks : (club.myRank ? [club.myRank] : []));
         setClubData(club);
-      }
-
-      const structRes = await fetch(`${API_URL}/api/clubs/${clubId}/structure`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (structRes.ok && mountedRef.current) {
-        const s = await structRes.json();
-        setCategories(s.categories ?? []);
-        setChannels(s.channels ?? []);
-        const general = (s.channels ?? []).find((c: any) => c.isDefaultGeneral) ?? (s.channels ?? [])[0];
-        const hasInitial = Number.isFinite(initialChannelId) && (s.channels ?? []).some((c: any) => c.id === initialChannelId);
+        setCategories(structure.categories ?? []);
+        setChannels(structure.channels ?? []);
+        const general = (structure.channels ?? []).find((c: any) => c.isDefaultGeneral) ?? (structure.channels ?? [])[0];
+        const hasInitial = Number.isFinite(initialChannelId) && (structure.channels ?? []).some((c: any) => c.id === initialChannelId);
         setActiveChannelId(hasInitial ? initialChannelId : (general?.id ?? null));
       }
 
       if (!mountedRef.current) return;
-
-      const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
-      socket.emit('club:join', clubId);
-      socket.on('club:message', onMessage);
-      socket.on('club:message_deleted', onMessageDeleted);
-      socket.on('club:pinned', onPinned);
-      socket.on('club:unpinned', onUnpinned);
-      socket.on('club:reaction', onReaction);
-      socketRef.current = socket;
-
-      await loadMessages(token, undefined, activeChannelIdRef.current ?? undefined);
-    })();
+      const cleanups = await Promise.all([
+        joinSharedRoom(`club:${clubId}`, 'club:join', 'club:leave', clubId),
+        subscribeSharedSocket<ClubMessage>('club:message', onMessage),
+        subscribeSharedSocket<{ id: number }>('club:message_deleted', onMessageDeleted),
+        subscribeSharedSocket<ClubMessage>('club:pinned', onPinned),
+        subscribeSharedSocket<{ id: number }>('club:unpinned', onUnpinned),
+        subscribeSharedSocket<{ messageId: number; reactions: any[] }>('club:reaction', onReaction),
+      ]);
+      if (disposed) cleanups.forEach(cleanup => cleanup());
+      else socketCleanups = cleanups;
+    })().catch((error) => {
+      if (mountedRef.current) Toast.show({ type: 'error', text1: 'Klub chwilowo niedostępny', text2: error instanceof Error ? error.message : undefined });
+    });
 
     return () => {
+      disposed = true;
       mountedRef.current = false;
       scrollTimeoutsRef.current.forEach(clearTimeout);
       scrollTimeoutsRef.current = [];
-      const socket = socketRef.current;
-      if (socket) {
-        socket.off('club:message', onMessage);
-        socket.off('club:message_deleted', onMessageDeleted);
-        socket.off('club:pinned', onPinned);
-        socket.off('club:unpinned', onUnpinned);
-        socket.off('club:reaction', onReaction);
-        socket.emit('club:leave', clubId);
-        socket.disconnect();
-        socketRef.current = null;
-      }
+      socketCleanups.forEach(cleanup => cleanup());
+      socketCleanups = [];
     };
   }, [clubId, initialChannelId, isFocused, scheduleScrollToEnd]);
 
-  const loadMessages = async (token: string, cur?: number, channelIdArg?: number) => {
+  const loadMessages = useCallback(async (cur?: number, channelIdArg?: number) => {
     try {
       const params = new URLSearchParams({ limit: String(PAGE) });
       if (cur) params.append('cursor', String(cur));
       const channelIdToUse = channelIdArg ?? activeChannelIdRef.current;
       if (channelIdToUse) params.append('channelId', String(channelIdToUse));
-      const res  = await fetch(`${API_URL}/api/clubs/${clubId}/messages?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'messages', clubId, channelIdToUse ?? null, cur ?? 'first'],
+        queryFn: ({ signal }) => apiRequest<any>(`/clubs/${clubId}/messages?${params}`, { signal, priority: cur ? 'visible' : 'critical' }),
+        staleTime: cur ? 60_000 : 5_000,
       });
-      if (!res.ok) {
-        let msg = `Błąd pobierania (${res.status})`;
-        try {
-          const err = await res.json();
-          if (typeof err?.error === 'string' && err.error.length > 0) msg = err.error;
-        } catch {
-        }
-        Toast.show({ type: 'error', text1: 'Czat chwilowo niedostępny', text2: msg });
-        return;
-      }
-      const data = await res.json();
       if (!mountedRef.current) return;
       if (cur) setMessages(prev => [...(data.messages ?? []), ...prev]);
       else     setMessages(data.messages ?? []);
@@ -264,29 +241,32 @@ export default function ClubChatScreen() {
       setHasMore(!!data.nextCursor);
       setPinned(data.pinned ?? []);
       if (!cur) scrollChatToEndAfterLayout(listRef, false);
+    } catch (error) {
+      const message = error instanceof ApiRequestError ? error.message : 'Spróbuj ponownie';
+      Toast.show({ type: 'error', text1: 'Czat chwilowo niedostępny', text2: message });
     } finally {
       if (mountedRef.current) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
-  };
+  }, [clubId]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    loadMessages(tokenRef.current, cursor, activeChannelId ?? undefined);
-  }, [cursor, loadingMore, hasMore, activeChannelId]);
+    void loadMessages(cursor, activeChannelId ?? undefined);
+  }, [cursor, loadingMore, hasMore, activeChannelId, loadMessages]);
 
   useEffect(() => {
-    if (!activeChannelId || !tokenRef.current) return;
+    if (!activeChannelId || !isFocused) return;
     setLoading(true);
     setMessages([]);
     setPinned([]);
     setCursor(null);
     setHasMore(true);
-    loadMessages(tokenRef.current, undefined, activeChannelId);
-  }, [activeChannelId]);
+    void loadMessages(undefined, activeChannelId);
+  }, [activeChannelId, isFocused, loadMessages]);
 
   useEffect(() => {
     if (channels.length === 0) return;
@@ -307,6 +287,7 @@ export default function ClubChatScreen() {
     setPhotos([]);
     setReplyTo(null);
     setSending(true);
+    const localId = -Date.now();
     try {
       if (!activeChannelId) {
         setText(prevText);
@@ -314,41 +295,45 @@ export default function ClubChatScreen() {
         setReplyTo(prevReply);
         return;
       }
+      const optimisticMessage: ClubMessage = {
+        id: localId,
+        clubId,
+        channelId: activeChannelId,
+        senderId: myId ?? 0,
+        content: t || null,
+        photos: p,
+        createdAt: new Date().toISOString(),
+        isPinned: false,
+        pinnedAt: null,
+        sender: { id: myId ?? 0, username: 'Ty', avatarUrl: null },
+        replyTo: r ? { id: r.id, content: r.content, sender: { id: r.sender.id, username: r.sender.username } } : null,
+        reactions: [],
+      };
+      setMessages(prev => [...prev, optimisticMessage]);
+      scheduleScrollToEnd();
       const form = new FormData();
       if (t) form.append('content', t);
       if (r) form.append('replyToId', String(r.id));
       form.append('channelId', String(activeChannelId));
       p.forEach((uri, i) => form.append('photos', { uri, type: 'image/jpeg', name: `p${i}.jpg` } as any));
-      const res = await fetch(`${API_URL}/api/clubs/${clubId}/messages`, {
+      const msg = await apiRequest<ClubMessage>(`/clubs/${clubId}/messages`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
         body: form,
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        Toast.show({
-          type: 'error',
-          text1: 'Nie wysłano wiadomości',
-          text2: (err as { error?: string }).error ?? 'Spróbuj ponownie.',
-        });
-        setText(prevText);
-        setPhotos(prevPhotos);
-        setReplyTo(prevReply);
-        return;
-      }
-      const msg: ClubMessage = await res.json();
       setMessages(prev => {
-        if (prev.some(m => m.id === msg.id)) return prev;
-        return [...prev, msg];
+        if (prev.some(m => m.id === msg.id)) return prev.filter(m => m.id !== localId);
+        return prev.map(m => m.id === localId ? msg : m);
       });
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'messages', clubId, activeChannelId] });
       scheduleScrollToEnd();
-    } catch {
-      Toast.show({ type: 'error', text1: 'Brak połączenia' });
+    } catch (error) {
+      setMessages(prev => prev.filter(message => message.id !== localId));
+      Toast.show({ type: 'error', text1: 'Nie wysłano wiadomości', text2: error instanceof Error ? error.message : 'Brak połączenia' });
       setText(prevText);
       setPhotos(prevPhotos);
       setReplyTo(prevReply);
     } finally { setSending(false); }
-  }, [text, photos, replyTo, clubId, activeChannelId, scheduleScrollToEnd]);
+  }, [text, photos, replyTo, clubId, activeChannelId, myId, scheduleScrollToEnd]);
 
   const handlePickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
@@ -360,18 +345,27 @@ export default function ClubChatScreen() {
 
   const handlePin = async (msgId: number, isPinned: boolean) => {
     const method = isPinned ? 'DELETE' : 'POST';
-    await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}/pin`, {
-      method, headers: { Authorization: `Bearer ${tokenRef.current}` },
-    });
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPinned: !isPinned } : m));
+    try {
+      await apiRequest(`/clubs/${clubId}/messages/${msgId}/pin`, { method });
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'messages', clubId] });
+    } catch (error) {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPinned } : m));
+      Toast.show({ type: 'error', text1: 'Nie zmieniono przypięcia', text2: error instanceof Error ? error.message : undefined });
+    }
   };
 
   const handleDelete = async (msgId: number) => {
+    const removed = messages.find(message => message.id === msgId);
     setMessages(prev => prev.filter(m => m.id !== msgId));
     setPinned(prev => prev.filter(m => m.id !== msgId));
-    await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${tokenRef.current}` },
-    });
+    try {
+      await apiRequest(`/clubs/${clubId}/messages/${msgId}`, { method: 'DELETE' });
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'messages', clubId] });
+    } catch (error) {
+      if (removed) setMessages(prev => [...prev, removed].sort((a, b) => a.id - b.id));
+      Toast.show({ type: 'error', text1: 'Nie usunięto wiadomości', text2: error instanceof Error ? error.message : undefined });
+    }
   };
 
   const handleReact = async (msgId: number, emoji: string) => {
@@ -379,14 +373,13 @@ export default function ClubChatScreen() {
       const msg = messages.find(m => m.id === msgId);
       const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
       const endpoint = hasMine
-        ? `${API_URL}/api/clubs/${clubId}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
-        : `${API_URL}/api/clubs/${clubId}/messages/${msgId}/reactions`;
-      const res = await fetch(endpoint, {
+        ? `/clubs/${clubId}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
+        : `/clubs/${clubId}/messages/${msgId}/reactions`;
+      await apiRequest(endpoint, {
         method: hasMine ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
-        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+        ...(hasMine ? {} : { body: { emoji } }),
       });
-      if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
+      await queryClient.invalidateQueries({ queryKey: ['clubs', 'messages', clubId] });
     } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
   };
 
@@ -574,15 +567,18 @@ export default function ClubChatScreen() {
   }
 
   const refreshClub = async () => {
-    const token = await getToken() ?? '';
-    const r = await fetch(`${API_URL}/api/clubs/${clubId}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (r.ok) {
-      const c = await r.json();
-      setClubData(c);
-      setMyRanks(Array.isArray(c.myRanks) ? c.myRanks : (c.myRank ? [c.myRank] : []));
-      setChannels(c.channels ?? []);
-      setCategories(c.categories ?? []);
-    }
+    await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', clubId] });
+    const club = await queryClient.fetchQuery({
+      queryKey: ['clubs', 'detail', clubId],
+      queryFn: ({ signal }) => apiRequest<Club>(`/clubs/${clubId}`, { signal, priority: 'critical' }),
+      staleTime: 0,
+    });
+    setClubData(club);
+    setClubName(club.name);
+    setMyRole(club.myRole);
+    setMyRanks(Array.isArray(club.myRanks) ? club.myRanks : (club.myRank ? [club.myRank] : []));
+    setChannels(club.channels ?? []);
+    setCategories(club.categories ?? []);
   };
 
   const openMemberActions = (m: any) => {
@@ -597,30 +593,25 @@ export default function ClubChatScreen() {
 
   const assignRanks = async () => {
     if (!memberModal) return;
-    const token = await getToken() ?? '';
-    const res = await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/rank`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ rankIds: selectedRankIds }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      Alert.alert('Nie udało się zapisać ról', data.error ?? 'Spróbuj ponownie.');
-      return;
+    try {
+      await apiRequest(`/clubs/${clubId}/members/${memberModal.userId}/rank`, {
+        method: 'POST',
+        body: { rankIds: selectedRankIds },
+      });
+      await refreshClub();
+      setMemberModal(null);
+    } catch (error) {
+      Alert.alert('Nie udało się zapisać ról', error instanceof Error ? error.message : 'Spróbuj ponownie.');
     }
-    await refreshClub();
-    setMemberModal(null);
   };
 
   const toggleMute = async () => {
     if (!memberModal) return;
-    const token = await getToken() ?? '';
     const isMuted = !!memberModal.isMuted;
     const method = isMuted ? 'DELETE' : 'POST';
-    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/mute`, {
+    await apiRequest(`/clubs/${clubId}/members/${memberModal.userId}/mute`, {
       method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: method === 'POST' ? JSON.stringify({ durationMinutes: 60 }) : undefined,
+      body: method === 'POST' ? { durationMinutes: 60 } : undefined,
     });
     await refreshClub();
   };
@@ -637,20 +628,17 @@ export default function ClubChatScreen() {
           text: 'Wyrzuć',
           style: 'destructive',
           onPress: async () => {
-            const token = await getToken() ?? '';
-            const res = await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/kick`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ reason: 'Moderacja klubu' }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              Toast.show({ type: 'error', text1: data.error ?? 'Nie udało się wyrzucić' });
-              return;
+            try {
+              await apiRequest(`/clubs/${clubId}/members/${memberModal.userId}/kick`, {
+                method: 'POST',
+                body: { reason: 'Moderacja klubu' },
+              });
+              Toast.show({ type: 'success', text1: `${username} wyrzucony` });
+              setMemberModal(null);
+              await refreshClub();
+            } catch (error) {
+              Toast.show({ type: 'error', text1: error instanceof Error ? error.message : 'Nie udało się wyrzucić' });
             }
-            Toast.show({ type: 'success', text1: `${username} wyrzucony` });
-            setMemberModal(null);
-            await refreshClub();
           },
         },
       ],
@@ -660,24 +648,21 @@ export default function ClubChatScreen() {
   const toggleClubPushMute = async () => {
     if (!clubData || pushMuteBusy) return;
     setPushMuteBusy(true);
+    const previous = clubData;
+    const next = !clubData.myClubPushMuted;
+    setClubData({ ...clubData, myClubPushMuted: next });
     try {
-      const token = await getToken() ?? '';
-      const next = !clubData.myClubPushMuted;
-      const res = await fetch(`${API_URL}/api/clubs/${clubId}/push-mute`, {
+      await apiRequest(`/clubs/${clubId}/push-mute`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ muted: next }),
+        body: { muted: next },
       });
-      if (res.ok) {
-        setClubData({ ...clubData, myClubPushMuted: next });
-        Toast.show({
-          type: 'success',
-          text1: next ? 'Powiadomienia z czatu wyciszone' : 'Powiadomienia z czatu włączone',
-        });
-      } else {
-        Toast.show({ type: 'error', text1: 'Nie udało się zmienić ustawień' });
-      }
+      queryClient.setQueryData<Club>(['clubs', 'detail', clubId], current => current ? { ...current, myClubPushMuted: next } : current);
+      Toast.show({
+        type: 'success',
+        text1: next ? 'Powiadomienia z czatu wyciszone' : 'Powiadomienia z czatu włączone',
+      });
     } catch {
+      setClubData(previous);
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });
     } finally {
       setPushMuteBusy(false);
@@ -688,7 +673,6 @@ export default function ClubChatScreen() {
     if (sharing || !clubData) return;
     setSharing(true);
     try {
-      const token = await getToken() ?? '';
       const trimmedMessage = shareText.trim();
       const payload = {
         type: 'clubInvite',
@@ -699,12 +683,10 @@ export default function ClubChatScreen() {
       };
       const form = new FormData();
       form.append('content', JSON.stringify(payload));
-      const res = await fetch(`${API_URL}/api/posts`, {
+      await apiRequest('/posts', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      if (!res.ok) throw new Error('share-failed');
       Toast.show({ type: 'success', text1: 'Zaproszenie opublikowane w dyskusjach' });
       setShareVisible(false);
       setShareText('');

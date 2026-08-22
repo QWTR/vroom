@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import { useRouter } from 'expo-router';
-import { API_URL } from '../constants/config';
 import { useSettings } from '../contexts/SettingsContext';
 import {
   type VroomkiPost,
@@ -17,11 +15,14 @@ import { prepareUploadImages } from '../lib/prepareUploadImages';
 import { subscribeVroomkiPublish } from '../lib/vroomkiPublishQueue';
 import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
 import { fetchDiversifiedSponsoredAd, type SponsoredCampaign } from './sponsoredAdStore';
+import { apiRequest } from '../lib/api/client';
+import { queryClient } from '../lib/query/client';
+import { enqueueSocialOperation, subscribeSocialQueue } from '../lib/socialQueue';
+import { uploadFileResumable } from '../lib/resumableUpload';
 
 const PAGE_SIZE = 20;
 /** Organic posts between sponsored slots (after the mandatory first ad). */
 const VROOMKI_AD_EVERY = 5;
-const getToken = () => AsyncStorage.getItem('token');
 const VROOMKI_FREE_VIDEO_MAX_BYTES = 250 * 1024 * 1024;
 
 type AdRotationState = {
@@ -33,6 +34,10 @@ type AdRotationState = {
 
 function createAdRotationState(): AdRotationState {
   return { campaignIds: [], businessIds: [], slot: 0, organicSinceAd: 0 };
+}
+
+function createClientOperationId(type: string): string {
+  return `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function sponsoredCampaignToVroomkiPost(campaign: SponsoredCampaign, slot: number): VroomkiPost {
@@ -117,13 +122,14 @@ type LocalLikeState = {
   likesCount: number;
 };
 
+type FeedPage = { items?: VroomkiPost[]; posts?: VroomkiPost[]; nextCursor: string | number | null; hasMore?: boolean };
+
 export function useVroomkiFeed(
   initialVroomkiId?: number | null,
   soundId?: number | null,
   authorUserId?: number | null,
   searchQuery?: string | null,
 ) {
-  const router = useRouter();
   const { settings } = useSettings();
 
   const [myId, setMyId] = useState<number | null>(null);
@@ -142,6 +148,7 @@ export function useVroomkiFeed(
   const blockedIdsRef = useRef<number[]>([]);
   const localLikesRef = useRef<Map<number, LocalLikeState>>(new Map());
   const pendingLikeIdsRef = useRef<Set<number>>(new Set());
+  const pendingLikeOperationsRef = useRef<Map<number, { operationId: string; previous: LocalLikeState }>>(new Map());
   const fetchVroomkiRef = useRef<((cursor?: number) => Promise<void>) | null>(null);
   const adRotationRef = useRef<AdRotationState>(createAdRotationState());
 
@@ -192,29 +199,48 @@ export function useVroomkiFeed(
 
   const normalizedSearchQuery = String(searchQuery ?? '').trim();
 
+  const feedQueryKey = useCallback((cursor?: number) => [
+    'vroomki', 'feed',
+    Number.isFinite(authorUserId ?? NaN) ? authorUserId : 'all',
+    Number.isFinite(soundId ?? NaN) ? soundId : 'all',
+    normalizedSearchQuery,
+    cursor || 'first',
+  ] as const, [authorUserId, normalizedSearchQuery, soundId]);
+
   const fetchVroomki = useCallback(
     async (cursor?: number) => {
       if (!cursor) setLoadingC(true);
       const blocked = blockedIdsRef.current;
       try {
-        const token = await getToken();
         const authorFilterId = Number.isFinite(authorUserId ?? NaN) ? authorUserId : null;
-        const exclude = authorFilterId || normalizedSearchQuery ? '' : excludeIdsRef.current.join(',');
         const soundQuery = Number.isFinite(soundId ?? NaN) ? `&soundId=${soundId}` : '';
         const encodedSearch = encodeURIComponent(normalizedSearchQuery);
-        const url = normalizedSearchQuery
+        const path = normalizedSearchQuery
           ? cursor
-            ? `${API_URL}/api/vroomki/search?q=${encodedSearch}&cursor=${cursor}&limit=${PAGE_SIZE}`
-            : `${API_URL}/api/vroomki/search?q=${encodedSearch}&limit=${PAGE_SIZE}`
+            ? `/vroomki/search?q=${encodedSearch}&cursor=${cursor}&limit=${PAGE_SIZE}`
+            : `/vroomki/search?q=${encodedSearch}&limit=${PAGE_SIZE}`
           : authorFilterId
-          ? `${API_URL}/api/vroomki/user/${authorFilterId}?limit=60`
+          ? `/vroomki/user/${authorFilterId}?limit=30`
+          : Number.isFinite(soundId ?? NaN)
+          ? `/vroomki?limit=${PAGE_SIZE}${cursor ? `&cursor=${cursor}` : ''}${soundQuery}`
           : cursor
-          ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}${soundQuery}`
-          : `${API_URL}/api/vroomki?limit=${PAGE_SIZE}${soundQuery}`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error('fetch vroomki failed');
-        const json = await res.json();
-        const rawPosts: VroomkiPost[] = (Array.isArray(json) ? json : json.posts ?? []) as VroomkiPost[];
+          ? `/v2/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}`
+          : `/v2/vroomki?limit=${PAGE_SIZE}`;
+        const key = feedQueryKey(cursor);
+        const cached = !cursor ? queryClient.getQueryData<FeedPage | VroomkiPost[]>(key) : null;
+        if (cached && postsRef.current.length === 0) {
+          const cachedPosts = (Array.isArray(cached) ? cached : cached.items ?? cached.posts ?? [])
+            .filter((post) => !blocked.includes(post.author.id))
+            .map(mergeLocalState);
+          setPosts(cachedPosts);
+          setLoadingC(false);
+        }
+        const json = await queryClient.fetchQuery({
+          queryKey: key,
+          queryFn: () => apiRequest<FeedPage | VroomkiPost[]>(path, { priority: cursor ? 'prefetch' : 'visible' }),
+          staleTime: 20_000,
+        });
+        const rawPosts: VroomkiPost[] = (Array.isArray(json) ? json : json.items ?? json.posts ?? []) as VroomkiPost[];
         const mergedPosts = rawPosts
           .filter((post) => !blocked.includes(post.author.id))
           .map(mergeLocalState);
@@ -258,7 +284,7 @@ export function useVroomkiFeed(
             : organic;
           setPosts(woven);
         }
-        setCarCursor(nextCursor);
+        setCarCursor(nextCursor ? Number(nextCursor) : null);
         setHasMoreC(!!nextCursor);
       } catch {
         Toast.show({ type: 'error', text1: 'Błąd ładowania VROOMKI' });
@@ -268,7 +294,7 @@ export function useVroomkiFeed(
         setLoadingMoreC(false);
       }
     },
-    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
+    [authorUserId, feedQueryKey, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -281,12 +307,12 @@ export function useVroomkiFeed(
       const focusId = initialVroomkiId ?? null;
       if (focusId && Number.isFinite(focusId)) {
         try {
-          const token = await getToken();
-          const res = await fetch(`${API_URL}/api/vroomki/${focusId}`, {
-            headers: { Authorization: `Bearer ${token}` },
+          const post = await queryClient.fetchQuery({
+            queryKey: ['vroomki', 'post', focusId],
+            queryFn: ({ signal }) => apiRequest<VroomkiPost>(`/vroomki/${focusId}`, { signal, priority: 'critical' }),
+            staleTime: 20_000,
           });
-          if (!cancelled && res.ok) {
-            const post: VroomkiPost = await res.json();
+          if (!cancelled) {
             const merged = mergeLocalState(post);
             focusedVroomkiRef.current = merged;
             setResolvedFocusPostId(merged.id);
@@ -338,40 +364,64 @@ export function useVroomkiFeed(
     }
   }, [setPosts]);
 
+  useEffect(() => subscribeSocialQueue((event) => {
+    if (event.type !== 'vroomki.like.set') return;
+    const postId = Number(event.entityKey.split(':')[1]);
+    const pending = pendingLikeOperationsRef.current.get(postId);
+    if (!pending || pending.operationId !== event.operationId) return;
+    if (event.status === 'completed') {
+      const response = event.response as { entity?: { isLiked?: boolean; likesCount?: number } } | undefined;
+      if (response?.entity) patchPost(postId, response.entity);
+      pendingLikeOperationsRef.current.delete(postId);
+      pendingLikeIdsRef.current.delete(postId);
+    } else if (event.status === 'failed') {
+      patchPost(postId, pending.previous);
+      pendingLikeOperationsRef.current.delete(postId);
+      pendingLikeIdsRef.current.delete(postId);
+      Toast.show({ type: 'error', text1: 'Nie udało się polubić', text2: 'Możesz spróbować ponownie później' });
+    }
+  }), [patchPost]);
+
   const handleLikeVroomki = useCallback(
     async (id: number) => {
-      if (pendingLikeIdsRef.current.has(id)) return;
       const current = postsRef.current.find((p) => p.id === id);
       if (!current || current.sponsored) return;
       const nextLiked = !current.isLiked;
       const nextCount = Math.max(0, current.likesCount + (nextLiked ? 1 : -1));
       patchPost(id, { isLiked: nextLiked, likesCount: nextCount });
       pendingLikeIdsRef.current.add(id);
-
-      const token = await getToken();
-      const endpoint = id > 0
-        ? `${API_URL}/api/vroomki/${id}/like`
-        : `${API_URL}/api/cars/${Math.abs(id)}/like`;
+      const requestId = createClientOperationId('vroomki-like');
+      pendingLikeOperationsRef.current.set(id, {
+        operationId: requestId,
+        previous: { isLiked: current.isLiked, likesCount: current.likesCount },
+      });
       try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        patchPost(id, {
-          isLiked: !!data.liked,
-          likesCount: data.likesCount ?? nextCount,
+        if (!myId) throw new Error('Brak aktywnej sesji');
+        await enqueueSocialOperation({
+          userId: myId,
+          type: 'vroomki.like.set',
+          entityKey: `vroomki:${id}:like`,
+          operationId: requestId,
+          coalesce: true,
+          request: id > 0 ? {
+            path: `/v2/vroomki/${id}/like`,
+            method: nextLiked ? 'PUT' : 'DELETE',
+            invalidateKeys: [['vroomki', 'feed']],
+          } : {
+            path: `/cars/${Math.abs(id)}/like`,
+            method: 'POST',
+            invalidateKeys: [['vroomki', 'feed']],
+          },
         });
       } catch {
+        pendingLikeOperationsRef.current.delete(id);
+        pendingLikeIdsRef.current.delete(id);
         localLikesRef.current.set(id, { isLiked: current.isLiked, likesCount: current.likesCount });
         patchPost(id, { isLiked: current.isLiked, likesCount: current.likesCount });
         Toast.show({ type: 'error', text1: 'Nie udało się polubić' });
-      } finally {
-        pendingLikeIdsRef.current.delete(id);
       }
     },
-    [patchPost],
+    [myId, patchPost],
   );
 
   const handleCreateVroomki = useCallback(
@@ -393,9 +443,6 @@ export function useVroomkiFeed(
         clipStartMs,
         clipDurationMs,
       } = payload;
-      const token = await getToken();
-      if (!token) throw new Error('Brak tokenu');
-
       const commonFields: Record<string, string> = {
         caption,
         overlays: JSON.stringify(overlays ?? []),
@@ -423,21 +470,25 @@ export function useVroomkiFeed(
         }
         Toast.show({ type: 'info', text1: 'Wysyłanie VROOMKI...', text2: 'Upload filmu działa w tle' });
         const ext = video.split('.').pop() ?? 'mp4';
-        const result = await FileSystem.uploadAsync(`${API_URL}/api/vroomki`, video, {
-          httpMethod: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-          fieldName: 'video',
-          mimeType: `video/${ext}`,
-          parameters: commonFields,
-          sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
+        const mimeType = ext.toLowerCase() === 'mov' ? 'video/quicktime' : `video/${ext.toLowerCase()}`;
+        const asset = await uploadFileResumable({
+          uri: video,
+          fileName: `vroomki.${ext}`,
+          mimeType,
         });
-        const body = result.body ? JSON.parse(result.body) : null;
-        if (result.status !== 200 && result.status !== 201) {
-          if (body?.code === 'PREMIUM_REQUIRED_VIDEO_LIMIT') router.push('/premium' as any);
-          throw new Error(body?.error ?? 'Błąd wysyłania filmu');
-        }
-        if (body) setPosts((prev) => [body, ...prev]);
+        const requestId = createClientOperationId('vroomki-create');
+        const ack = await apiRequest<{ entity: VroomkiPost }>('/v2/vroomki', {
+          method: 'POST',
+          idempotencyKey: requestId,
+          body: {
+            ...commonFields,
+            mediaAssetId: asset.id,
+            useOriginalAudio: Boolean(useOriginalAudio),
+          },
+          priority: 'mutation',
+        });
+        if (ack.entity) setPosts((prev) => [ack.entity, ...prev.filter(post => post.id !== ack.entity.id)]);
+        Toast.show({ type: 'success', text1: 'VROOMKA przyjęta', text2: 'Film jest przetwarzany w tle' });
         return;
       }
 
@@ -447,25 +498,26 @@ export function useVroomkiFeed(
       preparedPhotos.forEach((uri, i) => {
         form.append('photos', { uri, name: `vroomki_${i}.jpg`, type: 'image/jpeg' } as any);
       });
-      const res = await fetch(`${API_URL}/api/vroomki`, {
+      const body = await apiRequest<VroomkiPost>('/vroomki', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error ?? 'Nie udało się opublikować VROOMKI');
       setPosts((prev) => [body, ...prev]);
+      await queryClient.invalidateQueries({ queryKey: ['vroomki', 'feed'] });
     },
-    [router, settings.isAdmin, settings.isPremium, setPosts],
+    [settings.isAdmin, settings.isPremium, setPosts],
   );
 
   const handleDeleteVroomki = useCallback(async (id: number) => {
+    const removed = postsRef.current.find((post) => post.id === id);
     setPosts((prev) => prev.filter((p) => p.id !== id));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/vroomki/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    try {
+      await apiRequest(`/vroomki/${id}`, { method: 'DELETE' });
+      await queryClient.invalidateQueries({ queryKey: ['vroomki', 'feed'] });
+    } catch (error) {
+      if (removed) setPosts((prev) => [removed, ...prev.filter(post => post.id !== id)]);
+      throw error;
+    }
   }, [setPosts]);
 
   const handleReportVroomki = useCallback(async (post: VroomkiPost, reason: string) => {
@@ -494,11 +546,10 @@ export function useVroomkiFeed(
     const current = postsRef.current.find((p) => p.id === id);
     if (!current || current.sponsored || id <= 0) return;
     try {
-      const token = await getToken();
-      await fetch(`${API_URL}/api/vroomki/${id}/view`, {
+      await apiRequest(`/vroomki/${id}/view`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ watchMs, completed }),
+        body: { watchMs, completed },
+        priority: 'background',
       });
     } catch {
       // ignore
@@ -518,12 +569,18 @@ export function useVroomkiFeed(
         prev.map((p) => (p.author.id === authorId ? { ...p, isFollowingAuthor: nextFollowing } : p)),
       );
       try {
-        const token = await getToken();
-        const res = await fetch(`${API_URL}/api/follow/${authorId}`, {
-          method: nextFollowing ? 'POST' : 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
+        if (!myId) throw new Error('Brak aktywnej sesji');
+        await enqueueSocialOperation({
+          userId: myId,
+          type: 'follow',
+          entityKey: `follow:${authorId}`,
+          coalesce: true,
+          request: {
+            path: `/v2/social/users/${authorId}/follow`,
+            method: nextFollowing ? 'PUT' : 'DELETE',
+            invalidateKeys: [['profile', authorId, 'summary'], ['connections']],
+          },
         });
-        if (!res.ok) throw new Error();
         Toast.show({
           type: 'success',
           text1: nextFollowing ? 'Obserwujesz autora' : 'Przestałeś obserwować',
@@ -543,12 +600,11 @@ export function useVroomkiFeed(
   const focusOnPost = useCallback(async (postId: number) => {
     if (!Number.isFinite(postId)) return;
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/vroomki/${postId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const post = await queryClient.fetchQuery({
+        queryKey: ['vroomki', 'post', postId],
+        queryFn: ({ signal }) => apiRequest<VroomkiPost>(`/vroomki/${postId}`, { signal, priority: 'critical' }),
+        staleTime: 20_000,
       });
-      if (!res.ok) return;
-      const post: VroomkiPost = await res.json();
       const merged = mergeLocalState(post);
       focusedVroomkiRef.current = merged;
       setResolvedFocusPostId(merged.id);

@@ -7,13 +7,13 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { io, Socket } from 'socket.io-client';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
 import { ChatConversationListItem, type ConversationListData } from '../../../components/chat/v2';
+import { apiRequest, ApiRequestError } from '../../../lib/api/client';
+import { queryClient } from '../../../lib/query/client';
+import { subscribeSharedSocket } from '../../../lib/sharedSocket';
 
-const API      = 'https://v-room.app/api/chat';
-const WS       = 'https://v-room.app';
 const PAGE = 8;
 
 type Segment = 'all' | 'unread' | 'groups';
@@ -47,37 +47,24 @@ export default function ChatsIndex() {
   const [loading,       setLoading]       = useState(false);
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [hasMore,       setHasMore]       = useState(true);
-  const [cursor,        setCursor]        = useState<number | null>(null);
+  const [cursor,        setCursor]        = useState<string | null>(null);
   const [myId,          setMyId]          = useState<number | null>(null);
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [errorMessage,  setErrorMessage]  = useState('');
   const [authError,     setAuthError]     = useState(false);
 
-  const socketRef    = useRef<Socket | null>(null);
   const fetchingRef  = useRef(false); // blokada podwójnego fetcha
-
-  const getResponseBodySafe = async (response: Response) => {
-    const text = await response.text();
-    if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
-  };
 
   // ── Init socket ────────────────────────────────────────
   useEffect(() => {
     if (!isFocused) return;
-    (async () => {
+    let active = true;
+    const cleanup: Array<() => void> = [];
+    void (async () => {
       const raw   = await AsyncStorage.getItem('user');
-      const token = await AsyncStorage.getItem('token');
       if (raw) setMyId(JSON.parse(raw).userId);
-      if (!token) return;
-
-      const socket = io(WS, { auth: { token }, transports: ['websocket'] });
-
-      socket.on('chat:notification', ({ conversationId, message, isMe }: any) => {
+      cleanup.push(await subscribeSharedSocket<any>('chat:notification', ({ conversationId, message, isMe }) => {
+        if (!active) return;
         setConversations(prev => {
           const updated = prev.map(c =>
             c.id === conversationId
@@ -98,13 +85,11 @@ export default function ChatsIndex() {
             (b.lastMessage?.createdAt ?? '').localeCompare(a.lastMessage?.createdAt ?? '')
           );
         });
-      });
-
-      socket.on('chat:new_conversation', () => fetchConversations(true));
-      socketRef.current = socket;
+      }));
+      cleanup.push(await subscribeSharedSocket('chat:new_conversation', () => { if (active) void fetchConversations(true); }));
     })();
 
-    return () => { socketRef.current?.disconnect(); };
+    return () => { active = false; cleanup.forEach((dispose) => dispose()); };
   }, [isFocused]);
 
   // ── Pobierz pierwszą stronę ────────────────────────────
@@ -114,41 +99,13 @@ export default function ChatsIndex() {
     if (reset) setLoading(true);
 
     try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        console.error('fetchConversations: missing token');
-        setAuthError(true);
-        setErrorMessage('Sesja wygasła. Zaloguj się ponownie.');
-        setErrorModalVisible(true);
-        return;
-      }
-      const url   = `${API}/conversations?limit=${PAGE}`;
-      const r     = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const data  = await getResponseBodySafe(r);
-
-      if (!r.ok) {
-        const reason = typeof data === 'object' && data && 'message' in data
-          ? String((data as { message?: string }).message ?? '')
-          : '';
-        const finalMessage = `Nie udało się załadować czatów (${r.status}${reason ? `: ${reason}` : ''})`;
-        console.error('fetchConversations: request failed', {
-          url,
-          status: r.status,
-          statusText: r.statusText,
-          tokenPresent: true,
-          tokenLength: token.length,
-          response: data,
-        });
-        const is401 = r.status === 401;
-        setAuthError(is401);
-        setErrorMessage(is401 ? 'Sesja wygasła lub token jest nieprawidłowy. Zaloguj się ponownie.' : finalMessage);
-        setErrorModalVisible(true);
-        return;
-      }
-
-      const dataObj = (data && typeof data === 'object' && !Array.isArray(data)) ? data as any : null;
-      const list  = Array.isArray(data) ? data : (dataObj?.conversations ?? []);
-      const next  = dataObj?.nextCursor ?? null;
+      const data = await queryClient.fetchQuery({
+        queryKey: ['chat', 'inbox', 'first', PAGE],
+        queryFn: ({ signal }) => apiRequest<{ items: Conversation[]; nextCursor: string | null; hasMore: boolean }>(`/api/v2/chat/conversations?limit=${PAGE}`, { signal, priority: 'critical' }),
+        staleTime: 20_000,
+      });
+      const list = data.items;
+      const next = data.nextCursor;
 
       setConversations(list);
       setFiltered(list);
@@ -158,8 +115,8 @@ export default function ChatsIndex() {
       setErrorModalVisible(false);
     } catch (e) {
       console.error('fetchConversations: network/parsing error', e);
-      setAuthError(false);
-      setErrorMessage('Nie udało się załadować czatów. Sprawdź połączenie i spróbuj ponownie.');
+      setAuthError(e instanceof ApiRequestError && e.status === 401);
+      setErrorMessage(e instanceof Error ? e.message : 'Nie udało się załadować czatów. Sprawdź połączenie i spróbuj ponownie.');
       setErrorModalVisible(true);
     }
     finally {
@@ -174,33 +131,12 @@ export default function ChatsIndex() {
     fetchingRef.current = true;
     setLoadingMore(true);
     try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        console.error('loadMore: missing token');
-        return;
-      }
-      const url   = `${API}/conversations?limit=${PAGE}&cursor=${cursor}`;
-      const r     = await fetch(
-        url,
-        { headers: { Authorization: `Bearer ${token}` } },
+      const data = await apiRequest<{ items: Conversation[]; nextCursor: string | null; hasMore: boolean }>(
+        `/api/v2/chat/conversations?limit=${PAGE}&cursor=${encodeURIComponent(cursor)}`,
+        { priority: 'visible' },
       );
-      const data = await getResponseBodySafe(r);
-
-      if (!r.ok) {
-        console.error('loadMore: request failed', {
-          url,
-          status: r.status,
-          statusText: r.statusText,
-          tokenPresent: true,
-          tokenLength: token.length,
-          response: data,
-        });
-        return;
-      }
-
-      const dataObj = (data && typeof data === 'object' && !Array.isArray(data)) ? data as any : null;
-      const list = Array.isArray(data) ? data : (dataObj?.conversations ?? []);
-      const next = dataObj?.nextCursor ?? null;
+      const list = data.items;
+      const next = data.nextCursor;
 
       setConversations(prev => {
         const ids     = new Set(prev.map(c => c.id));

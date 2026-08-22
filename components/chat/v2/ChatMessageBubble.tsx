@@ -143,6 +143,22 @@ export function ChatMessageBubble({
           {linkUrl && <LinkPreviewCard url={linkUrl} isMe={isMe} theme={theme} />}
 
           <View style={styles.timeRow}>
+            {isMe && message.deliveryStatus && (
+              <Text style={[
+                styles.delivery,
+                { color: message.deliveryStatus === 'failed' ? '#ff8a8a' : '#ffffff60' },
+              ]}>
+                {message.deliveryStatus === 'sending'
+                  ? 'wysyłanie…'
+                  : message.deliveryStatus === 'failed'
+                    ? 'nie wysłano'
+                    : message.deliveryStatus === 'read'
+                      ? 'odczytano'
+                      : message.deliveryStatus === 'delivered'
+                        ? 'dostarczono'
+                        : 'wysłano'}
+              </Text>
+            )}
             {message.editedAt && (
               <Text style={[styles.edited, { color: isMe ? '#ffffff50' : theme.textFaint }]}>
                 edytowano
@@ -232,6 +248,7 @@ const styles = StyleSheet.create({
   body: { fontSize: 14, lineHeight: 20 },
   timeRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 6 },
   edited: { fontSize: 8, fontStyle: 'italic' },
+  delivery: { fontSize: 8, fontStyle: 'italic' },
   time: { fontSize: 9 },
   timeStandalone: { fontSize: 9, alignSelf: 'flex-end', marginTop: 2 },
 });

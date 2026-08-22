@@ -12,7 +12,6 @@ import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { useEffectivePremium } from '../../../hooks/useEffectivePremium';
-import { API_URL }            from '../../../constants/config';
 
 import ClubCard               from '../../../components/clubs/ClubCard';
 import CreateClubModal        from '../../../components/clubs/CreateClubModal';
@@ -24,7 +23,8 @@ import type { ClubManagementTab } from '../../../components/clubs/clubManagement
 import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
 import { MyClubsModal }       from '../../../components/clubs/MyClubsModal';
 import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
-import { getAuthToken } from '../../../lib/getAuthToken';
+import { apiRequest, ApiRequestError } from '../../../lib/api/client';
+import { queryClient } from '../../../lib/query/client';
 import {
   CommunityScreenHeader,
   CommunitySearchBar,
@@ -61,6 +61,8 @@ export default function ClubsScreen() {
   const [search,      setSearch]      = useState('');
   const [searchActive, setSearchActive] = useState(false);
   const [joining,     setJoining]     = useState<number | null>(null);
+  const clubsRef = useRef<Club[]>([]);
+  clubsRef.current = clubs;
 
   const [myOwnedClubs,   setMyOwnedClubs]   = useState<Club[]>([]);
   const [myMemberClubs,  setMyMemberClubs]  = useState<Club[]>([]);
@@ -80,6 +82,7 @@ export default function ClubsScreen() {
   }, [inviteId, focusedInviteClubId]);
 
   const searchTimer = useRef<any>(null);
+  const focusLoadRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -124,7 +127,6 @@ export default function ClubsScreen() {
     const q = opts?.q ?? search;
     const append = !!opts?.append;
     try {
-      const token  = await getAuthToken();
       const params = new URLSearchParams({ limit: String(PAGE), sort: sortMode });
       if (q) params.append('search', q);
       if (sortMode === 'members') {
@@ -132,10 +134,14 @@ export default function ClubsScreen() {
       } else if (opts?.cursor) {
         params.append('cursor', String(opts.cursor));
       }
-      const res  = await fetch(`${API_URL}/api/clubs?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'list', params.toString()],
+        queryFn: ({ signal }) => apiRequest<any>(`/clubs?${params}`, {
+          signal,
+          priority: append ? 'background' : 'visible',
+        }),
+        staleTime: 30_000,
       });
-      const data = await res.json();
       const list: Club[] = data.clubs ?? [];
       applyClubList(list, append, sortMode, data);
     } catch {
@@ -146,7 +152,6 @@ export default function ClubsScreen() {
   }, [clubSort, search, applyClubList]);
 
   const reloadAllClubs = useCallback((sortMode?: ClubSort) => {
-    setLoading(true);
     setHasMore(true);
     fetchClubs({ q: search, sortMode: sortMode ?? clubSort, append: false });
   }, [clubSort, search, fetchClubs]);
@@ -162,75 +167,63 @@ export default function ClubsScreen() {
 
   const fetchMyInviteCount = useCallback(async () => {
     try {
-      const token = await getAuthToken();
-      const res   = await fetch(`${API_URL}/api/clubs/invites/my`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'invites', 'my'],
+        queryFn: ({ signal }) => apiRequest<any[]>('/clubs/invites/my', { signal, priority: 'background' }),
+        staleTime: 30_000,
       });
-      if (res.ok) { const data = await res.json(); setInviteCount(data.length); }
+      setInviteCount(data.length);
     } catch {}
   }, []);
 
   // ── fetchMyClub — pobierz owned + member clubs ────────
   const fetchMyClub = useCallback(async () => {
     try {
-      const token = await getAuthToken();
-      const res   = await fetch(`${API_URL}/api/clubs/my/all`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const clubs = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'my'],
+        queryFn: ({ signal }) => apiRequest<Club[]>('/clubs/my/all', { signal, priority: 'background' }),
+        staleTime: 30_000,
       });
-      if (!res.ok) return;
-      const clubs: Club[] = await res.json();
 
       setMyOwnedClubs(clubs.filter(c => c.myRole === 'owner'));
       setMyMemberClubs(clubs.filter(c => c.myRole !== 'owner'));
     } catch {}
   }, []);
 
-  const fetchClubDetail = useCallback(async (clubId: number) => {
+  const fetchClubDetail = useCallback(async (clubId: number, force = false) => {
     try {
-      const token = await getAuthToken();
-      if (!token) {
-        return {
-          ok: false,
-          status: 401,
-          club: null,
-          error: 'Zaloguj się ponownie',
-        } as ClubDetailResult;
-      }
-
-      const res = await fetch(`${API_URL}/api/clubs/${clubId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      if (force) await queryClient.invalidateQueries({ queryKey: ['clubs', 'detail', clubId] });
+      const data = await queryClient.fetchQuery({
+        queryKey: ['clubs', 'detail', clubId],
+        queryFn: ({ signal }) => apiRequest<Club>(`/clubs/${clubId}`, { signal }),
+        staleTime: 20_000,
       });
-      const data = await res.json().catch(() => ({} as any));
-      if (!res.ok) {
-        return {
-          ok: false,
-          status: res.status,
-          club: null,
-          error: typeof data?.error === 'string' ? data.error : 'Nie można otworzyć klubu',
-        } as ClubDetailResult;
-      }
       return {
         ok: true,
-        status: res.status,
+        status: 200,
         club: data as Club,
       } as ClubDetailResult;
-    } catch {
+    } catch (error) {
       return {
         ok: false,
-        status: 0,
+        status: error instanceof ApiRequestError ? error.status : 0,
         club: null,
-        error: 'Nie można połączyć się z serwerem',
+        error: error instanceof Error ? error.message : 'Nie można połączyć się z serwerem',
       } as ClubDetailResult;
     }
   }, []);
 
-  useFocusEffect(useCallback(() => {
+  focusLoadRef.current = () => {
     void refreshPremiumAccess();
-    setLoading(true); setHasMore(true);
+    if (!clubsRef.current.length) setLoading(true);
+    setHasMore(true);
     reloadAllClubs('created');
     fetchMyClub();
     fetchMyInviteCount();
-  }, [refreshPremiumAccess]));
+  };
+  useFocusEffect(useCallback(() => {
+    focusLoadRef.current();
+  }, []));
 
   const openDetail = useCallback(async (club: Club) => {
     const isOwner = club.myRole === 'owner';
@@ -256,7 +249,7 @@ export default function ClubsScreen() {
 
   const refreshDetail = useCallback(async () => {
     if (!detailClub) return;
-    const detail = await fetchClubDetail(detailClub.id);
+    const detail = await fetchClubDetail(detailClub.id, true);
     if (!detail.ok || !detail.club) {
       setDetailClub(null);
       Toast.show({
@@ -283,12 +276,7 @@ export default function ClubsScreen() {
   const handleJoin = useCallback(async (clubId: number) => {
     setJoining(clubId);
     try {
-      const token = await getAuthToken();
-      const res   = await fetch(`${API_URL}/api/clubs/${clubId}/join`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) { Toast.show({ type: 'error', text1: data.error }); return; }
+      const data = await apiRequest<{ memberCount: number }>(`/clubs/${clubId}/join`, { method: 'POST' });
       setClubs(prev => prev.map(c =>
         c.id === clubId
           ? { ...c, isMember: true, myRole: 'member', memberCount: data.memberCount }
@@ -300,6 +288,7 @@ export default function ClubsScreen() {
           : prev,
       );
       await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
+      await queryClient.invalidateQueries({ queryKey: ['clubs'] });
       Toast.show({ type: 'success', text1: '✅ DOŁĄCZONO' });
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd' });
@@ -314,12 +303,7 @@ export default function ClubsScreen() {
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Opuść', style: 'destructive', onPress: async () => {
         setJoining(clubId);
-        const token = await getAuthToken();
-        const res   = await fetch(`${API_URL}/api/clubs/${clubId}/leave`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (!res.ok) { Toast.show({ type: 'error', text1: data.error }); setJoining(null); return; }
+        const data = await apiRequest<{ memberCount: number }>(`/clubs/${clubId}/leave`, { method: 'POST' });
         setClubs(prev => prev.map(c =>
           c.id === clubId
             ? { ...c, isMember: false, myRole: null, memberCount: data.memberCount }
@@ -331,6 +315,7 @@ export default function ClubsScreen() {
             : prev,
         );
         await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
+        await queryClient.invalidateQueries({ queryKey: ['clubs'] });
         setJoining(null);
         Toast.show({ type: 'info', text1: 'Opuszczono klub' });
       }},
@@ -342,14 +327,11 @@ export default function ClubsScreen() {
     Alert.alert('Usuń klub', 'Tej operacji nie można cofnąć.', [
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Usuń', style: 'destructive', onPress: async () => {
-        const token = await getAuthToken();
-        const res   = await fetch(`${API_URL}/api/clubs/${clubId}`, {
-          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) { Toast.show({ type: 'error', text1: 'Błąd usuwania' }); return; }
+        await apiRequest(`/clubs/${clubId}`, { method: 'DELETE' });
         setClubs(prev => prev.filter(c => c.id !== clubId));
         setDetailClub(null);
         await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
+        await queryClient.invalidateQueries({ queryKey: ['clubs'] });
         Toast.show({ type: 'success', text1: 'Klub usunięty' });
       }},
     ]);
@@ -359,7 +341,6 @@ export default function ClubsScreen() {
   const handleCreate = useCallback(async ({
     name, description, isPrivate, avatarUri,
   }: { name: string; description: string; isPrivate: boolean; avatarUri: string | null }) => {
-    const token = await getAuthToken();
     const form  = new FormData();
     form.append('name', name);
     form.append('description', description);
@@ -368,17 +349,14 @@ export default function ClubsScreen() {
       const ext = avatarUri.split('.').pop() ?? 'jpg';
       form.append('avatar', { uri: avatarUri, name: `avatar.${ext}`, type: `image/${ext}` } as any);
     }
-    const res  = await fetch(`${API_URL}/api/clubs`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? 'Nie udało się utworzyć klubu');
+    const data = await apiRequest<Club>('/clubs', { method: 'POST', body: form });
     setClubs(prev => [data, ...prev]);
     setCreateVisible(false);
     void fetchMyClub();
     await syncProfileClubFromServer();
+    await queryClient.invalidateQueries({ queryKey: ['clubs'] });
     Toast.show({ type: 'success', text1: '🏁 KLUB STWORZONY!', text2: data.name });
-  }, []);
+  }, [fetchMyClub]);
 
   // ─────────────────────────────────────────────────────
   // RENDER
