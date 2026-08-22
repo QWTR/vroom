@@ -74,6 +74,28 @@ describe('vehicleModelContract', () => {
     });
   });
 
+  it('repairs an old saved mobile +90 yaw while loading the equipped car', () => {
+    const vehicle = pickEquippedMapVehicle({
+      equipped: { map_vehicle_3d: 'legacy-car' },
+      inventory: [{
+        id: 'legacy-car',
+        name: 'Legacy car',
+        category: 'map_vehicle_3d',
+        assetUrl: 'https://cdn.vroom.test/uploads/vehicles/legacy.glb',
+        assetKind: 'glb',
+        metadata: {
+          rendererVersion: 3,
+          scale: [2, 2, 2],
+          yawOffset: 180,
+          mobileYawOffset: 270,
+        },
+      }],
+    });
+
+    expect(vehicle?.metadata.yawOffset).toBe(180);
+    expect(vehicle?.metadata.mobileYawOffset).toBe(180);
+  });
+
   it('normalizes live model fields without dropping previous model on partial events', () => {
     const previous = normalizeVehicleLiveFields({
       vehicleModelUrl: 'https://cdn.vroom.test/uploads/vehicles/bmw.glb',

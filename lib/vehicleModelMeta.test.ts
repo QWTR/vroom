@@ -132,13 +132,14 @@ describe('vehicleModelMeta', () => {
     expect(style).not.toHaveProperty('modelRotation');
   });
 
-  it('prefers explicit mobileYawOffset over legacy rotation fields (no extra flip)', () => {
+  it('ignores a legacy mobile +90 override and keeps the panel calibration', () => {
     const meta = normalizeVehicleModelMeta({
-      yawOffset: 10,
-      mobileYawOffset: 45,
-      rotationOffset: 180,
+      yawOffset: 180,
+      mobileYawOffset: 270,
     });
-    expect(meta.yawOffset).toBe(45);
+    expect(meta.yawOffset).toBe(180);
+    expect(meta.mobileYawOffset).toBe(180);
+    expect(computeVehicleModelYaw(0, meta.yawOffset)).toBe(180);
   });
 
   it('modelRot2 = heading + calibrated panel yaw', () => {

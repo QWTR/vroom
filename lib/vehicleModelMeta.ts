@@ -97,24 +97,15 @@ function parseMinZoom(raw: unknown): number {
   return clamp(n, MIN_MODEL_ZOOM, MAX_MODEL_ZOOM);
 }
 
-/**
- * Panel kalibracyjny zapisuje już yaw w konwencji natywnego ModelLayer.
- * Dodatkowe +90° ustawiało poprawnie skalibrowane samochody bokiem w aplikacji.
- */
+/** Panel i natywny ModelLayer używają jednej, wspólnej korekty yaw. */
 export const RN_MAPBOX_MODEL_YAW_FLIP_DEG = 0;
 
 /**
- * Yaw offset dla markera 3D na telefonie. IDEMPOTENTNE (normalize wołane jest wielokrotnie
- * w pipeline: kontrakt equipped + marker — nie wolno dwa razy dodać korekty).
- * - jeśli wejście ma JUŻ mobileYawOffset (sentinel z poprzedniego normalize lub ręczne
- *   nadpisanie admina) → użyj go DOSŁOWNIE, bez kolejnego flipa,
- * - w przeciwnym razie (surowe dane web): webYawOffset + korekta GL JS → mobile.
+ * Jedynym źródłem prawdy jest yawOffset skalibrowany w panelu. Starsze wersje panelu
+ * mogły dopisać mobileYawOffset = yawOffset + 90°. Ignorujemy ten historyczny override,
+ * bo właśnie on ustawiał auto bokiem na telefonie.
  */
 function resolveMobileYawOffset(o: Record<string, unknown>): number {
-  const rawMobile = o.mobileYawOffset;
-  if (rawMobile != null && String(rawMobile).trim() !== '' && Number.isFinite(Number(rawMobile))) {
-    return normalizeHeadingDeg(finiteNumber(rawMobile, 0));
-  }
   const webYaw = finiteNumber(o.yawOffset ?? o.rotationOffset ?? o.rotation, 0);
   return normalizeHeadingDeg(webYaw + RN_MAPBOX_MODEL_YAW_FLIP_DEG);
 }
@@ -136,7 +127,7 @@ export function normalizeVehicleModelMeta(raw: unknown): VehicleModelMeta {
     rendererVersion: VEHICLE_MODEL_RENDERER_VERSION,
     scale: parseScale(o.scale, o),
     yawOffset: resolvedYaw,
-    // Sentinel — kolejne normalize (kontrakt → marker) wezmą tę wartość bez ponownej korekty.
+    // Zachowane dla zgodności typu; zawsze równe wspólnemu yawOffset.
     mobileYawOffset: resolvedYaw,
     pitch: finiteNumber(o.pitch ?? o.rotationPitch, 0),
     roll: finiteNumber(o.roll ?? o.rotationRoll, 0),
