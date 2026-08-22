@@ -2,7 +2,7 @@ import type { VehicleModelMeta } from '../constants/shopCosmetics';
 import { normalizeVehicleModelMeta } from './vehicleModelMeta';
 
 export const MAP_VEHICLE_3D_CATEGORY = 'map_vehicle_3d';
-export const MAX_GLB_BYTES = 8 * 1024 * 1024;
+export const MAX_GLB_BYTES = 12 * 1024 * 1024;
 
 export type VehicleModelContractItem = {
   id: string;

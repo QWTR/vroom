@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_GLB_BYTES,
   normalizeVehicleLiveFields,
   pickEquippedMapVehicle,
 } from './vehicleModelContract';
@@ -45,6 +46,10 @@ const legacyMetadata = {
 };
 
 describe('vehicleModelContract', () => {
+  it('accepts map vehicle models up to 12 MB', () => {
+    expect(MAX_GLB_BYTES).toBe(12 * 1024 * 1024);
+  });
+
   it('picks a fully configured equipped map vehicle from shop/me inventory', () => {
     const vehicle = pickEquippedMapVehicle({
       equipped: { map_vehicle_3d: 'bmw-m3' },
