@@ -81,6 +81,46 @@ export type AsphaltDistrict = {
   lastDrivenAt?: string | null;
 };
 
+export type CityTerritoryOwner = {
+  rank: number;
+  userId: number;
+  username: string;
+  avatarUrl?: string | null;
+  distanceKm: number;
+  percentComplete: number;
+};
+
+export type CityTerritory = {
+  slug: string;
+  name: string;
+  teryt?: string | null;
+  populationRank?: number | null;
+  voivodeship?: { slug: string; name: string } | null;
+  center: { lat?: number | null; lng?: number | null };
+  cellsRevealed: number;
+  totalCells: number;
+  percentComplete: number;
+  unlocked: boolean;
+  unlockedAt?: string | null;
+  myDistanceKm: number;
+  myRank?: number | null;
+  owner?: CityTerritoryOwner | null;
+};
+
+export type CityTerritoriesResponse = {
+  period: { year: number; month: number; timeZone: string };
+  unlockPercent: number;
+  cities: CityTerritory[];
+};
+
+export type CityTerritoryDetail = {
+  period: CityTerritoriesResponse['period'];
+  unlockPercent: number;
+  city: CityTerritory;
+  leaderboard: CityTerritoryOwner[];
+  history: (Omit<CityTerritoryOwner, 'rank'> & { year: number; month: number; crownedAt: string })[];
+};
+
 export type CoverageCell = {
   cellId: string;
   center: { lat: number; lng: number };
@@ -358,6 +398,19 @@ export async function fetchAsphaltSummary(): Promise<AsphaltDistrict[]> {
   return data?.districts ?? [];
 }
 
+export async function fetchCityTerritories(): Promise<CityTerritoriesResponse> {
+  const data = await gamificationFetch<Partial<CityTerritoriesResponse>>('/api/gamification/cities');
+  return {
+    period: data?.period ?? { year: new Date().getFullYear(), month: new Date().getMonth() + 1, timeZone: 'Europe/Warsaw' },
+    unlockPercent: Number(data?.unlockPercent ?? 20),
+    cities: data?.cities ?? [],
+  };
+}
+
+export async function fetchCityTerritoryDetail(slug: string): Promise<CityTerritoryDetail | null> {
+  return gamificationFetch<CityTerritoryDetail>(`/api/gamification/cities/${encodeURIComponent(slug)}`);
+}
+
 export async function fetchCoverageCells(options: {
   userId?: number;
   bbox?: string;
@@ -416,7 +469,9 @@ export async function fetchPassport(): Promise<{
   totalStamps: number;
   voivodeshipCount: number;
   cityCount: number;
+  unlockedCityCount?: number;
   stamps: { slug: string; name: string; type: string; firstSeenAt: string }[];
+  unlockedCities?: { slug: string; name: string; unlockedAt: string }[];
 } | null> {
   return gamificationFetch('/api/gamification/passport');
 }
@@ -469,6 +524,14 @@ export function buildOwnGamificationProfileSummary(
     topRegions,
   };
   const ownCrowns = crowns.filter((crown) => Number(crown.userId) === Number(userId));
+  const activeTerritories = ownCrowns.map((crown) => ({
+    regionSlug: crown.regionSlug,
+    regionName: crown.regionName,
+    regionType: crown.regionType,
+    distanceKm: Number(crown.distanceKm) || 0,
+    year: crown.year,
+    month: crown.month,
+  }));
   const latestStamps = [...(passport?.stamps ?? [])]
     .sort((a, b) => Date.parse(b.firstSeenAt) - Date.parse(a.firstSeenAt))
     .slice(0, 5);
@@ -477,21 +540,25 @@ export function buildOwnGamificationProfileSummary(
     fogOfWar,
     turf: {
       crownCount: ownCrowns.length,
-      crowns: ownCrowns.map((crown) => ({
-        regionSlug: crown.regionSlug,
-        regionName: crown.regionName,
-        regionType: crown.regionType,
-        distanceKm: Number(crown.distanceKm) || 0,
-        year: crown.year,
-        month: crown.month,
-      })),
+      activeCount: ownCrowns.length,
+      crowns: activeTerritories,
+      activeTerritories,
+      history: [],
+      historyCount: 0,
     },
     passport: {
       totalStamps: Number(passport?.totalStamps) || 0,
       cityCount: Number(passport?.cityCount) || 0,
+      unlockedCityCount: Number(passport?.unlockedCityCount ?? passport?.cityCount) || 0,
       voivodeshipCount: Number(passport?.voivodeshipCount) || 0,
       latest: latestStamps,
       latestStamps,
+      latestCities: (passport?.unlockedCities ?? []).slice(0, 5).map((city) => ({
+        slug: city.slug,
+        name: city.name,
+        type: 'city',
+        firstSeenAt: city.unlockedAt,
+      })),
     },
   };
 }

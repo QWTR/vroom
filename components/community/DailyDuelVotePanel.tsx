@@ -21,8 +21,8 @@ import { COMMUNITY_ACCENTS } from './communityTheme';
 import {
   type DailyDuelCarSide,
   type DailyDuelData,
+  type DailyDuelSubmission,
   carDisplayLabel,
-  formatDuelCount,
   getCarPhotos,
 } from './dailyDuelTypes';
 import { DailyDuelHistorySection } from './DailyDuelHistorySection';
@@ -38,8 +38,6 @@ interface ArenaCardProps {
   side: 'A' | 'B';
   color: string;
   accentLabel: string;
-  percent: number;
-  votes: number;
   selected: boolean;
   voted: boolean;
   voting?: boolean;
@@ -65,8 +63,6 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
   side,
   color,
   accentLabel,
-  percent,
-  votes,
   selected,
   voted,
   voting,
@@ -232,7 +228,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
             <CarStat label="Moc" value={`${car.power} KM`} color={color} />
-            <CarStat label="Głosy" value={`${percent}%`} color="#fff" />
+            <CarStat label="Wynik" value="UKRYTY" color="#fff" />
           </View>
 
           <TouchableOpacity
@@ -275,10 +271,6 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
               )}
             </LinearGradient>
           </TouchableOpacity>
-
-          <Text style={{ color: '#ffffff70', fontFamily: 'Orbitron', fontSize: 8, textAlign: 'center' }}>
-            {formatDuelCount(votes)} głosów
-          </Text>
         </View>
       </View>
     </Animated.View>
@@ -291,7 +283,13 @@ interface Props {
   historyLoading?: boolean;
   loading?: boolean;
   voting?: boolean;
+  submission?: DailyDuelSubmission | null;
+  eligibleCars?: DailyDuelCarSide[];
+  submissionLoading?: boolean;
+  submitting?: boolean;
   onVote: (carId: number) => void;
+  onSubmitCar?: (carId: number) => void;
+  onCancelSubmission?: () => void;
   onRefresh?: () => void;
 }
 
@@ -301,7 +299,13 @@ export function DailyDuelVotePanel({
   historyLoading = false,
   loading,
   voting,
+  submission,
+  eligibleCars = [],
+  submissionLoading,
+  submitting,
   onVote,
+  onSubmitCar,
+  onCancelSubmission,
   onRefresh,
 }: Props) {
   const router = useRouter();
@@ -458,8 +462,6 @@ export function DailyDuelVotePanel({
               side="A"
               color={red}
               accentLabel="LEFT LANE"
-              percent={duel.percentA}
-              votes={duel.votesA}
               selected={duel.myVoteCarId === duel.carA.id}
               voted={voted}
               voting={voting}
@@ -512,8 +514,6 @@ export function DailyDuelVotePanel({
               side="B"
               color={gold}
               accentLabel="RIGHT LANE"
-              percent={duel.percentB}
-              votes={duel.votesB}
               selected={duel.myVoteCarId === duel.carB.id}
               voted={voted}
               voting={voting}
@@ -531,26 +531,94 @@ export function DailyDuelVotePanel({
             backgroundColor: '#090909cc',
             padding: 14,
           }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-              <Text style={{ color: red, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900' }}>
-                {duel.percentA}% · {formatDuelCount(duel.votesA)}
-              </Text>
-              <Text style={{ color: '#ffffffaa', fontFamily: 'Orbitron', fontSize: 10 }}>
-                {voted ? 'GŁOS ODDANY' : 'WYBIERZ STRONĘ'}
-              </Text>
-              <Text style={{ color: gold, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900' }}>
-                {duel.percentB}% · {formatDuelCount(duel.votesB)}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <MaterialCommunityIcons name="eye-off-outline" size={18} color={gold} />
+              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900' }}>
+                {voted ? 'GŁOS ZAPISANY' : 'WYNIKI UKRYTE'}
               </Text>
             </View>
-            <View style={{ height: 12, borderRadius: 6, backgroundColor: '#ffffff14', overflow: 'hidden', flexDirection: 'row' }}>
-              <View style={{ flex: duel.percentA || 1, backgroundColor: red }} />
-              <View style={{ flex: duel.percentB || 1, backgroundColor: gold }} />
-            </View>
-            <Text style={{ color: '#ffffff70', fontSize: 10, textAlign: 'center', marginTop: 10 }}>
-              Łącznie {duel.totalVotes} głosów
+            <Text style={{ color: '#ffffff70', fontSize: 10, textAlign: 'center', marginTop: 8, lineHeight: 15 }}>
+              Liczba głosów i wynik będą widoczne dopiero po zakończeniu pojedynku w archiwum.
             </Text>
           </View>
         </Animated.View>
+
+        <View style={{
+          marginHorizontal: 16,
+          marginTop: 24,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: `${gold}44`,
+          backgroundColor: '#090909dd',
+          padding: 14,
+          gap: 10,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <MaterialCommunityIcons name="car-sports" size={19} color={gold} />
+            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900' }}>
+              ZGŁOŚ AUTO DO POJEDYNKU
+            </Text>
+          </View>
+          <Text style={{ color: '#ffffff88', fontSize: 11, lineHeight: 16 }}>
+            Najpierw szukamy podobnego auta wśród innych zgłoszeń. Jeśli go nie ma, dobierzemy rywala z bazy.
+          </Text>
+
+          {submissionLoading ? (
+            <ActivityIndicator color={gold} size="small" />
+          ) : eligibleCars.length === 0 ? (
+            <Text style={{ color: '#ffad66', fontSize: 10, lineHeight: 15 }}>
+              Brak auta spełniającego warunki. Uzupełnij moc i dodaj przynajmniej jedno zdjęcie.
+            </Text>
+          ) : (
+            eligibleCars.map((car) => {
+              const selected = submission?.carId === car.id;
+              return (
+                <TouchableOpacity
+                  key={car.id}
+                  activeOpacity={0.84}
+                  disabled={submitting || selected}
+                  onPress={() => onSubmitCar?.(car.id)}
+                  style={{
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: selected ? gold : '#ffffff18',
+                    backgroundColor: selected ? `${gold}16` : '#ffffff08',
+                    padding: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    opacity: submitting && !selected ? 0.55 : 1,
+                  }}
+                >
+                  <MaterialCommunityIcons name="car-sports" size={22} color={selected ? gold : '#ffffff88'} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '900' }} numberOfLines={1}>
+                      {carDisplayLabel(car)}
+                    </Text>
+                    <Text style={{ color: '#ffffff70', fontSize: 10, marginTop: 3 }}>
+                      {car.power} KM
+                    </Text>
+                  </View>
+                  <Text style={{ color: selected ? gold : '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>
+                    {selected ? 'ZGŁOSZONE ✓' : 'ZGŁOŚ'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+          )}
+
+          {submission ? (
+            <TouchableOpacity
+              onPress={onCancelSubmission}
+              disabled={submitting}
+              style={{ alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 7 }}
+            >
+              <Text style={{ color: red, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>
+                WYCOFAJ ZGŁOSZENIE
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
         <View style={{ marginTop: 26 }}>
           <DailyDuelHistorySection history={history} loading={historyLoading} />

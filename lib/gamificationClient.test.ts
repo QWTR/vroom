@@ -17,6 +17,8 @@ vi.mock('../constants/config', () => ({ API_URL: 'https://api.test' }));
 
 import {
   buildOwnGamificationProfileSummary,
+  fetchCityTerritories,
+  fetchCityTerritoryDetail,
   flushGamificationPingOutbox,
   ingestGamificationPing,
 } from './gamificationClient';
@@ -89,8 +91,10 @@ describe('own profile gamification summary', () => {
     ], {
       totalStamps: 1,
       cityCount: 1,
+      unlockedCityCount: 1,
       voivodeshipCount: 1,
       stamps: [{ slug: 'warsaw', name: 'Warszawa', type: 'city', firstSeenAt: '2026-07-14T10:00:00Z' }],
+      unlockedCities: [{ slug: 'warsaw', name: 'Warszawa', unlockedAt: '2026-07-14T10:00:00Z' }],
     }, [
       { userId: 7, regionSlug: 'warsaw', regionName: 'Warszawa', username: 'me', distanceKm: 12 },
       { userId: 9, regionSlug: 'krakow', regionName: 'Kraków', username: 'other', distanceKm: 20 },
@@ -99,5 +103,51 @@ describe('own profile gamification summary', () => {
     expect(summary.explorationMap?.averagePercent).toBe(0.02);
     expect(summary.explorationMap?.totalRevealedCells).toBe(46);
     expect(summary.turf.crownCount).toBe(1);
+    expect(summary.turf.activeCount).toBe(1);
+    expect(summary.passport.unlockedCityCount).toBe(1);
+    expect(summary.passport.latestCities?.[0].name).toBe('Warszawa');
+  });
+});
+
+describe('city territory API contract', () => {
+  beforeEach(() => {
+    mocks.storage.clear();
+    mocks.storage.set('userToken', 'token');
+    vi.unstubAllGlobals();
+  });
+
+  it('loads all city cards and a detail ranking without changing compatibility aliases', async () => {
+    const cities = Array.from({ length: 50 }, (_, index) => ({
+      slug: `city-${index + 1}`,
+      name: `Miasto ${index + 1}`,
+      center: { lat: 52, lng: 19 },
+      cellsRevealed: index,
+      totalCells: 100,
+      percentComplete: index,
+      unlocked: index >= 20,
+      myDistanceKm: 0,
+      myRank: null,
+      owner: null,
+    }));
+    const detail = {
+      period: { year: 2026, month: 8, timeZone: 'Europe/Warsaw' },
+      unlockPercent: 20,
+      city: cities[20],
+      leaderboard: [{ rank: 1, userId: 2, username: 'Lider', distanceKm: 33, percentComplete: 44 }],
+      history: [],
+    };
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => url.endsWith('/cities/city-21')
+        ? detail
+        : { period: detail.period, unlockPercent: 20, cities },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchCityTerritories()).resolves.toMatchObject({ unlockPercent: 20, cities });
+    await expect(fetchCityTerritoryDetail('city-21')).resolves.toMatchObject({
+      city: { unlocked: true },
+      leaderboard: [{ username: 'Lider' }],
+    });
   });
 });

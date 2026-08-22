@@ -6,7 +6,23 @@ import { useDailyDuel } from '../../../hooks/useDailyDuel';
 
 export default function DailyDuelVoteScreen() {
   const { isDark } = useTheme();
-  const { duel, history, historyLoading, loading, voting, vote, refresh, refreshHistory } = useDailyDuel(15000);
+  const {
+    duel,
+    history,
+    historyLoading,
+    loading,
+    voting,
+    submission,
+    eligibleCars,
+    submissionLoading,
+    submitting,
+    vote,
+    submitCar,
+    cancelSubmission,
+    refresh,
+    refreshHistory,
+    refreshSubmission,
+  } = useDailyDuel(15000);
 
   return (
     <>
@@ -17,10 +33,17 @@ export default function DailyDuelVoteScreen() {
         historyLoading={historyLoading}
         loading={loading}
         voting={voting}
+        submission={submission}
+        eligibleCars={eligibleCars}
+        submissionLoading={submissionLoading}
+        submitting={submitting}
         onVote={vote}
+        onSubmitCar={(carId) => { void submitCar(carId); }}
+        onCancelSubmission={() => { void cancelSubmission(); }}
         onRefresh={() => {
           void refresh();
           void refreshHistory();
+          void refreshSubmission();
         }}
       />
     </>

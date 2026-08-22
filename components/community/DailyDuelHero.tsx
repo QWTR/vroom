@@ -11,7 +11,6 @@ import type { AppAnimation } from '../../constants/appAnimations';
 import AppAnimationLayer from '../animations/AppAnimationLayer';
 import {
   type DailyDuelData,
-  formatDuelCount,
   formatDuelTimer,
   carDisplayLabel,
 } from './dailyDuelTypes';
@@ -43,8 +42,6 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
   const headerBorder = theme.border2;
   const footerBg = theme.surface2;
   const footerBorder = theme.border2;
-  const progressTrack = theme.surface4;
-  const progressRemainder = theme.border3;
   const placeholderGradientA = [theme.surface3, theme.surface] as const;
   const placeholderGradientB = [theme.surface, theme.surface3] as const;
   const placeholderIcon = isDark ? theme.textFaint : theme.textDim;
@@ -280,40 +277,16 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
         borderTopWidth: 1,
         borderTopColor: footerBorder,
       }}>
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
+        <Text style={{
+          fontSize: 12,
+          color: theme.text,
+          fontWeight: '900',
+          letterSpacing: 0.5,
+          textAlign: 'center',
+          textTransform: 'uppercase',
         }}>
-          <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600' }}>
-            {duel.percentA}% · {formatDuelCount(duel.votesA)}
-          </Text>
-          <Text style={{
-            fontSize: 12,
-            color: theme.text,
-            fontWeight: '900',
-            letterSpacing: 0.5,
-            textTransform: 'uppercase',
-          }}>
-            {voted ? 'Zagłosowano ✓' : 'Głosuj →'}
-          </Text>
-          <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600' }}>
-            {duel.percentB}% · {formatDuelCount(duel.votesB)}
-          </Text>
-        </View>
-
-        <View style={{
-          height: 8,
-          borderRadius: 4,
-          overflow: 'hidden',
-          backgroundColor: progressTrack,
-        }}>
-          <View style={{ flexDirection: 'row', height: '100%' }}>
-            <View style={{ flex: duel.percentA || 1, backgroundColor: theme.primary }} />
-            <View style={{ flex: duel.percentB || 1, backgroundColor: progressRemainder }} />
-          </View>
-        </View>
+          {voted ? 'Zagłosowano ✓ · wynik po zakończeniu' : 'Głosuj → · wyniki są ukryte'}
+        </Text>
       </View>
     </TouchableOpacity>
   );

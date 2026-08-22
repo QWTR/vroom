@@ -12,14 +12,22 @@ export type DailyDuelData = {
   id: number;
   carA: DailyDuelCarSide;
   carB: DailyDuelCarSide;
-  votesA: number;
-  votesB: number;
-  percentA: number;
-  percentB: number;
-  totalVotes: number;
+  resultsVisible: boolean;
+  votesA?: number;
+  votesB?: number;
+  percentA?: number;
+  percentB?: number;
+  totalVotes?: number;
   myVoteCarId: number | null;
   endsAt: string;
   duelDate: string;
+};
+
+export type DailyDuelSubmission = {
+  id: number;
+  carId: number;
+  createdAt: string;
+  car: DailyDuelCarSide;
 };
 
 export function formatDuelCount(n: number): string {

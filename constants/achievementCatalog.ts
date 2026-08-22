@@ -52,7 +52,7 @@ export const EXTRA_ACHIEVEMENTS: AchievementCatalogItem[] = [
 ];
 
 EXTRA_ACHIEVEMENTS.push(
-  { key: 'passport_city_1', label: 'Pierwsza Pieczątka', description: 'Odwiedź pierwsze miasto w paszporcie.', icon: '🏙️', category: 'cities', rarity: 'common', points: 40, conditionField: 'cityCount', conditionValue: 1 },
+  { key: 'passport_city_1', label: 'Pierwsze Miasto', description: 'Odblokuj pierwsze miasto.', icon: '🏙️', category: 'cities', rarity: 'common', points: 40, conditionField: 'cityCount', conditionValue: 1 },
   { key: 'passport_city_3', label: 'Weekendowy Nomada', description: 'Odwiedź 3 miasta w paszporcie.', icon: '🧳', category: 'cities', rarity: 'common', points: 90, conditionField: 'cityCount', conditionValue: 3 },
   { key: 'passport_city_5', label: 'Urbanista', description: 'Odwiedź 5 miast w paszporcie.', icon: '🏬', category: 'cities', rarity: 'rare', points: 200, conditionField: 'cityCount', conditionValue: 5 },
   { key: 'passport_city_10', label: 'Miejski Nomada', description: 'Odwiedź 10 miast w paszporcie.', icon: '🗺️', category: 'cities', rarity: 'epic', points: 500, conditionField: 'cityCount', conditionValue: 10 },
@@ -63,16 +63,16 @@ EXTRA_ACHIEVEMENTS.push(
   { key: 'map_cells_1000', label: 'Kartograf', description: 'Odkryj 1000 kafelków mapy.', icon: '📍', category: 'map', rarity: 'epic', points: 450, conditionField: 'coverageCellsCount', conditionValue: 1000 },
   { key: 'map_cells_5000', label: 'Mapa Bez Tajemnic', description: 'Odkryj 5000 kafelków mapy.', icon: '🛰️', category: 'map', rarity: 'legendary', points: 1400, conditionField: 'coverageCellsCount', conditionValue: 5000 },
 
-  { key: 'district_first_25', label: 'Pierwsza Dzielnica 25%', description: 'Odkryj dowolny obszar w 25%.', icon: '🧭', category: 'map', rarity: 'common', points: 60, conditionField: 'districtMaxPct', conditionValue: 25 },
-  { key: 'district_first_50', label: 'Pół Dzielnicy', description: 'Odkryj dowolny obszar w 50%.', icon: '🧭', category: 'map', rarity: 'rare', points: 140, conditionField: 'districtMaxPct', conditionValue: 50 },
-  { key: 'district_first_75', label: 'Trzy Czwarte', description: 'Odkryj dowolny obszar w 75%.', icon: '🧭', category: 'map', rarity: 'epic', points: 260, conditionField: 'districtMaxPct', conditionValue: 75 },
-  { key: 'district_first_100', label: 'Obszar Domknięty', description: 'Odkryj dowolny obszar w 100%.', icon: '🏁', category: 'map', rarity: 'legendary', points: 600, conditionField: 'districtMaxPct', conditionValue: 100 },
-  { key: 'district_5_half', label: 'Pięciu Po Połowie', description: 'Odkryj 5 obszarów przynajmniej w 50%.', icon: '🧩', category: 'map', rarity: 'epic', points: 300, conditionField: 'district50Count', conditionValue: 5 },
-  { key: 'district_10_half', label: 'Miejski Skaner', description: 'Odkryj 10 obszarów przynajmniej w 50%.', icon: '📡', category: 'map', rarity: 'legendary', points: 650, conditionField: 'district50Count', conditionValue: 10 },
+  { key: 'district_first_25', label: 'Pierwsze 25% Miasta', description: 'Odkryj dowolne miasto w 25%.', icon: '🧭', category: 'map', rarity: 'common', points: 60, conditionField: 'districtMaxPct', conditionValue: 25 },
+  { key: 'district_first_50', label: 'Pół Miasta', description: 'Odkryj dowolne miasto w 50%.', icon: '🧭', category: 'map', rarity: 'rare', points: 140, conditionField: 'districtMaxPct', conditionValue: 50 },
+  { key: 'district_first_75', label: 'Trzy Czwarte', description: 'Odkryj dowolne miasto w 75%.', icon: '🧭', category: 'map', rarity: 'epic', points: 260, conditionField: 'districtMaxPct', conditionValue: 75 },
+  { key: 'district_first_100', label: 'Miasto Domknięte', description: 'Odkryj dowolne miasto w 100%.', icon: '🏁', category: 'map', rarity: 'legendary', points: 600, conditionField: 'districtMaxPct', conditionValue: 100 },
+  { key: 'district_5_half', label: 'Pięciu Po Połowie', description: 'Odkryj 5 miast przynajmniej w 50%.', icon: '🧩', category: 'map', rarity: 'epic', points: 300, conditionField: 'district50Count', conditionValue: 5 },
+  { key: 'district_10_half', label: 'Miejski Skaner', description: 'Odkryj 10 miast przynajmniej w 50%.', icon: '📡', category: 'map', rarity: 'legendary', points: 650, conditionField: 'district50Count', conditionValue: 10 },
 
-  { key: 'turf_crown_1', label: 'Pierwsza Korona', description: 'Zdobądź pierwszą koronę Street Kings.', icon: '👑', category: 'map', rarity: 'rare', points: 180, conditionField: 'turfCrownCount', conditionValue: 1 },
-  { key: 'turf_crown_3', label: 'Król Kilku Ulic', description: 'Zdobądź 3 korony Street Kings.', icon: '👑', category: 'map', rarity: 'epic', points: 420, conditionField: 'turfCrownCount', conditionValue: 3 },
-  { key: 'turf_crown_10', label: 'Street King', description: 'Zdobądź 10 koron Street Kings.', icon: '👑', category: 'map', rarity: 'legendary', points: 1000, conditionField: 'turfCrownCount', conditionValue: 10 },
+  { key: 'turf_crown_1', label: 'Pierwszy Rewir', description: 'Zdobądź pierwsze miejskie zwycięstwo.', icon: '👑', category: 'map', rarity: 'rare', points: 180, conditionField: 'turfCrownCount', conditionValue: 1 },
+  { key: 'turf_crown_3', label: 'Władca Trzech Miast', description: 'Zdobądź 3 miejskie zwycięstwa.', icon: '👑', category: 'map', rarity: 'epic', points: 420, conditionField: 'turfCrownCount', conditionValue: 3 },
+  { key: 'turf_crown_10', label: 'Władca Rewirów', description: 'Zdobądź 10 miejskich zwycięstw.', icon: '👑', category: 'map', rarity: 'legendary', points: 1000, conditionField: 'turfCrownCount', conditionValue: 10 },
 
   { key: 'drop_common_first', label: 'Pierwszy Common', description: 'Odbierz pierwszy zwykły zrzut.', icon: '🎁', category: 'drops', rarity: 'common', points: 45, conditionField: 'commonDropsClaimed', conditionValue: 1 },
   { key: 'drop_rare_first_v2', label: 'Niebieski Łup', description: 'Odbierz pierwszy rare drop.', icon: '🔵', category: 'drops', rarity: 'rare', points: 150, conditionField: 'rareDropsClaimed', conditionValue: 1 },

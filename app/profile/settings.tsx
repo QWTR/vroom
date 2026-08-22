@@ -105,10 +105,10 @@ const THEME_OPTIONS: { key: ThemeMode; label: string; icon: string; color: strin
 ];
 
 const SETTINGS_TABS = [
-  { key: 'appearance', label: 'WyglÄ…d', icon: 'palette' },
+  { key: 'appearance', label: 'Wygląd', icon: 'palette' },
   { key: 'profile', label: 'Profil', icon: 'person' },
   { key: 'account', label: 'Konto', icon: 'manage-accounts' },
-  { key: 'privacy', label: 'PrywatnoĹ›Ä‡', icon: 'shield' },
+  { key: 'privacy', label: 'Prywatność', icon: 'shield' },
   { key: 'notifications', label: 'Powiadomienia', icon: 'notifications' },
   { key: 'app', label: 'Aplikacja', icon: 'apps' },
   { key: 'session', label: 'Sesja', icon: 'logout' },

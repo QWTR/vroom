@@ -56,9 +56,17 @@ export function DailyDuelHistorySection({ history, loading }: Props) {
         </Text>
       ) : (
         history.map((item) => {
-          const winnerIsA = item.votesA >= item.votesB;
-          const winnerLabel = winnerIsA ? carDisplayLabel(item.carA) : carDisplayLabel(item.carB);
-          const winnerColor = winnerIsA ? red : gold;
+          const votesA = Number(item.votesA ?? 0);
+          const votesB = Number(item.votesB ?? 0);
+          const totalVotes = Number(item.totalVotes ?? votesA + votesB);
+          const percentA = Number(item.percentA ?? (totalVotes > 0 ? Math.round((votesA / totalVotes) * 100) : 50));
+          const percentB = Number(item.percentB ?? (totalVotes > 0 ? 100 - percentA : 50));
+          const isTie = votesA === votesB;
+          const winnerIsA = votesA > votesB;
+          const winnerLabel = isTie
+            ? 'Remis'
+            : carDisplayLabel(winnerIsA ? item.carA : item.carB);
+          const winnerColor = isTie ? theme.text : winnerIsA ? red : gold;
           return (
             <View
               key={item.id}
@@ -76,7 +84,13 @@ export function DailyDuelHistorySection({ history, loading }: Props) {
                 {carDisplayLabel(item.carA)} vs {carDisplayLabel(item.carB)}
               </Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: winnerColor, fontWeight: '800' }}>
-                Zwycięzca: {winnerLabel} · {formatDuelCount(item.totalVotes)} głosów
+                {isTie ? winnerLabel : `Zwycięzca: ${winnerLabel}`}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>
+                A: {percentA}% ({formatDuelCount(votesA)}) · B: {percentB}% ({formatDuelCount(votesB)})
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+                Łącznie: {formatDuelCount(totalVotes)} głosów
               </Text>
               {item.myVoteCarId != null && (
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>

@@ -2,10 +2,18 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { API_URL } from '../constants/config';
-import type { DailyDuelData } from '../components/community/dailyDuelTypes';
+import type {
+  DailyDuelCarSide,
+  DailyDuelData,
+  DailyDuelSubmission,
+} from '../components/community/dailyDuelTypes';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+
+const showToast = (type: 'success' | 'error', text1: string) => {
+  Toast.show({ type, text1 } as Parameters<typeof Toast.show>[0]);
+};
 
 export function useDailyDuel(pollMs = 30000) {
   const [duel, setDuel] = useState<DailyDuelData | null>(null);
@@ -13,6 +21,10 @@ export function useDailyDuel(pollMs = 30000) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState(false);
+  const [submission, setSubmission] = useState<DailyDuelSubmission | null>(null);
+  const [eligibleCars, setEligibleCars] = useState<DailyDuelCarSide[]>([]);
+  const [submissionLoading, setSubmissionLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const mounted = useRef(true);
 
   const fetchHistory = useCallback(async () => {
@@ -48,12 +60,7 @@ export function useDailyDuel(pollMs = 30000) {
         setDuel(prev => {
           if (!next) return null;
           if (!prev || prev.id !== next.id) return next;
-          if (
-            prev.totalVotes === next.totalVotes
-            && prev.percentA === next.percentA
-            && prev.percentB === next.percentB
-            && prev.myVoteCarId === next.myVoteCarId
-          ) {
+          if (prev.myVoteCarId === next.myVoteCarId) {
             return prev;
           }
           return next;
@@ -63,6 +70,74 @@ export function useDailyDuel(pollMs = 30000) {
       /* ignore */
     } finally {
       if (mounted.current && !silent) setLoading(false);
+    }
+  }, []);
+
+  const fetchSubmission = useCallback(async () => {
+    setSubmissionLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!mounted.current) return;
+      setSubmission(data?.submission ?? null);
+      setEligibleCars(Array.isArray(data?.cars) ? data.cars : []);
+    } catch {
+      /* ignore */
+    } finally {
+      if (mounted.current) setSubmissionLoading(false);
+    }
+  }, []);
+
+  const submitCar = useCallback(async (carId: number) => {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ carId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast('error', data?.error ?? 'Nie udało się zgłosić auta');
+        return false;
+      }
+      setSubmission(data.submission ?? null);
+      showToast('success', 'Auto zgłoszone do pojedynku!');
+      return true;
+    } catch {
+      showToast('error', 'Błąd połączenia');
+      return false;
+    } finally {
+      setSubmitting(false);
+    }
+  }, []);
+
+  const cancelSubmission = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/daily-duel/submission`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return false;
+      setSubmission(null);
+      showToast('success', 'Zgłoszenie wycofane');
+      return true;
+    } catch {
+      showToast('error', 'Błąd połączenia');
+      return false;
+    } finally {
+      setSubmitting(false);
     }
   }, []);
 
@@ -80,14 +155,14 @@ export function useDailyDuel(pollMs = 30000) {
       });
       const data = await res.json();
       if (!res.ok) {
-        Toast.show({ type: 'error', text1: data?.error ?? 'Nie udało się zagłosować' });
+        showToast('error', data?.error ?? 'Nie udało się zagłosować');
         return false;
       }
       setDuel(data.duel ?? null);
-      Toast.show({ type: 'success', text1: 'Głos oddany!' });
+      showToast('success', 'Głos oddany!');
       return true;
     } catch {
-      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      showToast('error', 'Błąd połączenia');
       return false;
     } finally {
       setVoting(false);
@@ -98,12 +173,29 @@ export function useDailyDuel(pollMs = 30000) {
     mounted.current = true;
     void fetchDuel();
     void fetchHistory();
+    void fetchSubmission();
     const id = setInterval(() => { void fetchDuel(true); }, pollMs);
     return () => {
       mounted.current = false;
       clearInterval(id);
     };
-  }, [fetchDuel, fetchHistory, pollMs]);
+  }, [fetchDuel, fetchHistory, fetchSubmission, pollMs]);
 
-  return { duel, history, historyLoading, loading, voting, refresh: fetchDuel, refreshHistory: fetchHistory, vote };
+  return {
+    duel,
+    history,
+    historyLoading,
+    loading,
+    voting,
+    submission,
+    eligibleCars,
+    submissionLoading,
+    submitting,
+    refresh: fetchDuel,
+    refreshHistory: fetchHistory,
+    refreshSubmission: fetchSubmission,
+    vote,
+    submitCar,
+    cancelSubmission,
+  };
 }

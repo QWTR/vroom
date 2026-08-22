@@ -28,10 +28,22 @@ export interface DiscordProfile {
   connectedAt?: string | null;
 }
 
+export interface GamificationTerritorySummary {
+  slug?: string;
+  name?: string;
+  type?: string;
+  regionSlug?: string;
+  regionName?: string;
+  regionType?: string;
+  distanceKm: number;
+  year?: number;
+  month?: number;
+  crownedAt?: string | null;
+}
+
 export interface GamificationProfileSummary {
   explorationMap?: {
     averagePercent: number;
-    totalRevealedCells?: number;
     totalCells?: number;
     country?: {
       slug: string;
@@ -78,22 +90,16 @@ export interface GamificationProfileSummary {
   };
   turf: {
     crownCount?: number;
-    crowns: {
-      slug?: string;
-      name?: string;
-      type?: string;
-      regionSlug?: string;
-      regionName?: string;
-      regionType?: string;
-      distanceKm: number;
-      year?: number;
-      month?: number;
-      crownedAt?: string | null;
-    }[];
+    activeCount?: number;
+    crowns: GamificationTerritorySummary[];
+    activeTerritories?: GamificationTerritorySummary[];
+    history?: GamificationTerritorySummary[];
+    historyCount?: number;
   };
   passport: {
     totalStamps: number;
     cityCount: number;
+    unlockedCityCount?: number;
     voivodeshipCount: number;
     latest?: {
       slug: string;
@@ -102,6 +108,12 @@ export interface GamificationProfileSummary {
       firstSeenAt: string;
     }[];
     latestStamps?: {
+      slug: string;
+      name: string;
+      type: string;
+      firstSeenAt: string;
+    }[];
+    latestCities?: {
       slug: string;
       name: string;
       type: string;

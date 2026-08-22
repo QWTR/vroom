@@ -3304,26 +3304,7 @@ function MapScreenInner() {
     if (liveAchTripStartDistanceRef.current <= 0) {
       liveAchTripStartDistanceRef.current = Math.max(0, Number(profileTotalDistanceKmRef.current || 0));
     }
-    const currentSpeedKmh = Math.min(
-      MAX_SPEED_HUD_KMH,
-      Math.max(
-        0,
-        Number(speedKmhRef.current || 0),
-        Number(liveAchSessionPeakSpeedRef.current || 0),
-      ),
-    );
-    const projectedDistanceKm = Math.max(
-      0,
-      Number(profileTotalDistanceKmRef.current || 0) + Number(liveDistanceKm || 0),
-    );
-    if (currentSpeedKmh - liveAchLastSpeedSubmittedRef.current >= LIVE_ACHIEVEMENT_SPEED_DELTA_TRIGGER_KMH) {
-      void checkLiveAchievements('speed');
-      return;
-    }
-    if (projectedDistanceKm - liveAchLastDistanceSubmittedRef.current >= LIVE_ACHIEVEMENT_DISTANCE_DELTA_TRIGGER_KM) {
-      void checkLiveAchievements('distance');
-    }
-  }, [isDriving, isNavigating, liveDistanceKm, checkLiveAchievements]);
+  }, [isDriving, isNavigating]);
 
   /** Checkpoint km w trakcie jazdy — zapis co TRIP_CHECKPOINT_KM na serwer. */
   useMapTripCheckpoints({
@@ -3334,9 +3315,6 @@ function MapScreenInner() {
     flushTripDistanceCheckpoint,
     flushTripDistanceCheckpointRef,
     tripCheckpointSavedKmRef,
-    checkLiveAchievements,
-    appStateRef,
-    isMapFocusedRef,
   });
 
   useEffect(() => {
@@ -4782,7 +4760,6 @@ function MapScreenInner() {
         0,
         Math.max(Number(finalStats.distanceKm || 0), tripCheckpointSavedKmRef.current) - tripCheckpointSavedKmRef.current,
       );
-      void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
       void deliverGamificationRewards();
     }
 
@@ -4932,7 +4909,7 @@ function MapScreenInner() {
       reason: opts?.reason ?? 'unspecified',
       skipFlush: !!opts?.skipFlush,
     }));
-  }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, finalizeTripSession, clearStats, finishTrip, checkLiveAchievements, deliverGamificationRewards, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
+  }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, finalizeTripSession, clearStats, finishTrip, deliverGamificationRewards, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
 
   const exportNavDriveTrace = useCallback(() => {
     void shareNavTraceLog();
@@ -11978,7 +11955,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (userLocation) resetBrowseCamera(userLocation);
 
     InteractionManager.runAfterInteractions(() => {
-      void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
       void deliverGamificationRewards();
       flushNavigationStatsOnce(finalStats);
       if (routeInfo?.distance) onNavigationComplete(parseFloat(routeInfo.distance));
@@ -12011,7 +11987,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     onNavigationComplete, timerRunning, stopTimer, formatElapsed,
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns,
     flushNavigationStatsOnce,
-    checkLiveAchievements,
     deliverGamificationRewards,
     transitionFromApproachToRouteRun,
   ]);

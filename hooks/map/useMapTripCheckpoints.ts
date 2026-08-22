@@ -1,6 +1,5 @@
 import type { MutableRefObject } from 'react';
 import { useEffect } from 'react';
-import { LIVE_ACHIEVEMENT_PERIODIC_MS } from '../../constants/mapPerformance';
 import { useMapTick, MAP_TICK } from '../useMapTick';
 import { flushTracePendingKmToStorage } from '../useBackgroundTracking';
 
@@ -16,12 +15,6 @@ export type UseMapTripCheckpointsParams = {
   }) => Promise<boolean>;
   flushTripDistanceCheckpointRef: MutableRefObject<UseMapTripCheckpointsParams['flushTripDistanceCheckpoint']>;
   tripCheckpointSavedKmRef: MutableRefObject<number>;
-  checkLiveAchievements: (
-    reason: 'speed' | 'distance' | 'periodic' | 'trip_end',
-    extraPeakKmh?: number,
-  ) => Promise<void>;
-  appStateRef: MutableRefObject<string>;
-  isMapFocusedRef: MutableRefObject<boolean>;
 };
 
 function isTripActiveNow(
@@ -41,9 +34,6 @@ export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
     flushTripDistanceCheckpoint,
     flushTripDistanceCheckpointRef,
     tripCheckpointSavedKmRef,
-    checkLiveAchievements,
-    appStateRef,
-    isMapFocusedRef,
   } = params;
 
   useEffect(() => {
@@ -69,18 +59,5 @@ export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
       },
     ],
     checkpointEnabled,
-  );
-
-  useMapTick(
-    LIVE_ACHIEVEMENT_PERIODIC_MS,
-    [
-      () => {
-        if (appStateRef.current !== 'active') return;
-        if (!isMapFocusedRef.current) return;
-        if (!isTripActiveNow(enabled, tripActiveRef)) return;
-        void checkLiveAchievements('periodic');
-      },
-    ],
-    enabled || checkpointEnabled,
   );
 }

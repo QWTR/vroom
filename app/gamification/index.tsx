@@ -1,13 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -15,46 +7,29 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   fetchAsphaltSummary,
+  fetchCityTerritories,
   fetchGamificationStatus,
   fetchPassport,
   fetchPendingGamificationRewards,
-  fetchTurfCrowns,
   type AsphaltDistrict,
+  type CityTerritoriesResponse,
+  type CityTerritory,
   type GamificationReward,
 } from '../../lib/gamificationClient';
 import { ExplorationCoverageMap } from '../../components/profile/ExplorationCoverageMap';
 
-type PassportData = {
-  totalStamps: number;
-  cityCount: number;
-  voivodeshipCount: number;
-  stamps: { slug: string; name: string; type: string; firstSeenAt: string }[];
-};
-
-type Crown = {
-  regionSlug: string;
-  regionName: string;
-  regionType?: string;
-  username: string;
-  distanceKm: number;
-  year?: number;
-  month?: number;
-};
+type ViewMode = 'cities' | 'regions';
 
 function nextMilestone(percent: number): number | null {
+  if (percent < 20) return 20;
   if (percent < 50) return 50;
   if (percent < 75) return 75;
   if (percent < 100) return 100;
   return null;
 }
 
-function formatDate(value?: string | null): string {
-  if (!value) return '';
-  try {
-    return new Intl.DateTimeFormat('pl-PL', { day: '2-digit', month: 'short' }).format(new Date(value));
-  } catch {
-    return '';
-  }
+function normalizeSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
 export default function GamificationScreen() {
@@ -62,9 +37,12 @@ export default function GamificationScreen() {
   const { theme, isDark } = useTheme();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [districts, setDistricts] = useState<AsphaltDistrict[]>([]);
-  const [passport, setPassport] = useState<PassportData | null>(null);
-  const [crowns, setCrowns] = useState<Crown[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<ViewMode>('cities');
+  const [search, setSearch] = useState('');
+  const [territories, setTerritories] = useState<CityTerritoriesResponse | null>(null);
+  const [regions, setRegions] = useState<AsphaltDistrict[]>([]);
+  const [unlockedRegions, setUnlockedRegions] = useState(0);
   const [rewards, setRewards] = useState<GamificationReward[]>([]);
   const [activeDrops, setActiveDrops] = useState<number | null>(null);
 
@@ -79,416 +57,154 @@ export default function GamificationScreen() {
   const load = useCallback(async (soft = false) => {
     if (soft) setRefreshing(true);
     else setLoading(true);
+    setError(null);
     try {
-      const [d, p, c, r, status] = await Promise.all([
-        fetchAsphaltSummary(),
-        fetchPassport(),
-        fetchTurfCrowns(),
-        fetchPendingGamificationRewards(),
-        fetchGamificationStatus(),
+      const [cityData, asphalt, passport, pendingRewards, status] = await Promise.all([
+        fetchCityTerritories(), fetchAsphaltSummary(), fetchPassport(), fetchPendingGamificationRewards(), fetchGamificationStatus(),
       ]);
-      setDistricts(d);
-      setPassport(p);
-      setCrowns(c);
-      setRewards(r);
+      setTerritories(cityData);
+      setRegions(asphalt.filter((row) => row.type === 'voivodeship'));
+      setUnlockedRegions(Number(passport?.voivodeshipCount || 0));
+      setRewards(pendingRewards);
       setActiveDrops(status?.activeDrops ?? null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Nie udało się pobrać miast.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const countryProgress = districts.find((d) => d.slug === 'poland' || d.type === 'country') ?? null;
-  const regionRows = districts.filter((d) => d.slug !== 'poland' && d.type !== 'country');
-  const averageProgress = Math.round(Number(countryProgress?.percentComplete ?? 0));
-  const exploredCells = districts.reduce((sum, d) => sum + Number(d.cellsRevealed ?? 0), 0);
-  const averageProgressText = exploredCells > 0 && averageProgress < 1 ? '<1%' : `${averageProgress}%`;
+  const cities = useMemo(() => territories?.cities ?? [], [territories]);
+  const unlockedCities = cities.filter((city) => city.unlocked).length;
+  const ownedCities = cities.filter((city) => city.owner && city.myRank === 1).length;
+  const query = normalizeSearch(search);
+  const visibleCities = useMemo(() => [...cities]
+    .filter((city) => !query || normalizeSearch(`${city.name} ${city.voivodeship?.name || ''}`).includes(query))
+    .sort((a, b) => Number(Boolean(b.owner && b.myRank === 1)) - Number(Boolean(a.owner && a.myRank === 1))
+      || Number(b.unlocked) - Number(a.unlocked)
+      || b.percentComplete - a.percentComplete
+      || a.name.localeCompare(b.name, 'pl')), [cities, query]);
+  const visibleRegions = useMemo(() => regions
+    .filter((region) => !query || normalizeSearch(region.name).includes(query))
+    .sort((a, b) => b.percentComplete - a.percentComplete || a.name.localeCompare(b.name, 'pl')), [regions, query]);
+  const listData = mode === 'cities' ? visibleCities : visibleRegions;
+  const periodLabel = territories
+    ? new Intl.DateTimeFormat('pl-PL', { month: 'long', year: 'numeric' }).format(new Date(territories.period.year, territories.period.month - 1, 1))
+    : '';
+
+  const header = (
+    <View style={{ gap: 14 }}>
+      <View style={[styles.hero, { borderColor: theme.primaryBorder, backgroundColor: colors.card }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.kicker, { color: theme.primary }]}>MIEJSKIE REWIRY</Text>
+          <Text style={[styles.heroTitle, { color: theme.text }]}>{unlockedCities}/50 miast</Text>
+          <Text style={[styles.heroText, { color: colors.muted }]}>Miasto odblokowuje się przy 20% kafelków. Rewir zdobywa kierowca z największą liczbą kilometrów w bieżącym miesiącu.</Text>
+        </View>
+        <View style={[styles.heroBadge, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}>
+          <MaterialCommunityIcons name="crown-outline" size={24} color={theme.gold} />
+          <Text style={[styles.badgeValue, { color: theme.text }]}>{ownedCities}</Text>
+          <Text style={[styles.badgeLabel, { color: colors.muted }]}>MOJE</Text>
+        </View>
+      </View>
+
+      <View style={[styles.mapCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Mapa odkrytych kafelków</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>Każdy prawdziwy przejazd zwiększa postęp odpowiedniego miasta.</Text>
+        <View style={{ marginTop: 12 }}><ExplorationCoverageMap height={240} interactive autoRefreshMs={60_000} /></View>
+      </View>
+
+      <View style={styles.quickGrid}>
+        <MetricCard label="Miasta" value={`${unlockedCities}/50`} icon="city-variant-outline" />
+        <MetricCard label="Moje rewiry" value={`${ownedCities}`} icon="crown-outline" />
+        <MetricCard label="Województwa" value={`${unlockedRegions}/16`} icon="map-marker-radius-outline" />
+        <MetricCard label="Zrzuty" value={activeDrops == null ? '-' : `${activeDrops}`} icon="diamond-stone" />
+      </View>
+
+      <View style={[styles.segment, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {(['cities', 'regions'] as const).map((value) => (
+          <TouchableOpacity key={value} onPress={() => setMode(value)} style={[styles.segmentButton, mode === value && { backgroundColor: theme.primaryBg, borderColor: theme.primaryBorder }]}>
+            <Text style={[styles.segmentText, { color: mode === value ? theme.primary : colors.muted }]}>{value === 'cities' ? 'MIASTA' : 'REGIONY'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <MaterialCommunityIcons name="magnify" size={20} color={colors.muted} />
+        <TextInput value={search} onChangeText={setSearch} placeholder={mode === 'cities' ? 'Szukaj miasta lub województwa' : 'Szukaj województwa'} placeholderTextColor={colors.dim} style={[styles.searchInput, { color: theme.text }]} />
+        {search ? <TouchableOpacity onPress={() => setSearch('')}><MaterialCommunityIcons name="close-circle" size={19} color={colors.muted} /></TouchableOpacity> : null}
+      </View>
+
+      <View style={styles.listHeading}>
+        <View>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{mode === 'cities' ? 'Paszport miast i rewiry' : 'Postęp województw'}</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>{mode === 'cities' ? `Ranking: ${periodLabel}` : 'Województwa nie mają właścicieli'}</Text>
+        </View>
+        <Text style={[styles.listCount, { color: theme.primary }]}>{listData.length}</Text>
+      </View>
+    </View>
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
       <LinearGradient colors={[theme.bg, theme.bgAlt, theme.bg]} style={StyleSheet.absoluteFill} />
-
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.card }]}>
-          <MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.kicker, { color: theme.primary }]}>VROOM MAPA</Text>
-          <Text style={[styles.title, { color: theme.text }]}>Rewiry i Paszport</Text>
-        </View>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.card }]}><MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} /></TouchableOpacity>
+        <View style={{ flex: 1 }}><Text style={[styles.kicker, { color: theme.primary }]}>VROOM MAPA</Text><Text style={[styles.title, { color: theme.text }]}>Miasta i Rewiry</Text></View>
       </View>
 
       {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={theme.primary} size="large" />
-          <Text style={{ color: colors.muted, marginTop: 12 }}>Ladowanie eksploracji...</Text>
-        </View>
+        <View style={styles.loading}><ActivityIndicator color={theme.primary} size="large" /><Text style={{ color: colors.muted, marginTop: 12 }}>Ładowanie miast...</Text></View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={listData as (CityTerritory | AsphaltDistrict)[]}
+          keyExtractor={(item) => item.slug}
           contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={theme.primary} />}
-        >
-          <View style={[styles.hero, { borderColor: theme.primaryBorder, backgroundColor: colors.card }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.kicker, { color: theme.primary }]}>MAPA ODKRYC</Text>
-              <Text style={[styles.heroTitle, { color: theme.text }]}>
-                {countryProgress ? `Polska ${averageProgressText}` : 'Mapa czeka'}
-              </Text>
-              <Text style={[styles.heroText, { color: colors.muted }]}>
-                Kafelki odblokowuja sie same podczas jazdy i nawigacji. Na mapie jazdy ich nie pokazujemy.
-              </Text>
-            </View>
-            <View style={[styles.heroBadge, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}>
-              <Text style={{ color: theme.text, fontWeight: '900', fontSize: 24 }}>{averageProgressText}</Text>
-              <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>ODKRYTE</Text>
-            </View>
-          </View>
-
-          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.sectionHead}>
-              <View style={[styles.sectionIcon, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}>
-                <MaterialCommunityIcons name="map-search-outline" size={20} color={theme.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Mapa odkrytych kafelkow</Text>
-                <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>
-                  To tutaj sprawdzasz odkryta mape. Zwykla mapa jazdy zostaje czysta.
-                </Text>
-              </View>
-            </View>
-            <ExplorationCoverageMap height={260} interactive autoRefreshMs={60_000} />
-          </View>
-
-          <View style={styles.quickGrid}>
-            <MetricCard label="Miasta" value={`${passport?.cityCount ?? 0}`} icon="city-variant-outline" />
-            <MetricCard label="Regiony" value={`${passport?.voivodeshipCount ?? 0}`} icon="map-marker-radius-outline" />
-            <MetricCard label="Strefy" value={`${regionRows.length}`} icon="road-variant" />
-            <MetricCard label="Zrzuty" value={activeDrops == null ? '-' : `${activeDrops}`} icon="diamond-stone" />
-          </View>
-
-          <Section title="Paszport Motoryzacyjny" icon="passport" subtitle="Pieczatki za odwiedzone miasta i wojewodztwa.">
-            {(passport?.stamps ?? []).length === 0 ? (
-              <EmptyText text="Jeszcze nie ma pieczatek. Pierwsza prawdziwa jazda doda je automatycznie." />
-            ) : (
-              (passport?.stamps ?? []).slice(0, 8).map((stamp) => (
-                <View key={`${stamp.slug}-${stamp.firstSeenAt}`} style={[styles.row, { borderColor: colors.border }]}>
-                  <MaterialCommunityIcons
-                    name={stamp.type === 'voivodeship' ? 'map-outline' : 'city-variant-outline'}
-                    size={20}
-                    color={theme.primary}
-                  />
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>{stamp.name}</Text>
-                  <Text style={[styles.rowMeta, { color: colors.dim }]}>{formatDate(stamp.firstSeenAt)}</Text>
-                </View>
-              ))
-            )}
-          </Section>
-
-          <Section title="Mapa odkryc" icon="road-variant" subtitle="Kazdy przejechany kafelek podbija progres miasta, regionu i Polski.">
-            {regionRows.length === 0 ? (
-              <EmptyText text="Brak odkrytych stref. Wlacz jazde i zacznij odblokowywac mape." />
-            ) : (
-              regionRows.slice(0, 12).map((district) => {
-                const next = nextMilestone(district.percentComplete);
-                return (
-                  <View key={district.slug} style={[styles.progressCard, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}>
-                    <View style={styles.progressHead}>
-                      <Text style={[styles.progressTitle, { color: theme.text }]}>{district.name}</Text>
-                      <Text style={[styles.progressPct, { color: theme.primary }]}>{district.percentComplete.toFixed(0)}%</Text>
-                    </View>
-                    <View style={[styles.progressTrack, { backgroundColor: isDark ? '#ffffff14' : '#00000012' }]}>
-                      <View style={[styles.progressFill, { width: `${Math.min(100, district.percentComplete)}%`, backgroundColor: theme.primary }]} />
-                    </View>
-                    <Text style={[styles.progressHint, { color: colors.muted }]}>
-                      {next ? `Brakuje ${(next - district.percentComplete).toFixed(0)}% do progu ${next}%` : 'Dzielnica ukonczona'}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-          </Section>
-
-          <Section title="Wojny o Rewir" icon="crown-outline" subtitle="Miesieczne korony za najwiecej kilometrow w strefie.">
-            {crowns.length === 0 ? (
-              <EmptyText text="Brak koron. Pierwsze rozstrzygniecie pojawi sie po miesiecznym podsumowaniu." />
-            ) : (
-              crowns.slice(0, 10).map((crown) => (
-                <View key={`${crown.regionSlug}-${crown.username}`} style={[styles.row, { borderColor: colors.border }]}>
-                  <MaterialCommunityIcons name="crown-outline" size={20} color={theme.gold} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowTitle, { color: theme.text }]}>{crown.regionName}</Text>
-                    <Text style={[styles.rowSub, { color: colors.muted }]}>
-                      {crown.username} ma rewir - {Number(crown.distanceKm || 0).toFixed(1)} km
-                    </Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </Section>
-
-          <Section title="Zrzuty" icon="diamond-stone" subtitle="Tymczasowe paczki Nitro widoczne tylko przy jezdzie bez celu.">
-            <View style={[styles.dropBox, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}>
-              <MaterialCommunityIcons name="shield-check-outline" size={22} color={theme.primary} />
-              <Text style={[styles.dropText, { color: theme.text }]}>
-                Zrzuty nie pokazuja sie podczas aktywnej nawigacji. Zeby odebrac paczke, przejedz przez jej strefe w jezdzie bez celu.
-              </Text>
-            </View>
-            {rewards.length > 0 ? (
-              <Text style={[styles.pendingText, { color: colors.muted }]}>Masz {rewards.length} oczekujace nagrody.</Text>
-            ) : null}
-          </Section>
-        </ScrollView>
+          ListHeaderComponent={header}
+          ListHeaderComponentStyle={{ marginBottom: 10 }}
+          renderItem={({ item }) => mode === 'cities' ? <CityCard city={item as CityTerritory} /> : <RegionCard region={item as AsphaltDistrict} />}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.muted }]}>{error || 'Brak wyników.'}</Text>}
+          ListFooterComponent={<View style={{ gap: 12, marginTop: 16 }}>{error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}<View style={[styles.dropBox, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}><MaterialCommunityIcons name="diamond-stone" size={22} color={theme.primary} /><Text style={[styles.dropText, { color: theme.text }]}>Zrzuty pozostają dostępne podczas jazdy bez celu. {rewards.length ? `Masz ${rewards.length} oczekujące nagrody.` : ''}</Text></View><Text style={[styles.attribution, { color: colors.dim }]}>Granice: GUGiK PRG · Siatka: kafelki eksploracji VROOM</Text></View>}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+        />
       )}
     </SafeAreaView>
   );
 
-  function Section({ title, icon, subtitle, children }: {
-    title: string;
-    icon: keyof typeof MaterialCommunityIcons.glyphMap;
-    subtitle: string;
-    children: React.ReactNode;
-  }) {
+  function CityCard({ city }: { city: CityTerritory }) {
+    const missing = Math.max(0, (territories?.unlockPercent ?? 20) - city.percentComplete);
     return (
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={styles.sectionHead}>
-          <View style={[styles.sectionIcon, { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}>
-            <MaterialCommunityIcons name={icon} size={20} color={theme.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>{subtitle}</Text>
-          </View>
-        </View>
-        <View style={{ gap: 10 }}>{children}</View>
-      </View>
+      <TouchableOpacity onPress={() => router.push({ pathname: '/gamification/city/[slug]', params: { slug: city.slug } } as any)} style={[styles.cityCard, { backgroundColor: colors.card, borderColor: city.owner && city.myRank === 1 ? theme.gold : colors.border }]}>
+        <View style={styles.progressHead}><View style={{ flex: 1 }}><Text style={[styles.cityName, { color: theme.text }]}>{city.name}</Text><Text style={[styles.cityProvince, { color: colors.muted }]}>{city.voivodeship?.name || 'Polska'}</Text></View><Text style={[styles.progressPct, { color: city.unlocked ? theme.primary : colors.muted }]}>{city.percentComplete.toFixed(1)}%</Text></View>
+        <View style={[styles.progressTrack, { backgroundColor: isDark ? '#ffffff14' : '#00000012' }]}><View style={[styles.progressFill, { width: `${Math.min(100, city.percentComplete)}%`, backgroundColor: city.unlocked ? theme.primary : colors.muted }]} /></View>
+        <View style={styles.cityMetaRow}><MaterialCommunityIcons name={city.unlocked ? 'lock-open-variant-outline' : 'lock-outline'} size={16} color={city.unlocked ? theme.primary : colors.muted} /><Text style={[styles.cityStatus, { color: city.unlocked ? theme.primary : colors.muted }]}>{city.unlocked ? 'MIASTO ODBLOKOWANE' : `BRAKUJE ${missing.toFixed(1)}% DO ODBLOKOWANIA`}</Text></View>
+        <View style={[styles.ownerBox, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}><MaterialCommunityIcons name="crown-outline" size={20} color={city.owner ? theme.gold : colors.dim} /><View style={{ flex: 1 }}><Text style={[styles.ownerName, { color: theme.text }]}>{city.owner ? `${city.owner.username} ma rewir` : 'Rewir nieobsadzony'}</Text><Text style={[styles.ownerMeta, { color: colors.muted }]}>{city.owner ? `${city.owner.distanceKm.toFixed(1)} km · ${city.owner.percentComplete.toFixed(1)}% odkryte` : 'Pierwszy kwalifikujący się kierowca może go zdobyć'}</Text></View><MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} /></View>
+        <Text style={[styles.myScore, { color: colors.muted }]}>Ty: {city.myDistanceKm.toFixed(1)} km{city.myRank ? ` · miejsce #${city.myRank}` : city.unlocked ? ' · bez miejsca' : ' · odblokuj 20%, aby wejść do rankingu'}</Text>
+      </TouchableOpacity>
     );
   }
 
-  function MetricCard({ label, value, icon }: {
-    label: string;
-    value: string;
-    icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  }) {
-    return (
-      <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <MaterialCommunityIcons name={icon} size={18} color={theme.primary} />
-        <Text style={[styles.metricValue, { color: theme.text }]}>{value}</Text>
-        <Text style={[styles.metricLabel, { color: colors.muted }]}>{label}</Text>
-      </View>
-    );
+  function RegionCard({ region }: { region: AsphaltDistrict }) {
+    const next = nextMilestone(region.percentComplete);
+    return <View style={[styles.cityCard, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={styles.progressHead}><Text style={[styles.cityName, { color: theme.text }]}>{region.name}</Text><Text style={[styles.progressPct, { color: theme.primary }]}>{region.percentComplete.toFixed(1)}%</Text></View><View style={[styles.progressTrack, { backgroundColor: isDark ? '#ffffff14' : '#00000012' }]}><View style={[styles.progressFill, { width: `${Math.min(100, region.percentComplete)}%`, backgroundColor: theme.primary }]} /></View><Text style={[styles.myScore, { color: colors.muted }]}>{next ? `Brakuje ${(next - region.percentComplete).toFixed(1)}% do progu ${next}%` : 'Województwo ukończone'}</Text></View>;
   }
 
-  function EmptyText({ text }: { text: string }) {
-    return <Text style={[styles.emptyText, { color: colors.muted }]}>{text}</Text>;
+  function MetricCard({ label, value, icon }: { label: string; value: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }) {
+    return <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}><MaterialCommunityIcons name={icon} size={18} color={theme.primary} /><Text style={[styles.metricValue, { color: theme.text }]}>{value}</Text><Text style={[styles.metricLabel, { color: colors.muted }]}>{label}</Text></View>;
   }
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kicker: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    letterSpacing: 3,
-    fontWeight: '800',
-  },
-  title: {
-    fontFamily: 'Orbitron',
-    fontSize: 23,
-    letterSpacing: 1.5,
-    fontWeight: '900',
-    marginTop: 3,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  content: {
-    padding: 18,
-    paddingBottom: 40,
-    gap: 14,
-  },
-  hero: {
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  heroTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 22,
-    fontWeight: '900',
-    marginTop: 8,
-  },
-  heroText: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 8,
-    fontWeight: '600',
-  },
-  heroBadge: {
-    width: 82,
-    height: 82,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  metricCard: {
-    width: '48%',
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    gap: 7,
-  },
-  metricValue: {
-    fontFamily: 'Orbitron',
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  metricLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  section: {
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 16,
-  },
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-  },
-  sectionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-    fontWeight: '600',
-  },
-  row: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  rowTitle: {
-    flex: 1,
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  rowSub: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  rowMeta: {
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  progressCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 13,
-  },
-  progressHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 9,
-  },
-  progressTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 13,
-    fontWeight: '900',
-    flex: 1,
-  },
-  progressPct: {
-    fontFamily: 'Orbitron',
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  progressTrack: {
-    height: 7,
-    borderRadius: 99,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 99,
-  },
-  progressHint: {
-    marginTop: 8,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  dropBox: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  dropText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  pendingText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  emptyText: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12 }, iconButton: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, kicker: { fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 3, fontWeight: '800' }, title: { fontFamily: 'Orbitron', fontSize: 23, letterSpacing: 1.5, fontWeight: '900', marginTop: 3 }, loading: { flex: 1, alignItems: 'center', justifyContent: 'center' }, content: { padding: 18, paddingBottom: 40 },
+  hero: { borderWidth: 1, borderRadius: 22, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }, heroTitle: { fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', marginTop: 8 }, heroText: { fontSize: 13, lineHeight: 19, marginTop: 8, fontWeight: '600' }, heroBadge: { width: 82, height: 96, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 2 }, badgeValue: { fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900' }, badgeLabel: { fontSize: 9, fontWeight: '900' }, mapCard: { borderWidth: 1, borderRadius: 22, padding: 16 },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricCard: { width: '48%', borderWidth: 1, borderRadius: 18, padding: 14, gap: 7 }, metricValue: { fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900' }, metricLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }, sectionTitle: { fontFamily: 'Orbitron', fontSize: 15, fontWeight: '900' }, sectionSubtitle: { fontSize: 12, lineHeight: 17, marginTop: 3, fontWeight: '600' },
+  segment: { borderWidth: 1, borderRadius: 17, padding: 4, flexDirection: 'row', gap: 4 }, segmentButton: { flex: 1, borderWidth: 1, borderColor: 'transparent', borderRadius: 13, paddingVertical: 11, alignItems: 'center' }, segmentText: { fontFamily: 'Orbitron', fontSize: 11, letterSpacing: 1.4, fontWeight: '900' }, searchBox: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9 }, searchInput: { flex: 1, fontSize: 13, fontWeight: '700', paddingVertical: 10 }, listHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 3 }, listCount: { fontFamily: 'Orbitron', fontSize: 17, fontWeight: '900' },
+  cityCard: { borderWidth: 1, borderRadius: 20, padding: 15 }, progressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 9 }, cityName: { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', flex: 1 }, cityProvince: { fontSize: 11, fontWeight: '700', marginTop: 3 }, progressPct: { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900' }, progressTrack: { height: 7, borderRadius: 99, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: 99 }, cityMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 9 }, cityStatus: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5 }, ownerBox: { borderWidth: 1, borderRadius: 15, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }, ownerName: { fontSize: 13, fontWeight: '900' }, ownerMeta: { fontSize: 10, fontWeight: '700', marginTop: 3 }, myScore: { fontSize: 10, lineHeight: 15, fontWeight: '700', marginTop: 10 },
+  dropBox: { borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, dropText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: '700' }, emptyText: { padding: 22, textAlign: 'center', fontSize: 12, lineHeight: 18, fontWeight: '700' }, errorText: { fontSize: 12, fontWeight: '800', textAlign: 'center' }, attribution: { textAlign: 'center', fontSize: 9, lineHeight: 14, fontWeight: '600' },
 });

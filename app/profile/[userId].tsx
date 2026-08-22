@@ -1056,7 +1056,7 @@ export default function PublicProfileScreen() {
                 {[
                   { label: 'Mapa', value: explorationPercentText, icon: 'map-search-outline' as const, color: RED },
                   { label: 'Rewiry', value: `${turf?.crownCount ?? 0}`, icon: 'crown-outline' as const, color: '#f5c518' },
-                  { label: 'Pieczątki', value: `${passport?.totalStamps ?? 0}`, icon: 'passport' as const, color: palette.textDim },
+                  { label: 'Miasta', value: `${passport?.unlockedCityCount ?? passport?.cityCount ?? 0}`, icon: 'city-variant-outline' as const, color: palette.textDim },
                 ].map(item => (
                   <View key={item.label} style={{ flex: 1, minHeight: 78, backgroundColor: glassSurface(palette.surface, '80'), borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: 10, justifyContent: 'space-between' }}>
                     <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
@@ -1087,7 +1087,7 @@ export default function PublicProfileScreen() {
                   ))}
                 </View>
               ) : (
-                <EmptyState text="Brak odkrytych dzielnic" palette={palette} />
+                <EmptyState text="Brak odkrytych miast" palette={palette} />
               )}
 
               {(turf?.crowns?.length ?? 0) > 0 && (
@@ -1100,6 +1100,21 @@ export default function PublicProfileScreen() {
                       <MaterialCommunityIcons name="crown" size={16} color="#f5c518" />
                       <Text style={{ color: palette.text, fontWeight: '800', flex: 1 }}>{crown.regionName}</Text>
                       <Text style={profileLabel}>{Number(crown.distanceKm || 0).toFixed(1)} km</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {(turf?.history?.length ?? 0) > 0 && (
+                <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: palette.textDim, fontWeight: '800', letterSpacing: 2, marginBottom: 8 }}>
+                    HISTORIA ZWYCIĘSTW
+                  </Text>
+                  {turf!.history!.slice(0, 5).map((crown, index) => (
+                    <View key={`${crown.regionSlug}-${crown.year}-${crown.month}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}>
+                      <MaterialCommunityIcons name="history" size={16} color={palette.textDim} />
+                      <Text style={{ color: palette.text, fontWeight: '800', flex: 1 }}>{crown.regionName ?? crown.name}</Text>
+                      <Text style={profileLabel}>{String(crown.month ?? 0).padStart(2, '0')}/{crown.year}</Text>
                     </View>
                   ))}
                 </View>

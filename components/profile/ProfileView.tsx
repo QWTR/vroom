@@ -1143,7 +1143,7 @@ export default function ProfileView({
                 {[
                   { label: 'Mapa odkryta', value: explorationPercentText, icon: 'map-search-outline' as const, color: pillAccentColors[0] },
                   { label: 'Rewiry', value: `${turf?.crownCount ?? 0}`, icon: 'crown-outline' as const, color: '#f5c518' },
-                  { label: 'Pieczątki', value: `${passport?.totalStamps ?? 0}`, icon: 'passport' as const, color: pillAccentColors[1] },
+                  { label: 'Miasta', value: `${passport?.unlockedCityCount ?? passport?.cityCount ?? 0}`, icon: 'city-variant-outline' as const, color: pillAccentColors[1] },
                 ].map(item => (
                   <View key={item.label} style={{ flex: 1, minHeight: 86, borderRadius: 16, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '72'), padding: 10, justifyContent: 'space-between' }}>
                     <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
@@ -1198,11 +1198,24 @@ export default function ProfileView({
               </View>
             )}
 
-            {(passport?.latestStamps?.length ?? 0) > 0 && (
+            {(turf?.history?.length ?? 0) > 0 && (
+              <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textMuted, letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>HISTORIA ZWYCIĘSTW</Text>
+                {turf!.history!.slice(0, 5).map((crown, index) => (
+                  <View key={`${crown.regionSlug}-${crown.year}-${crown.month}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 }}>
+                    <MaterialCommunityIcons name="history" size={17} color={theme.textMuted} />
+                    <Text style={{ color: theme.text, fontWeight: '800', flex: 1 }}>{crown.regionName ?? crown.name}</Text>
+                    <Text style={{ ...profileLabel(theme) }}>{String(crown.month ?? 0).padStart(2, '0')}/{crown.year}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {((passport?.latestCities?.length ?? passport?.latestStamps?.length) ?? 0) > 0 && (
               <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 0 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[1], letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>PASZPORT MOTORYZACYJNY</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[1], letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>ODBLOKOWANE MIASTA</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {(passport?.latestStamps ?? []).slice(0, 4).map(stamp => (
+                  {(passport?.latestCities ?? passport?.latestStamps ?? []).filter(stamp => stamp.type === 'city').slice(0, 4).map(stamp => (
                     <View key={`${stamp.slug}-${stamp.firstSeenAt}`} style={{ borderRadius: 99, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '80'), paddingHorizontal: 10, paddingVertical: 6 }}>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '800' }}>{stamp.name}</Text>
                     </View>
