@@ -49,7 +49,7 @@ export type MapModalsHostProps = {
     type: CameraType;
     description: string | null;
   } | null;
-  pickCenterRef: React.MutableRefObject<{ lat: number; lng: number }>;
+  onSetPickCenter: (coords: { lat: number; lng: number }) => void;
   leaderboardRouteId: number | null;
   leaderboardRouteName: string;
   leaderboardData: unknown;
@@ -115,6 +115,7 @@ export type MapModalsHostProps = {
 };
 
 export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostProps) {
+  'use no memo';
   const {
     router,
     isPremium,
@@ -135,7 +136,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     selectedPartnerPoi,
     selectedOfficialMeet,
     addFuelStationCoords,
-    pickCenterRef,
+    onSetPickCenter,
     leaderboardRouteId,
     leaderboardRouteName,
     leaderboardData,
@@ -196,9 +197,26 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     onNavigateToOfficialMeet,
   } = props;
 
+  const activeModal = ([
+    [searchModalVisible, 'search'],
+    [userInfoVisible, 'user-info'],
+    [settingsVisible, 'settings'],
+    [reportVisible, 'report'],
+    [Boolean(selectedWarning), 'warning'],
+    [saveRouteVisible, 'save-route'],
+    [leaderboardVisible, 'leaderboard'],
+    [tripStatsVisible, 'trip-stats'],
+    [addCameraVisible, 'add-camera'],
+    [cameraDetailVisible, 'camera-detail'],
+    [addFuelStationVisible, 'add-fuel'],
+    [fuelStationModalVisible, 'fuel-station'],
+    [partnerPoiModalVisible, 'partner-poi'],
+    [officialMeetModalVisible, 'official-meet'],
+  ] as const).find(([visible]) => visible)?.[1] ?? null;
+
   return (
     <>
-      <SearchModal
+      {activeModal === 'search' && <SearchModal
         visible={searchModalVisible}
         onClose={onCloseSearch}
         onSelectStart={onSelectStart}
@@ -210,8 +228,8 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
           onCloseSearch();
           router.push('/profile/settings' as any);
         }}
-      />
-      <UserInfoModal
+      />}
+      {activeModal === 'user-info' && <UserInfoModal
         visible={userInfoVisible}
         user={selectedUser}
         distance={selectedUser?.distance ?? 0}
@@ -219,20 +237,20 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         onClose={onCloseUserInfo}
         onViewProfile={onViewProfile}
         onMessage={onMessageUser}
-      />
-      <SettingsModal
+      />}
+      {activeModal === 'settings' && <SettingsModal
         visible={settingsVisible}
         mapType={mapType}
         onChangeMapType={onChangeMapType}
         onClose={onCloseSettings}
-      />
-      <ReportModal
+      />}
+      {activeModal === 'report' && <ReportModal
         visible={reportVisible}
         onClose={onCloseReport}
         onReport={onReport}
         isSubmitting={isSubmittingWarning}
-      />
-      <WarningDetailModal
+      />}
+      {activeModal === 'warning' && <WarningDetailModal
         visible={!!selectedWarning}
         warning={selectedWarning}
         onClose={onCloseWarning}
@@ -240,8 +258,8 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         onCancel={onCancelWarning}
         onDismiss={onDismissWarning}
         currentUserId={currentUserId ?? undefined}
-      />
-      <SaveRouteModal
+      />}
+      {activeModal === 'save-route' && <SaveRouteModal
         visible={saveRouteVisible}
         pinCount={pins.length}
         distanceKm={totalDistance(
@@ -277,8 +295,8 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
           }
           await onSaveRoute(name, desc, isPublic, isOffroad);
         }}
-      />
-      <RouteLeaderboardModal
+      />}
+      {activeModal === 'leaderboard' && <RouteLeaderboardModal
         visible={leaderboardVisible}
         routeId={leaderboardRouteId}
         routeName={leaderboardRouteName}
@@ -287,42 +305,42 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         loading={leaderboardLoading}
         newTime={myFinishedTime}
         onClose={onCloseLeaderboard}
-      />
-      <TripStatsModal
+      />}
+      {activeModal === 'trip-stats' && <TripStatsModal
         visible={tripStatsVisible}
         stats={tripStats}
         onClose={onCloseTripStats}
-      />
-      <AddSpeedCameraModal
+      />}
+      {activeModal === 'add-camera' && <AddSpeedCameraModal
         visible={addCameraVisible}
         onClose={onCloseAddCamera}
         onConfirm={onConfirmAddCamera}
         onPickOnMap={(params) => {
           onPickCameraOnMap(params);
           if (userLocation) {
-            pickCenterRef.current = {
+            onSetPickCenter({
               lat: userLocation.latitude,
               lng: userLocation.longitude,
-            };
+            });
           }
         }}
-      />
-      <SpeedCameraDetailModal
+      />}
+      {activeModal === 'camera-detail' && <SpeedCameraDetailModal
         visible={cameraDetailVisible}
         camera={selectedCamera}
         onClose={onCloseCameraDetail}
         onConfirm={onConfirmCamera}
         onDelete={onDeleteCamera}
         currentUserId={currentUserId}
-      />
-      <AddFuelStationModal
+      />}
+      {activeModal === 'add-fuel' && <AddFuelStationModal
         visible={addFuelStationVisible}
         latitude={addFuelStationCoords?.latitude ?? null}
         longitude={addFuelStationCoords?.longitude ?? null}
         onClose={onCloseAddFuel}
         onSubmit={onCreateFuelStation}
-      />
-      <FuelStationModal
+      />}
+      {activeModal === 'fuel-station' && <FuelStationModal
         visible={fuelStationModalVisible}
         station={selectedFuelStation}
         onClose={onCloseFuelStation}
@@ -330,20 +348,20 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         onPricesUpdated={onFuelPricesUpdated}
         updatePrices={updateFuelPrices}
         userLocation={userLocation}
-      />
-      <PartnerPoiModal
+      />}
+      {activeModal === 'partner-poi' && <PartnerPoiModal
         visible={partnerPoiModalVisible}
         poi={selectedPartnerPoi}
         onClose={onClosePartnerPoi}
         onNavigate={onNavigateToPartner}
-      />
-      <OfficialMeetMapModal
+      />}
+      {activeModal === 'official-meet' && <OfficialMeetMapModal
         visible={officialMeetModalVisible}
         meet={selectedOfficialMeet}
         onClose={onCloseOfficialMeet}
         onOpenEvent={onOpenOfficialMeet}
         onNavigate={onNavigateToOfficialMeet}
-      />
+      />}
     </>
   );
 });

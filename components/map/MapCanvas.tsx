@@ -1,6 +1,7 @@
 import React, { forwardRef, memo, type ReactNode } from 'react';
 import { Platform, type ViewProps } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
+import { useHeavySurface } from '../../hooks/useHeavySurface';
 
 export type MapCanvasProps = {
   styleURL: string;
@@ -11,6 +12,7 @@ export type MapCanvasProps = {
   onCameraChanged?: (e: any) => void;
   onDidFinishLoadingStyle?: () => void;
   onLayout?: ViewProps['onLayout'];
+  preferredFramesPerSecond?: number;
   children?: ReactNode;
 };
 
@@ -29,10 +31,12 @@ export const MapCanvas = memo(
       onCameraChanged,
       onDidFinishLoadingStyle,
       onLayout,
+      preferredFramesPerSecond = 60,
       children,
     },
     ref,
   ) {
+    useHeavySurface('mapbox:main');
     return (
       <Mapbox.MapView
         ref={ref}
@@ -43,7 +47,7 @@ export const MapCanvas = memo(
         compassEnabled={false}
         // TextureView na Androidzie unika czarnego ekranu po przełączeniu zakładek (SurfaceView).
         surfaceView={Platform.OS === 'android' ? false : undefined}
-        preferredFramesPerSecond={60}
+        preferredFramesPerSecond={preferredFramesPerSecond}
         scrollEnabled
         zoomEnabled
         pitchEnabled

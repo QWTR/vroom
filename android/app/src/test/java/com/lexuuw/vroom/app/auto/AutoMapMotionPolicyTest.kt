@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoMapMotionPolicyTest {
+    @Test fun `pose loop adapts to motion and interaction`() {
+        assertEquals(66L, AutoMapMotionPolicy.poseFrameDelayMs(0.0, false, false))
+        assertEquals(33L, AutoMapMotionPolicy.poseFrameDelayMs(5.0, false, false))
+        assertEquals(16L, AutoMapMotionPolicy.poseFrameDelayMs(40.0, false, false))
+        assertEquals(16L, AutoMapMotionPolicy.poseFrameDelayMs(0.0, true, false))
+        assertEquals(33L, AutoMapMotionPolicy.poseFrameDelayMs(0.0, false, true))
+    }
+
     @Test fun `camera crosses north using the shortest turn`() {
         val next = AutoMapMotionPolicy.smoothBearing(
             current = 359.0,

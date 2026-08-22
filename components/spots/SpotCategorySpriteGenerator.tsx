@@ -66,40 +66,52 @@ type Props = {
   onReady: (sprites: Record<string, string>) => void;
 };
 
+let cachedSprites: Record<string, string> | null = null;
+
 /** Jednorazowo generuje PNG pinów per kategoria (11 szt.) — do Mapbox.Images. */
 export function SpotCategorySpriteGenerator({ onReady }: Props) {
   const refs = useRef<Partial<Record<SpotCategory, View>>>({});
   const doneRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+    if (cachedSprites) {
+      onReady(cachedSprites);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const timer = setTimeout(async () => {
       if (doneRef.current) return;
 
       const sprites: Record<string, string> = {};
-      await Promise.all(
-        CATEGORIES.map(async cat => {
-          const node = refs.current[cat];
-          if (!node) return;
-          try {
-            const uri = await captureRef(node, {
-              format: 'png',
-              quality: 1,
-              result: 'tmpfile',
-            });
-            sprites[CATEGORY_IMAGE_KEYS[cat]] = uri;
-          } catch {
-            /* ignore single capture failure */
-          }
-        }),
-      );
-
-      if (Object.keys(sprites).length >= CATEGORIES.length - 1) {
-        doneRef.current = true;
-        onReady(sprites);
+      for (const cat of CATEGORIES) {
+        if (cancelled) return;
+        const node = refs.current[cat];
+        if (!node) continue;
+        try {
+          const uri = await captureRef(node, {
+            format: 'png',
+            quality: 1,
+            result: 'tmpfile',
+          });
+          sprites[CATEGORY_IMAGE_KEYS[cat]] = uri;
+        } catch {
+          /* A complete fallback layer is safer than a partially registered sprite set. */
+        }
       }
+
+      if (cancelled) return;
+      doneRef.current = true;
+      cachedSprites = Object.keys(sprites).length === CATEGORIES.length ? sprites : {};
+      onReady(cachedSprites);
     }, 100);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [onReady]);
 
   return (

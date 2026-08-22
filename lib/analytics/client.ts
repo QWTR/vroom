@@ -10,7 +10,6 @@ const MAX_QUEUE_BYTES = 5 * 1024 * 1024;
 const MAX_QUEUE_AGE_MS = 72 * 60 * 60 * 1000;
 const MAX_BATCH_BYTES = 128 * 1024;
 const MAX_BATCH_EVENTS = 50;
-const FLUSH_MS = 30_000;
 const ACTOR_KEY = '@vroom/analytics/actor';
 
 type QueueRow = { id: string; payload: string; priority: number; createdAt: number; bytes: number; batchId: string | null };
@@ -19,7 +18,6 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let initialized = false;
 let collectionEnabled = true;
 let eligibilityResolved = false;
-let flushTimer: ReturnType<typeof setInterval> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let persistPromise: Promise<void> | null = null;
 let flushing = false;
@@ -237,12 +235,9 @@ export async function initAnalytics(): Promise<void> {
   const db = await database();
   await enforceLocalLimits(db);
   startAnalyticsSession();
-  flushTimer = setInterval(() => { void flushAnalytics(); }, FLUSH_MS);
   void flushAnalytics();
 }
 
 export async function shutdownAnalytics(): Promise<void> {
-  if (flushTimer) clearInterval(flushTimer);
-  flushTimer = null;
   await flushAnalytics();
 }

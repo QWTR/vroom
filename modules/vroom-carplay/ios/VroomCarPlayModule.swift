@@ -25,6 +25,10 @@ public final class VroomCarPlayModule: Module {
       VroomCarPlayCoordinator.shared.setAuthToken(token)
     }
 
+    Function("setPerformanceProfile") { (profile: String) in
+      VroomCarPlayCoordinator.shared.setPerformanceProfile(profile)
+    }
+
     AsyncFunction("isConnected") {
       VroomCarPlayCoordinator.shared.isConnected
     }

@@ -30,6 +30,8 @@ object AutoDriverAlertPolicy {
 
     fun selectVoiceEnforcement(payload: VroomPayload): AutoDriverAlertCandidate? =
         candidates(payload)
+            .asSequence()
+            .filter(::shouldSpeak)
             .sortedWith(compareByDescending<AutoDriverAlertCandidate> { it.priority }.thenBy { it.distanceMeters })
             .firstOrNull()
 

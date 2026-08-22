@@ -414,7 +414,6 @@ export default function ProfileView({
   const statsSlide = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
   const SPOTS_PREVIEW  = 4;
-
   const avatarRingLin = React.useMemo(() => {
     const fb = frameGradients[avatarFramePreset] || frameGradients.vroom;
     return linearGradientFromSpec(premiumUi?.avatarRingGradient ?? null, fb);

@@ -25,6 +25,7 @@ export interface CarPlayNavigationStartedEvent {
 export interface VroomCarPlayNativeModule {
   updateSnapshot(json: string): void;
   setAuthToken(token: string): void;
+  setPerformanceProfile(profile: 'standard' | 'battery' | 'smooth'): void;
   isConnected(): Promise<boolean>;
   diagnostics(): Promise<Record<string, unknown>>;
   addListener(

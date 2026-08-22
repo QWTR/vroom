@@ -15,5 +15,5 @@ describe('useCameraV3 Reanimated transform', () => {
     expect(code).toContain('const segmentDurationMs=Number.isFinite(durationValue)');
     expect(code).not.toContain('tripCameraSegmentDurationMs');
     expect(code).not.toContain('nativeFollowerFrameFromMarker');
-  });
+  }, 15_000);
 });

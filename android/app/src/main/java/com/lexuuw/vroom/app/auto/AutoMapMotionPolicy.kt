@@ -5,6 +5,14 @@ import kotlin.math.exp
 
 /** Pure motion rules shared by the Android Auto marker and follow camera. */
 object AutoMapMotionPolicy {
+    fun poseFrameDelayMs(speedKmh: Double, userBrowsing: Boolean, routePreview: Boolean): Long {
+        if (userBrowsing) return 16L
+        val speed = if (speedKmh.isFinite()) speedKmh.coerceAtLeast(0.0) else 0.0
+        if (speed >= 10.0) return 16L
+        if (speed >= 1.0 || routePreview) return 33L
+        return 66L
+    }
+
     fun normalizeBearing(value: Double): Double =
         ((value % 360.0) + 360.0) % 360.0
 

@@ -4,9 +4,14 @@ import {
   buildVehicleModelFeatureProperties,
   computeVehicleModelYaw,
   normalizeVehicleModelMeta,
+  RN_MAPBOX_MODEL_YAW_FLIP_DEG,
 } from './vehicleModelMeta';
 
 describe('vehicleModelMeta', () => {
+  it('does not add a hidden quarter-turn after panel calibration', () => {
+    expect(RN_MAPBOX_MODEL_YAW_FLIP_DEG).toBe(0);
+  });
+
   it('computes modelYaw = heading + yawOffset (admin formula)', () => {
     expect(computeVehicleModelYaw(0, 0)).toBe(0);
     expect(computeVehicleModelYaw(90, 0)).toBe(90);
@@ -30,7 +35,7 @@ describe('vehicleModelMeta', () => {
     expect(meta).toMatchObject({
       rendererVersion: 3,
       scale: [2, 3, 4],
-      yawOffset: 270,
+      yawOffset: 180,
       pitch: 5,
       roll: -3,
       pivotX: 0,
@@ -52,7 +57,7 @@ describe('vehicleModelMeta', () => {
     }, 270)).toEqual({
       modelRot0: 4,
       modelRot1: -2,
-      modelRot2: 90,
+      modelRot2: 0,
       transX: 0,
       transY: 0,
       transZ: 3,
@@ -76,11 +81,11 @@ describe('vehicleModelMeta', () => {
       transX: 0,
       transY: 0,
       transZ: 1,
-      modelRot2: 180,
+      modelRot2: 90,
     });
   });
 
-  it('reads legacy scaleX/Y/Z when scale array is missing (with +90 mobile flip)', () => {
+  it('reads legacy scaleX/Y/Z without rotating the calibrated yaw', () => {
     const meta = normalizeVehicleModelMeta({
       scaleX: 2.5,
       scaleY: 2.5,
@@ -88,12 +93,30 @@ describe('vehicleModelMeta', () => {
       yawOffset: 90,
     });
     expect(meta.scale).toEqual([2.5, 2.5, 2.5]);
-    expect(meta.yawOffset).toBe(180);
+    expect(meta.yawOffset).toBe(90);
   });
 
-  it('applies +90 mobile platform flip when mobileYawOffset absent', () => {
-    expect(normalizeVehicleModelMeta({ yawOffset: 90 }).yawOffset).toBe(180);
-    expect(normalizeVehicleModelMeta({ yawOffset: 0 }).yawOffset).toBe(90);
+  it('keeps panel yaw unchanged when mobileYawOffset is absent', () => {
+    expect(normalizeVehicleModelMeta({ yawOffset: 90 }).yawOffset).toBe(90);
+    expect(normalizeVehicleModelMeta({ yawOffset: 0 }).yawOffset).toBe(0);
+  });
+
+  it('keeps self and fleet cars aligned for browse, driving, and every cardinal heading', () => {
+    const meta = normalizeVehicleModelMeta({
+      rendererVersion: 3,
+      scale: [1, 1, 1],
+      yawOffset: 0,
+      elevationZ: 0.8,
+      minZoom: 10,
+    });
+
+    expect(meta.yawOffset).toBe(0);
+    for (const heading of [0, 90, 180, 270]) {
+      // Własny marker: browse i aktywna jazda używają tej samej formuły.
+      expect(computeVehicleModelYaw(heading, meta.yawOffset)).toBe(heading);
+      // Warstwa pozostałych użytkowników publikuje identyczny modelRot2.
+      expect(buildVehicleModelFeatureProperties(meta, heading).modelRot2).toBe(heading);
+    }
   });
 
   it('buildSelfVehicleModelLayerStyle uses literal scale, rotation added in component', () => {
@@ -118,14 +141,13 @@ describe('vehicleModelMeta', () => {
     expect(meta.yawOffset).toBe(45);
   });
 
-  it('modelRot2 = heading + (webYaw + 90 mobile flip)', () => {
+  it('modelRot2 = heading + calibrated panel yaw', () => {
     const props = buildVehicleModelFeatureProperties({
       scale: [1, 1, 1],
       yawOffset: 90,
       minZoom: 10,
     }, 97);
 
-    // yawOffset 90 → mobile 180; 97 + 180 = 277
-    expect(props.modelRot2).toBe(277);
+    expect(props.modelRot2).toBe(187);
   });
 });

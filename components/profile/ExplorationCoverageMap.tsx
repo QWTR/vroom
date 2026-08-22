@@ -226,71 +226,55 @@ export function ExplorationCoverageMap({
       }}
       pointerEvents={interactive ? 'auto' : 'none'}
     >
-      <Mapbox.MapView
-        style={{ flex: 1 }}
-        styleURL={isDark ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
-        scaleBarEnabled={false}
-        compassEnabled={false}
-        logoEnabled={false}
-        attributionEnabled={false}
-        scrollEnabled={false}
-        zoomEnabled={false}
-        pitchEnabled={false}
-        rotateEnabled={false}
+      <TouchableOpacity
+        activeOpacity={interactive && shape.features.length > 0 ? 0.86 : 1}
+        disabled={!interactive || loading || shape.features.length === 0}
+        onPress={() => setFullscreen(true)}
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 20,
+          backgroundColor: isDark ? '#0b0b0d' : '#17171a',
+        }}
       >
-        <Mapbox.Camera
-          zoomLevel={camera.zoom}
-          centerCoordinate={camera.center}
-          animationMode="flyTo"
-          animationDuration={450}
-        />
-        {shape.features.length > 0 ? (
-          <Mapbox.ShapeSource id={`exploration-coverage-${userId ?? 'me'}`} shape={shape as any}>
-            <Mapbox.FillLayer
-              id={`exploration-coverage-fill-${userId ?? 'me'}`}
-              style={{
-                fillColor: theme.primary,
-                fillOpacity: 0.9,
-                fillOutlineColor: theme.primary,
-              }}
-            />
-            <Mapbox.LineLayer
-              id={`exploration-coverage-line-${userId ?? 'me'}`}
-              style={{
-                lineColor: isDark ? '#ffffff' : theme.primary,
-                lineOpacity: 0.95,
-                lineWidth: 2.2,
-              }}
-            />
-          </Mapbox.ShapeSource>
-        ) : null}
-      </Mapbox.MapView>
-
-      {interactive && shape.features.length > 0 ? (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => {
-            setFullscreen(true);
-          }}
-          style={{
-            position: 'absolute',
-            right: 10,
-            top: 10,
+        <View style={{
+          width: 54,
+          height: 54,
+          borderRadius: 27,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: theme.primarySoft,
+          borderWidth: 1,
+          borderColor: theme.primaryBorder,
+        }}>
+          <MaterialCommunityIcons name="map-marker-radius-outline" size={29} color={theme.primary} />
+        </View>
+        <Text style={{ color: theme.text, fontSize: 14, fontWeight: '900', marginTop: 10 }}>
+          Mapa odkryc
+        </Text>
+        <Text style={{ color: theme.textMuted, fontSize: 11, fontWeight: '800', marginTop: 3 }}>
+          {progressLabel}
+        </Text>
+        {interactive && shape.features.length > 0 ? (
+          <View style={{
+            marginTop: 10,
             borderRadius: 999,
-            paddingHorizontal: 11,
-            paddingVertical: 8,
-            backgroundColor: '#000000cc',
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+            backgroundColor: '#000000aa',
             borderWidth: 1,
             borderColor: theme.primaryBorder,
             flexDirection: 'row',
             alignItems: 'center',
             gap: 6,
           }}
-        >
+          >
           <MaterialCommunityIcons name="gesture-tap" size={16} color={theme.primary} />
-          <Text style={{ color: theme.text, fontSize: 10, fontWeight: '900' }}>STERUJ</Text>
-        </TouchableOpacity>
-      ) : null}
+            <Text style={{ color: theme.text, fontSize: 10, fontWeight: '900' }}>OTWORZ MAPE</Text>
+          </View>
+        ) : null}
+      </TouchableOpacity>
 
       {loading ? (
         <View style={{
@@ -315,7 +299,7 @@ export function ExplorationCoverageMap({
           alignItems: 'center',
           justifyContent: 'center',
           padding: 18,
-          backgroundColor: '#00000055',
+          backgroundColor: '#000000dd',
         }}>
           <Text style={{ color: theme.textMuted, fontWeight: '800', textAlign: 'center' }}>
             {syncing ? 'Synchronizuje przejazd...' : 'Brak odkrytych kafelkow'}
@@ -323,12 +307,13 @@ export function ExplorationCoverageMap({
         </View>
       ) : null}
 
-      <Modal
-        visible={fullscreen}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setFullscreen(false)}
-      >
+      {fullscreen ? (
+        <Modal
+          visible
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setFullscreen(false)}
+        >
         <View style={{ flex: 1, backgroundColor: isDark ? '#050505' : '#f5f5f5' }}>
           <Mapbox.MapView
             style={{ flex: 1 }}
@@ -442,7 +427,8 @@ export function ExplorationCoverageMap({
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+        </Modal>
+      ) : null}
     </View>
   );
 }

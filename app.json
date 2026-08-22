@@ -2,7 +2,7 @@
   "expo": {
     "name": "vroom",
     "slug": "vroom",
-    "version": "1.0.28",
+    "version": "1.0.29",
     "orientation": "portrait",
     "icon": "./assets/images/Frame1933.png",
     "scheme": "vroom",
@@ -14,7 +14,7 @@
       "checkAutomatically": "NEVER",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.28",
+    "runtimeVersion": "1.0.29",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom.app",
@@ -39,16 +39,6 @@
       }
     },
     "android": {
-      "metaData": [
-        {
-          "name": "com.google.android.play.car.app.disable_connection_to_phone",
-          "value": "true"
-        },
-        {
-          "name": "androidx.car.app.minCarApiLevel",
-          "value": "1"
-        }
-      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Frame1933.png",
         "backgroundColor": "#0a0a0a"
@@ -86,6 +76,16 @@
       "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "# VROOM: optional Stripe push-provisioning classes\n-dontwarn com.stripe.android.pushProvisioning.**"
+          }
+        }
+      ],
       "./plugins/withCarPlay",
       "./plugins/withAndroidAuto",
       "./plugins/withVroomBgLocationNotification",
@@ -106,6 +106,8 @@
         }
       ],
       "expo-router",
+      "expo-font",
+      "expo-web-browser",
       [
         "expo-splash-screen",
         {
@@ -158,7 +160,8 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "reactCompiler": true
     },
     "extra": {
       "router": {},

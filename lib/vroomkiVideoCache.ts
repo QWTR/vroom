@@ -3,8 +3,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const CACHE_DIR = `${FileSystem.cacheDirectory ?? ''}vroomki-videos/`;
 const INDEX_KEY = 'vroom.vroomkiVideoCache.index.v1';
-const MAX_ENTRIES = 14;
-const MAX_BYTES = 280 * 1024 * 1024;
+const MAX_ENTRIES = 10;
+const MAX_BYTES = 180 * 1024 * 1024;
 
 type CacheEntry = {
   url: string;

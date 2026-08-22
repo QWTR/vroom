@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Text } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { formatDuelTimer } from './dailyDuelTypes';
+import { useSharedNow } from '../../hooks/useSharedNow';
 
 interface Props {
   endsAt: string;
@@ -10,12 +11,7 @@ interface Props {
 /** Odliczanie w izolowanym komponencie — nie przeładowuje reszty ekranu co sekundę. */
 export function DailyDuelResetTimer({ endsAt }: Props) {
   const { theme } = useTheme();
-  const [nowMs, setNowMs] = useState(Date.now());
-
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const nowMs = useSharedNow();
 
   const timer = formatDuelTimer(new Date(endsAt).getTime() - nowMs);
 

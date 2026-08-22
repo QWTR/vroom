@@ -166,7 +166,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          lazy: false,
+          freezeOnBlur: false,
           tabBarIcon: (p) => <TabIcon {...p} icon="navigation" label="MAPA" />,
         }}
       />

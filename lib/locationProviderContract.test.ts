@@ -35,8 +35,8 @@ describe('automotive location provider contract', () => {
     expect(backgroundPlugin).toContain('kCLLocationAccuracyBestForNavigation');
     expect(carPlay).toContain('receiveSharedLocation');
     expect(carPlay).toContain('startFallbackLocation');
-    expect(carPlay).toContain('minimum: moving ? 55 : 10');
-    expect(carPlay).toContain('preferred: moving ? 60 : 15');
+    expect(carPlay).toContain('VroomCarPlayMotionPolicy.preferredFramesPerSecond');
+    expect(carPlay).toContain('displayLink?.preferredFrameRateRange');
   });
 
   it('keeps one stable high-accuracy JS GPS profile during motion', () => {

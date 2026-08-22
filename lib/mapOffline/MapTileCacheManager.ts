@@ -1,7 +1,7 @@
 import Mapbox from '@rnmapbox/maps';
 
 /** Ambient cache — tiles already viewed on device. */
-export const AMBIENT_CACHE_BYTES = 2_000_000_000;
+export const AMBIENT_CACHE_BYTES = 512_000_000;
 /** Soft budget for explicit offline packs (nav / drive corridor). */
 export const OFFLINE_PACK_BUDGET_BYTES = 1_000_000_000;
 

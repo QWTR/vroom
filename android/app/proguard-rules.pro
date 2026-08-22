@@ -12,3 +12,6 @@
 -keep class com.facebook.react.turbomodule.** { *; }
 
 # Add any project specific keep options here:
+
+# VROOM: optional Stripe push-provisioning classes
+-dontwarn com.stripe.android.pushProvisioning.**

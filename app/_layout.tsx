@@ -28,6 +28,7 @@ import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider } from '../contexts/PremiumContext';
 import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
 import { AppTutorialProvider, useAppTutorial } from '../contexts/AppTutorialContext';
+import { PerformanceProvider } from '../contexts/PerformanceContext';
 import { API_URL } from '../constants/config';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
@@ -63,6 +64,7 @@ import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 import { AppTutorialOverlay } from '../components/onboarding';
 import { shouldAutoShowTutorial } from '../hooks/useAppTutorial';
 import { AnalyticsBootstrap } from '../components/analytics/AnalyticsBootstrap';
+import { PerformanceTelemetryBootstrap } from '../components/performance/PerformanceTelemetryBootstrap';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { recoverPendingImagePickerResult } from '../lib/recoverableImagePicker';
 import {
@@ -192,17 +194,19 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <SettingsProvider>
-            <PremiumProvider>
-              <StartupGatesProvider>
-                <AppTutorialProvider>
-                  <ErrorBoundary>
-                    <RootLayoutInner />
-                  </ErrorBoundary>
-                </AppTutorialProvider>
-              </StartupGatesProvider>
-            </PremiumProvider>
-          </SettingsProvider>
+          <PerformanceProvider>
+            <SettingsProvider>
+              <PremiumProvider>
+                <StartupGatesProvider>
+                  <AppTutorialProvider>
+                    <ErrorBoundary>
+                      <RootLayoutInner />
+                    </ErrorBoundary>
+                  </AppTutorialProvider>
+                </StartupGatesProvider>
+              </PremiumProvider>
+            </SettingsProvider>
+          </PerformanceProvider>
         </ThemeProvider>
       </SafeAreaProvider>
       </GestureHandlerRootView>
@@ -285,6 +289,7 @@ function RootLayoutInner() {
   const bootstrapAfterUpdateRef = useRef<(() => Promise<void>) | null>(null);
   const bootstrapStartedRef = useRef(false);
   const splashStartedRef = useRef(false);
+  const splashLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
   const updateDismissedRef = useRef(false);
   const lastForegroundUpdateCheckRef = useRef(0);
   const [splashAssetsReady, setSplashAssetsReady] = useState(false);
@@ -509,33 +514,34 @@ function RootLayoutInner() {
       ]).start();
     }, SPLASH_CARD_DELAY_MS);
 
-    // Pulse ikony
+    // Wszystkie pętle splash muszą zostać zatrzymane po zdjęciu warstwy startowej.
+    // Native driver kontynuuje animację nawet wtedy, gdy widok nie jest już widoczny.
+    const splashLoops: Animated.CompositeAnimation[] = [
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.12, duration: 1600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1.00, duration: 1600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])
-    ).start();
+    ),
 
-    // Spin pierścień
     Animated.loop(
       Animated.timing(spinAnim, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: true })
-    ).start();
+    ),
 
     Animated.loop(
       Animated.timing(scanAnim, { toValue: 1, duration: 1700, easing: Easing.inOut(Easing.cubic), useNativeDriver: true })
-    ).start();
+    ),
 
     Animated.loop(
       Animated.timing(laneAnim, { toValue: 1, duration: 2200, easing: Easing.linear, useNativeDriver: true })
-    ).start();
+    ),
 
     Animated.loop(
       Animated.sequence([
         Animated.timing(bootGlowAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         Animated.timing(bootGlowAnim, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])
-    ).start();
+    ),
 
     Animated.loop(
       Animated.sequence([
@@ -543,10 +549,17 @@ function RootLayoutInner() {
         Animated.timing(flickerAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
         Animated.delay(850),
       ])
-    ).start();
+    ),
+    ];
+    splashLoopsRef.current = splashLoops;
+    splashLoops.forEach((loop) => loop.start());
 
     // Pasek postępu
-    return () => clearTimeout(cardTimer);
+    return () => {
+      clearTimeout(cardTimer);
+      splashLoops.forEach((loop) => loop.stop());
+      splashLoopsRef.current = [];
+    };
   }, [
     bootGlowAnim,
     cardFade,
@@ -564,6 +577,12 @@ function RootLayoutInner() {
     spinAnim,
     splashOpacity,
   ]);
+
+  useEffect(() => {
+    if (phase !== 'done') return;
+    splashLoopsRef.current.forEach((loop) => loop.stop());
+    splashLoopsRef.current = [];
+  }, [phase]);
 
   useEffect(() => {
     Animated.timing(progressAnim, {
@@ -800,6 +819,7 @@ function RootLayoutInner() {
       </Stack>
       <AppPresenceHeartbeat />
       <AnalyticsBootstrap />
+      <PerformanceTelemetryBootstrap />
       <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
       {!suppressMapToasts && (
@@ -930,7 +950,7 @@ function RootLayoutInner() {
                   <MaterialCommunityIcons name="shield-check-outline" size={11} color="rgba(227, 56, 53, 0.8)" />
                   <Text style={s.secureTxt}>SECURE BOOT</Text>
                 </View>
-                <Text style={s.versionTxt}>V1.0.23</Text>
+                <Text style={s.versionTxt}>V1.0.29</Text>
               </View>
             </Animated.View>
 

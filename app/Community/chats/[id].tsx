@@ -95,6 +95,8 @@ export default function ChatScreen() {
   const socketRef = useRef<Socket | null>(null);
   const tokenRef = useRef<string>('');
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftHydratedRef = useRef(false);
+  const draftKey = `@vroom/chat_draft:v1:${convId}`;
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
@@ -102,6 +104,37 @@ export default function ChatScreen() {
     () => messages.map(mapDmMessageToUnified),
     [messages],
   );
+
+  useEffect(() => {
+    let active = true;
+    draftHydratedRef.current = false;
+    void AsyncStorage.getItem(draftKey).then((stored) => {
+      if (!active) return;
+      if (stored) {
+        try {
+          const draft = JSON.parse(stored) as { text?: string; photos?: string[] };
+          setText(typeof draft.text === 'string' ? draft.text : '');
+          setPhotos(Array.isArray(draft.photos)
+            ? draft.photos.filter((uri): uri is string => typeof uri === 'string')
+            : []);
+        } catch { /* invalid or old draft is replaced by the current schema */ }
+      }
+      draftHydratedRef.current = true;
+    });
+    return () => { active = false; };
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftHydratedRef.current) return undefined;
+    const timer = setTimeout(() => {
+      if (text.trim() || photos.length) {
+        void AsyncStorage.setItem(draftKey, JSON.stringify({ text, photos }));
+      } else {
+        void AsyncStorage.removeItem(draftKey);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [draftKey, photos, text]);
 
   useEffect(() => {
     if (!messageId || loading || !unifiedMessages.length) return;
@@ -220,6 +253,7 @@ export default function ChatScreen() {
     setText('');
     setPhotos([]);
     setReplyTo(null);
+    void AsyncStorage.removeItem(draftKey);
 
     const form = new FormData();
     if (t) form.append('content', t);
@@ -235,7 +269,7 @@ export default function ChatScreen() {
         body: form,
       });
     } catch (e) { console.error('sendMessage:', e); }
-  }, [text, photos, replyTo, convId]);
+  }, [text, photos, replyTo, convId, draftKey]);
 
   const emitTyping = useCallback(() => {
     socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: true });

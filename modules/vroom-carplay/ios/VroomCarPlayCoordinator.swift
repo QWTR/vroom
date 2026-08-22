@@ -101,6 +101,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     return value
   }()
   private var roadLayerTimer: Timer?
+  private var performanceProfile = VroomCarPlayPerformanceProfile.stored()
 
   private override init() {
     super.init()
@@ -131,6 +132,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     mapTemplate = template
     interfaceController.setRootTemplate(template, animated: false, completion: nil)
 
+    locationEngine.setPerformanceProfile(performanceProfile.rawValue)
     locationEngine.start()
     if let restored = VroomCarPlayStateStore.shared.snapshot() {
       apply(snapshot: restored)
@@ -207,6 +209,16 @@ public final class VroomCarPlayCoordinator: NSObject {
     }
   }
 
+  public func setPerformanceProfile(_ raw: String) {
+    let normalized = VroomCarPlayPerformanceProfile.normalized(raw)
+    performanceProfile = normalized
+    UserDefaults.standard.set(
+      normalized.rawValue,
+      forKey: VroomCarPlayPerformanceProfile.storageKey
+    )
+    locationEngine.setPerformanceProfile(normalized.rawValue)
+  }
+
   public func diagnostics() -> [String: Any] {
     var values = VroomCarPlayStateStore.shared.diagnostics()
     values["connected"] = isConnected
@@ -215,6 +227,9 @@ public final class VroomCarPlayCoordinator: NSObject {
     values["rerouteCount"] = rerouteCount
     values["locationFailureCount"] = locationFailureCount
     values["lastGPSLatencyMs"] = lastGPSLatencyMilliseconds
+    values["performanceProfile"] = performanceProfile.rawValue
+    values["preferredFramesPerSecond"] =
+      locationEngine.currentPreferredFramesPerSecond()
     if let connectionStartedAt {
       values["connectedForMs"] = Int(
         Date().timeIntervalSince(connectionStartedAt) * 1_000

@@ -50,6 +50,19 @@ const withAndroidAutoManifest = (config) => {
       });
     }
 
+    const hasDisablePhoneConnection = mainApplication['meta-data']?.some(
+      (m) => m.$['android:name'] === 'com.google.android.play.car.app.disable_connection_to_phone'
+    );
+    if (!hasDisablePhoneConnection) {
+      mainApplication['meta-data'] = mainApplication['meta-data'] || [];
+      mainApplication['meta-data'].push({
+        $: {
+          'android:name': 'com.google.android.play.car.app.disable_connection_to_phone',
+          'android:value': 'true',
+        },
+      });
+    }
+
     const serviceName = '.auto.VroomCarAppService';
     mainApplication.service = mainApplication.service || [];
     const hasService = mainApplication.service.some(

@@ -191,7 +191,12 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                     updateFollowCamera(lat, lng, heading)
                 }
             }
-            mainHandler.postDelayed(this, 16L)
+            val nextDelayMs = AutoMapMotionPolicy.poseFrameDelayMs(
+                speedKmh = stableCameraSpeedKmh,
+                userBrowsing = userBrowsing,
+                routePreview = snap?.mapState?.routePreview == true,
+            )
+            mainHandler.postDelayed(this, nextDelayMs)
         }
     }
 

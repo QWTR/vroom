@@ -10,6 +10,9 @@ import { invalidateQuestTrack } from '../lib/questTrack';
 const API_URL           = 'https://v-room.app/api/spots';
 const LAST_LOCATION_KEY = 'spots_last_location';
 const SPOTS_MAX_ACCURACY_M = 140;
+const SPOTS_REFETCH_DISTANCE_KM = 0.75;
+const SPOTS_STALE_MS = 5 * 60 * 1000;
+const SPOTS_LAYER_REBUILD_DISTANCE_KM = 0.25;
 
 // Domyślna lokalizacja (Warszawa) — gdy brak zapisanej i GPS wolny
 const DEFAULT_REGION = {
@@ -32,7 +35,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
 export type SortMode = 'distance' | 'likes' | 'newest';
 
-export function useSpots() {
+export function useSpots(active = true) {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [region,       setRegion]       = useState<any>(null);
   const [spots,        setSpots]        = useState<Spot[]>([]);
@@ -41,8 +44,11 @@ export function useSpots() {
 
   const [activeCategories, setActiveCategories] = useState<SpotCategory[]>([]);
   const [sortMode,         setSortMode]         = useState<SortMode>('distance');
+  const [layerLocation, setLayerLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
   const locationInitialized = useRef(false);
+  const lastFetchRef = useRef<{ lat: number; lng: number; radius: number; at: number } | null>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const toggleCategory  = useCallback((cat: SpotCategory) => {
     setActiveCategories(prev =>
@@ -53,6 +59,7 @@ export function useSpots() {
 
   // ── Pobierz lokalizację ──────────────────────────────────────────────────────
   useEffect(() => {
+    if (!active) return undefined;
     let mounted = true;
     let watchSub: Location.LocationSubscription | null = null;
     (async () => {
@@ -113,7 +120,7 @@ export function useSpots() {
           await saveMapLastLocation(latitude, longitude, accuracy ?? undefined);
         }
 
-        watchSub = await Location.watchPositionAsync(
+        const nextWatchSub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: 2500,
@@ -133,6 +140,11 @@ export function useSpots() {
             await saveMapLastLocation(nLat, nLng, nAcc ?? undefined);
           },
         );
+        if (!mounted) {
+          nextWatchSub.remove();
+          return;
+        }
+        watchSub = nextWatchSub;
       } catch (e) {
         console.log('getCurrentPosition error:', e);
       }
@@ -140,14 +152,18 @@ export function useSpots() {
     return () => {
       mounted = false;
       watchSub?.remove();
+      fetchAbortRef.current?.abort();
     };
-  }, []);
+  }, [active]);
 
   // ── Pobierz spoty z API ──────────────────────────────────────────────────────
   const fetchSpots = useCallback(async (lat: number, lng: number, radius: number) => {
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
     try {
       setLoading(true);
-      const res  = await fetch(`${API_URL}?lat=${lat}&lng=${lng}&radius=${radius}`);
+      const res  = await fetch(`${API_URL}?lat=${lat}&lng=${lng}&radius=${radius}`, { signal: controller.signal });
       if (!res.ok) throw new Error('Błąd serwera');
       const data = await res.json();
 
@@ -167,26 +183,52 @@ export function useSpots() {
       }));
 
       setSpots(mapped);
+      lastFetchRef.current = { lat, lng, radius, at: Date.now() };
     } catch (e) {
+      if (controller.signal.aborted) return;
       console.log('fetchSpots error:', e);
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można pobrać spotów' });
     } finally {
-      setLoading(false);
+      if (fetchAbortRef.current === controller) {
+        fetchAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (userLocation) {
-      fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance);
+    if (!active || !userLocation) return;
+    const previous = lastFetchRef.current;
+    const movedKm = previous
+      ? calculateDistance(previous.lat, previous.lng, userLocation.latitude, userLocation.longitude)
+      : Number.POSITIVE_INFINITY;
+    const stale = !previous || Date.now() - previous.at >= SPOTS_STALE_MS;
+    const radiusChanged = !previous || previous.radius !== maxDistance;
+    if (stale || radiusChanged || movedKm >= SPOTS_REFETCH_DISTANCE_KM) {
+      void fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance);
     }
-  }, [userLocation, maxDistance, fetchSpots]);
+  }, [active, userLocation, maxDistance, fetchSpots]);
+
+  useEffect(() => {
+    if (!userLocation) return;
+    setLayerLocation(previous => {
+      if (!previous) return userLocation;
+      const movedKm = calculateDistance(
+        previous.latitude,
+        previous.longitude,
+        userLocation.latitude,
+        userLocation.longitude,
+      );
+      return movedKm >= SPOTS_LAYER_REBUILD_DISTANCE_KM ? userLocation : previous;
+    });
+  }, [userLocation]);
 
   // ── Widoczne spoty ───────────────────────────────────────────────────────────
   const visibleSpots = useMemo(() => {
-    if (!userLocation) return [];
+    if (!layerLocation) return [];
 
     let result = spots.filter(s =>
-      calculateDistance(userLocation.latitude, userLocation.longitude, s.latitude, s.longitude) <= maxDistance
+      calculateDistance(layerLocation.latitude, layerLocation.longitude, s.latitude, s.longitude) <= maxDistance
     );
 
     if (activeCategories.length > 0) {
@@ -196,8 +238,8 @@ export function useSpots() {
     switch (sortMode) {
       case 'distance':
         result = [...result].sort((a, b) =>
-          calculateDistance(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude) -
-          calculateDistance(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude)
+          calculateDistance(layerLocation.latitude, layerLocation.longitude, a.latitude, a.longitude) -
+          calculateDistance(layerLocation.latitude, layerLocation.longitude, b.latitude, b.longitude)
         );
         break;
       case 'likes':
@@ -211,7 +253,7 @@ export function useSpots() {
     }
 
     return result;
-  }, [spots, userLocation, maxDistance, activeCategories, sortMode]);
+  }, [spots, layerLocation, maxDistance, activeCategories, sortMode]);
 
   // ── Dodaj spot ───────────────────────────────────────────────────────────────
   const addSpot = useCallback(async (

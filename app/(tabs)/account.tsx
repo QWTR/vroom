@@ -151,7 +151,7 @@ export default function ProfileScreen() {
         fetchCars(userId),
         fetchMyAchievements(),
         fetchUserSpots(userId),
-        fetchMyRoutes({ includeGeometry: true }),
+        fetchMyRoutes({ includeGeometry: false }),
         fetchParticipated(),
       ]);
       setTimeout(() => {
@@ -194,7 +194,7 @@ export default function ProfileScreen() {
       fetchCars(userId),
       fetchMyAchievements(),
       fetchUserSpots(userId),
-      fetchMyRoutes({ includeGeometry: true }),
+      fetchMyRoutes({ includeGeometry: false }),
       fetchParticipated(),
       fetchActivityHistory({ reset: true, limit: 20 }),
       fetchMonthlyStats(),

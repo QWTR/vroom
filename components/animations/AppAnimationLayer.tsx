@@ -8,6 +8,7 @@ import { useRemoteLottieJson } from '../../hooks/useRemoteLottieJson';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { isNativeLottieAvailable } from '../../lib/nativeLottie';
 import WebLottieView from './WebLottieView';
+import { usePerformanceMotion } from '../../hooks/usePerformanceMotion';
 
 type Props = {
   animation: AppAnimation | null | undefined;
@@ -57,6 +58,7 @@ export default function AppAnimationLayer({
   layout = 'inline',
   children,
 }: Props) {
+  const motion = usePerformanceMotion();
   const uri = normalizeMediaUri(animation?.assetUrl);
   const behind = resolveAnimationLayoutMode(animation, layout) === 'behind';
   const kind = String(animation?.assetKind || '').toLowerCase();
@@ -64,7 +66,10 @@ export default function AppAnimationLayer({
   const canRenderNativeLottie = kind === 'lottie' && isNativeLottieAvailable();
   const preferWebLottie = kind === 'lottie' && shouldPreferWebLottie(animation);
   const [lottieFailed, setLottieFailed] = useState(false);
-  const lottie = useRemoteLottieJson(uri, !!animation && !!uri && (canRenderNativeLottie || preferWebLottie));
+  const lottie = useRemoteLottieJson(
+    uri,
+    motion.enabled && !!animation && !!uri && (canRenderNativeLottie || preferWebLottie),
+  );
 
   useEffect(() => {
     setLottieFailed(false);
@@ -98,6 +103,7 @@ export default function AppAnimationLayer({
   };
 
   const renderAsset = (frameStyle: ImageStyle) => {
+    if (!motion.enabled && (kind === 'lottie' || kind === 'gif')) return fallbackIcon ?? null;
     if (kind === 'lottie' && (canRenderNativeLottie || preferWebLottie)) {
       if (!lottie.data || lottie.failed || lottieFailed) return fallbackIcon ?? null;
       if (preferWebLottie) {

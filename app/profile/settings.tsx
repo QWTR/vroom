@@ -37,9 +37,12 @@ import { fetchProfileMusicPreviewUrl } from '../../utils/freshAudioPreview';
 import { defaultTrimSelectionMs, isFullTrackSource, PREVIEW_CLIP_MS } from '../../utils/musicPreviewLimits';
 import type { ProfileMusicSource } from '../../constants/profile';
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
+import { PerformanceUsagePanel } from '../../components/settings/PerformanceUsagePanel';
 import { setEntranceMotionMode } from '../../hooks/useEntranceIntroPolicy';
 import type { EntranceMotionMode } from '../../components/motion/entranceFxTypes';
 import { useAppTutorial } from '../../contexts/AppTutorialContext';
+import { usePerformance } from '../../contexts/PerformanceContext';
+import type { PerformanceProfile } from '../../lib/performance/policy';
 import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
@@ -153,6 +156,12 @@ export default function SettingsScreen() {
   const { vehicle: equippedMapVehicle } = useEquippedMapVehicle();
   const { wallet: nitroWallet } = useNitroWallet();
   const { startTutorialReplay } = useAppTutorial();
+  const {
+    profile: performanceProfile,
+    setProfile: setPerformanceProfile,
+    diagnosticsEnabled,
+    setDiagnosticsEnabled,
+  } = usePerformance();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
   const [navigationVoiceModalVisible, setNavigationVoiceModalVisible] = useState(false);
   const [entranceMotion, setEntranceMotionState] = useState<EntranceMotionMode>('full');
@@ -254,6 +263,21 @@ export default function SettingsScreen() {
     : entranceMotion === 'reduced'
       ? 'Tylko reduce motion skip'
       : 'Wyłączone';
+
+  const performanceProfileMeta: Record<PerformanceProfile, { label: string; detail: string }> = {
+    standard: { label: 'Standard adaptacyjny', detail: 'Mapa 60/30/15 FPS, pełna jakość widocznych ekranów' },
+    battery: { label: 'Oszczędzanie baterii', detail: 'Mniej efektów, maks. 30 FPS i minimalny preload' },
+    smooth: { label: 'Maksymalna płynność', detail: '60 FPS i pełne efekty na aktywnych ekranach' },
+  };
+
+  const cyclePerformanceProfile = useCallback(() => {
+    const next: PerformanceProfile = performanceProfile === 'standard'
+      ? 'battery'
+      : performanceProfile === 'battery'
+        ? 'smooth'
+        : 'standard';
+    void setPerformanceProfile(next);
+  }, [performanceProfile, setPerformanceProfile]);
 
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [backgroundPermissionBlocked, setBackgroundPermissionBlocked] = useState(false);
@@ -3131,6 +3155,28 @@ export default function SettingsScreen() {
 					<SettingsSectionLabel isDark={isDark} title='APLIKACJA' />
 					<SettingsCard {...settingsCardProps}>
 						<SettingsRow {...settingsRowProps}
+							icon='speed'
+							iconBg='#00A8FF'
+							label='Wydajność'
+							sublabel={`${performanceProfileMeta[performanceProfile].label} · ${performanceProfileMeta[performanceProfile].detail}`}
+							onPress={cyclePerformanceProfile}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='monitor-heart'
+							iconBg={diagnosticsEnabled ? '#4CAF50' : '#607D8B'}
+							label='Pomiary zuzycia'
+							sublabel={diagnosticsEnabled
+								? 'Aktywne · zapis baterii, FPS i kosztu ekranow co 60 sekund'
+								: 'Wylaczone · wlacz recznie, aby rozpoczac lokalny zapis'}
+							right={
+								<Switch
+									value={diagnosticsEnabled}
+									onValueChange={(enabled) => void setDiagnosticsEnabled(enabled)}
+									{...swProps}
+								/>
+							}
+						/>
+						<SettingsRow {...settingsRowProps}
 							icon='directions-run'
 							iconBg='#4CAF50'
 							label='Praca w tle'
@@ -3199,11 +3245,11 @@ export default function SettingsScreen() {
 							icon='info-outline'
 							iconBg='#607D8B'
 							label='O aplikacji'
-							sublabel='VROOM V1.0.23'
+							sublabel='VROOM V1.0.29'
 							onPress={() =>
 								Toast.show({
 									type: "info",
-									text1: "🚗 VROOM V1.0.23",
+									text1: "🚗 VROOM V1.0.29",
 									text2: "Made with ❤️ for car enthusiasts",
 								})
 							}
@@ -3231,6 +3277,13 @@ export default function SettingsScreen() {
 							onPress={() => Toast.show({ type: "info", text1: "WKRÓTCE" })}
 						/>
 					</SettingsCard>
+					<PerformanceUsagePanel
+						enabled={diagnosticsEnabled}
+						cardBg={cardBg}
+						border={cardBorder}
+						text={textMain}
+						textDim={textDim}
+					/>
 
 					</>)}
 
@@ -3283,7 +3336,7 @@ export default function SettingsScreen() {
 									color: textDim,
 									letterSpacing: 2,
 								}}>
-								VROOM OS V1.0.23
+								VROOM OS V1.0.29
 							</Text>
 							<View
 								style={{

@@ -11,10 +11,31 @@ type OfflinePackOptions = {
 import { boundsAroundCenter, boundsFromPoints, type LatLng } from './mapTileBounds';
 
 const NAV_PACK_PREFIX = 'vroom-nav-';
-const DRIVE_PACK_NAME = 'vroom-drive-corridor';
+const DRIVE_PACK_PREFIX = 'vroom-drive-corridor-';
 const MAX_ACTIVE_PACKS = 4;
 
 const inflight = new Set<string>();
+let mutationQueue: Promise<void> = Promise.resolve();
+
+function enqueueMutation(work: () => Promise<void>): Promise<void> {
+  const next = mutationQueue.then(work, work);
+  mutationQueue = next.catch(() => {});
+  return next;
+}
+
+function shortHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function drivePackName(styleURL: string, center: LatLng): string {
+  const cell = `${center.latitude.toFixed(2)}:${center.longitude.toFixed(2)}:${styleURL}`;
+  return `${DRIVE_PACK_PREFIX}${shortHash(cell)}`;
+}
 
 function packExists(name: string, packs: { name?: string }[]): boolean {
   return packs.some((p) => p.name === name);
@@ -77,15 +98,17 @@ export async function prefetchNavigationPack(
   if (!bounds) return;
 
   const name = `${NAV_PACK_PREFIX}${routeKey}`;
-  await safeCreatePack({
-    name,
-    styleURL,
-    bounds,
-    minZoom: 11,
-    maxZoom: 15,
-    metadata: { kind: 'navigation' },
+  await enqueueMutation(async () => {
+    await safeCreatePack({
+      name,
+      styleURL,
+      bounds,
+      minZoom: 11,
+      maxZoom: 15,
+      metadata: { kind: 'navigation', touchedAt: Date.now() },
+    });
+    await pruneOldPacks(new Set([name]));
   });
-  await pruneOldPacks(new Set([name, DRIVE_PACK_NAME]));
 }
 
 export async function prefetchDriveCorridorPack(
@@ -94,16 +117,32 @@ export async function prefetchDriveCorridorPack(
 ): Promise<void> {
   if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) return;
 
-  await safeCreatePack({
-    name: DRIVE_PACK_NAME,
-    styleURL,
-    bounds: boundsAroundCenter(center.latitude, center.longitude, 0.09),
-    minZoom: 11,
-    maxZoom: 16,
-    metadata: { kind: 'driving' },
+  const name = drivePackName(styleURL, center);
+  await enqueueMutation(async () => {
+    await safeCreatePack({
+      name,
+      styleURL,
+      bounds: boundsAroundCenter(center.latitude, center.longitude, 0.09),
+      minZoom: 11,
+      maxZoom: 16,
+      metadata: { kind: 'driving', touchedAt: Date.now() },
+    });
+    const packs = await Mapbox.offlineManager.getPacks().catch(() => []);
+    for (const pack of packs) {
+      if (pack.name?.startsWith(DRIVE_PACK_PREFIX) && pack.name !== name) {
+        await Mapbox.offlineManager.deletePack(pack.name).catch(() => {});
+      }
+    }
   });
 }
 
 export async function deleteDriveCorridorPack(): Promise<void> {
-  await Mapbox.offlineManager.deletePack(DRIVE_PACK_NAME).catch(() => {});
+  await enqueueMutation(async () => {
+    const packs = await Mapbox.offlineManager.getPacks().catch(() => []);
+    for (const pack of packs) {
+      if (pack.name?.startsWith(DRIVE_PACK_PREFIX)) {
+        await Mapbox.offlineManager.deletePack(pack.name).catch(() => {});
+      }
+    }
+  });
 }

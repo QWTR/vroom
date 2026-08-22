@@ -30,6 +30,7 @@ type PickingState = 'idle' | 'picking';
 
 export default function SpotMap() {
   const { spotId } = useLocalSearchParams<{ spotId?: string; commentId?: string }>();
+  const isFocused = useIsFocused();
   const mapRef = useRef<Mapbox.MapView>(null);
   useEffect(() => {
     void initMapbox().catch(() => {});
@@ -46,7 +47,7 @@ export default function SpotMap() {
     activeCategories, toggleCategory, clearCategories,
     sortMode, setSortMode,
     userLocation,
-  } = useSpots();
+  } = useSpots(isFocused);
 
   const [addVisible,      setAddVisible]      = useState(false);
   const [listVisible,     setListVisible]     = useState(false);
@@ -57,7 +58,6 @@ export default function SpotMap() {
   const [pickedCoord,     setPickedCoord]     = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSatellite,       setIsSatellite]       = useState(false);
   const [categorySprites,   setCategorySprites]   = useState<Record<string, string> | null>(null);
-  const isFocused = useIsFocused();
   const handledSpotIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -163,13 +163,16 @@ export default function SpotMap() {
     setAddVisible(true);
   }, [picking]);
 
-  if (!region) {
+  if (!region || categorySprites === null) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <SpotCategorySpriteGenerator onReady={setCategorySprites} />
         <View style={{ alignItems: 'center', gap: 12, backgroundColor: theme.surface, borderRadius: 20, padding: 32, borderWidth: 1, borderColor: theme.border }}>
           <ActivityIndicator size="large" color="#e33835" />
           <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 4, fontFamily: 'Orbitron' }}>Ładowanie mapy</Text>
-          <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Orbitron' }}>Pobieranie spotów z serwera...</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Orbitron' }}>
+            {!region ? 'Pobieranie lokalizacji...' : 'Przygotowywanie markerów...'}
+          </Text>
         </View>
       </View>
     );
@@ -177,8 +180,6 @@ export default function SpotMap() {
 
   return (
     <View style={{ flex: 1 }}>
-
-      <SpotCategorySpriteGenerator onReady={setCategorySprites} />
 
       {/* MAPA */}
       <View

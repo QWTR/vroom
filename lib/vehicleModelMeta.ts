@@ -98,18 +98,17 @@ function parseMinZoom(raw: unknown): number {
 }
 
 /**
- * Stała korekta platformowa: mobilny Mapbox SDK (Android/iOS) renderuje GLB model
- * obrócony o 180° wokół osi Z względem Mapbox GL JS w panelu admina.
- * Potwierdzone pomiarem na żywo: heading=N, yawOffset=90 → model patrzył na S (tyłem).
+ * Panel kalibracyjny zapisuje już yaw w konwencji natywnego ModelLayer.
+ * Dodatkowe +90° ustawiało poprawnie skalibrowane samochody bokiem w aplikacji.
  */
-export const RN_MAPBOX_MODEL_YAW_FLIP_DEG = 90;
+export const RN_MAPBOX_MODEL_YAW_FLIP_DEG = 0;
 
 /**
  * Yaw offset dla markera 3D na telefonie. IDEMPOTENTNE (normalize wołane jest wielokrotnie
- * w pipeline: kontrakt equipped + marker — nie wolno dwa razy dodać +180).
+ * w pipeline: kontrakt equipped + marker — nie wolno dwa razy dodać korekty).
  * - jeśli wejście ma JUŻ mobileYawOffset (sentinel z poprzedniego normalize lub ręczne
  *   nadpisanie admina) → użyj go DOSŁOWNIE, bez kolejnego flipa,
- * - w przeciwnym razie (surowe dane web): webYawOffset + 180 (korekta GL JS → mobile).
+ * - w przeciwnym razie (surowe dane web): webYawOffset + korekta GL JS → mobile.
  */
 function resolveMobileYawOffset(o: Record<string, unknown>): number {
   const rawMobile = o.mobileYawOffset;
@@ -137,7 +136,7 @@ export function normalizeVehicleModelMeta(raw: unknown): VehicleModelMeta {
     rendererVersion: VEHICLE_MODEL_RENDERER_VERSION,
     scale: parseScale(o.scale, o),
     yawOffset: resolvedYaw,
-    // Sentinel — kolejne normalize (kontrakt → marker) wezmą tę wartość bez ponownego +180.
+    // Sentinel — kolejne normalize (kontrakt → marker) wezmą tę wartość bez ponownej korekty.
     mobileYawOffset: resolvedYaw,
     pitch: finiteNumber(o.pitch ?? o.rotationPitch, 0),
     roll: finiteNumber(o.roll ?? o.rotationRoll, 0),

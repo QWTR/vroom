@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import {
   prefetchDriveCorridorPack,
   prefetchNavigationPack,
-  deleteDriveCorridorPack,
 } from '../lib/mapOffline/mapTilePrefetch';
 import type { LatLng } from '../lib/mapOffline/mapTileBounds';
 import { haversineKm } from '../scripts/navigationUtils';
@@ -69,7 +68,6 @@ export function useMapTilePrefetch({
     if (isNavigating) return;
 
     if (!isDriving) {
-      deleteDriveCorridorPack().catch(() => {});
       lastDrivePrefetchRef.current = null;
       return;
     }

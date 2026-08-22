@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import { useIsFocused } from '@react-navigation/native';
 import { API_URL } from '../constants/config';
+import { usePerformance } from '../contexts/PerformanceContext';
+import { useManagedInterval } from './useManagedInterval';
 import type {
   DailyDuelCarSide,
   DailyDuelData,
@@ -16,6 +19,8 @@ const showToast = (type: 'success' | 'error', text1: string) => {
 };
 
 export function useDailyDuel(pollMs = 30000) {
+  const isFocused = useIsFocused();
+  const { appActive } = usePerformance();
   const [duel, setDuel] = useState<DailyDuelData | null>(null);
   const [history, setHistory] = useState<DailyDuelData[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -169,17 +174,29 @@ export function useDailyDuel(pollMs = 30000) {
     }
   }, []);
 
+  const pollDuel = useCallback(() => { void fetchDuel(true); }, [fetchDuel]);
+
+  useManagedInterval({
+    id: 'community:daily-duel-poll',
+    callback: pollDuel,
+    intervalMs: pollMs,
+    policy: 'activeOnly',
+    sceneActive: isFocused,
+  });
+
   useEffect(() => {
+    if (!isFocused || !appActive) {
+      mounted.current = false;
+      return undefined;
+    }
     mounted.current = true;
     void fetchDuel();
     void fetchHistory();
     void fetchSubmission();
-    const id = setInterval(() => { void fetchDuel(true); }, pollMs);
     return () => {
       mounted.current = false;
-      clearInterval(id);
     };
-  }, [fetchDuel, fetchHistory, fetchSubmission, pollMs]);
+  }, [appActive, fetchDuel, fetchHistory, fetchSubmission, isFocused]);
 
   return {
     duel,

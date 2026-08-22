@@ -40,7 +40,7 @@ type Props = {
  * Spoty na mapie — ShapeSource z clusteringiem.
  * Daleko: klastry z liczbą. Blisko: piny kategorii. Etykiety tylko przy zoomie.
  */
-export function SpotMapLayers({
+function SpotMapLayersComponent({
   spots,
   categorySprites,
   onSelectSpot,
@@ -250,3 +250,5 @@ export function SpotMapLayers({
     </>
   );
 }
+
+export const SpotMapLayers = React.memo(SpotMapLayersComponent);

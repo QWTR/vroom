@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View, Text, TouchableOpacity, Image, ActivityIndicator,
   Dimensions, StyleSheet,
@@ -9,6 +9,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { getThemeChrome, withAlpha } from '../../constants/theme';
 import type { AppAnimation } from '../../constants/appAnimations';
 import AppAnimationLayer from '../animations/AppAnimationLayer';
+import { useSharedNow } from '../../hooks/useSharedNow';
 import {
   type DailyDuelData,
   formatDuelTimer,
@@ -29,12 +30,7 @@ interface Props {
 export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, vsAnimation }: Props) {
   const { theme, isDark } = useTheme();
   const chrome = getThemeChrome(theme, isDark);
-  const [nowMs, setNowMs] = useState(Date.now());
-
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const nowMs = useSharedNow();
 
   const shellBg = theme.surface;
   const shellGradient = chrome.pageGradient;

@@ -6,7 +6,7 @@ import {
 } from './vehicleModelContract';
 
 // Już-znormalizowana meta (punkt stały normalize): mobileYawOffset === yawOffset,
-// więc kolejne normalize nie dodaje ponownie +180.
+// więc kolejne normalize nie dodaje ponownie korekty platformowej.
 const modelMetadata = {
   rendererVersion: 3,
   scale: [2, 2, 2],
@@ -21,12 +21,12 @@ const modelMetadata = {
   minZoom: 12,
 };
 
-// Surowe legacy {rotationOffset:180} → yaw 180 + flip 90 = 270; pivot wymuszony na 0 (V3).
+// Surowe legacy {rotationOffset:180} zachowuje yaw 180; pivot wymuszony na 0 (V3).
 const legacyNormalizedMetadata = {
   rendererVersion: 3,
   scale: [2, 2, 2],
-  yawOffset: 270,
-  mobileYawOffset: 270,
+  yawOffset: 180,
+  mobileYawOffset: 180,
   pitch: 1,
   roll: -1,
   pivotX: 0,

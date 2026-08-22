@@ -14,8 +14,14 @@ describe('ExplorationCoverageMap camera ownership', () => {
   it('uses imperative Mapbox camera controls on the full-screen map', () => {
     expect(source).toContain('fullscreenCameraRef.current?.zoomTo');
     expect(source).toContain('fullscreenCameraRef.current?.setCamera');
-    expect(source).toContain('scrollEnabled={false}');
     expect(source).toContain('rotateEnabled={false}');
     expect(source).toContain('pitchEnabled={false}');
+  });
+
+  it('does not mount a native Mapbox surface inside the scrolling profile card', () => {
+    expect(source.match(/<Mapbox\.MapView/g)).toHaveLength(1);
+    expect(source).toContain('{fullscreen ? (');
+    expect(source).toContain('<Modal\n          visible');
+    expect(source).toContain('OTWORZ MAPE');
   });
 });

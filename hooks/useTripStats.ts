@@ -179,7 +179,9 @@ export function useTripStats() {
     };
 
     void syncNativeDistance();
-    const pollId = setInterval(() => { void syncNativeDistance(); }, 1500);
+    // Zdarzenie natywnej lokalizacji jest głównym źródłem synchronizacji.
+    // Rzadki watchdog leczy wyłącznie utracony event zamiast budzić JS co 1,5 s.
+    const pollId = setInterval(() => { void syncNativeDistance(); }, 15_000);
     const removeLocationListener = BackgroundDriveController.addLocationListener(() => {
       void syncNativeDistance();
     });

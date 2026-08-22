@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Text, TextStyle, StyleProp } from 'react-native';
 import { formatCountdown } from './formatCountdown';
+import { useSharedNow } from '../../hooks/useSharedNow';
 
 interface Props {
   targetIso: string | null;
@@ -20,13 +21,7 @@ export function LiveCountdownText({
   formatLabel,
   numberOfLines = 1,
 }: Props) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!targetIso) return undefined;
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [targetIso]);
+  const nowMs = useSharedNow(Boolean(targetIso));
 
   const countdown = formatCountdown(targetIso, nowMs);
   const label = formatLabel

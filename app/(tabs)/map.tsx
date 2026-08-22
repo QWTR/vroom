@@ -33,6 +33,7 @@ import { fetchProfileMeCached } from '../../lib/cachedProfileMe';
 import { track } from '../../lib/analytics/client';
 import { API_URL } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePerformance } from '../../contexts/PerformanceContext';
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
@@ -60,6 +61,8 @@ import { MapActiveRouteLayers, MapBuilderRouteLayers } from '../../components/ma
 import { makeMapStyles } from '../../styles/mapstyle';
 import { ensureMapboxToken, initMapbox } from '../../lib/mapboxInit';
 import { useMapTilePrefetch } from '../../hooks/useMapTilePrefetch';
+import { useSceneLifecycle } from '../../hooks/useSceneLifecycle';
+import { resolveMapFps } from '../../lib/performance/policy';
 import { buildV3GeometryFromRefs } from '../../lib/mapScreen/v3Geometry';
 import {
   roadPolylineShiftM,
@@ -1773,6 +1776,9 @@ function MapScreenInner() {
     description: string | null;
   } | null>(null);
   const pickCenterRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
+  const setPickCenter = useCallback((coords: { lat: number; lng: number }) => {
+    pickCenterRef.current = coords;
+  }, []);
   const [selectedCamera,       setSelectedCamera]       = useState<SpeedCamera | null>(null);
   const [cameraDetailVisible,  setCameraDetailVisible]  = useState(false);
   const lastPreviewOriginBumpRef = useRef(0);
@@ -1879,6 +1885,8 @@ function MapScreenInner() {
   }, [mapStyle]);
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
+  const mapScene = useSceneLifecycle('map', { tripActive: isTripActiveMap });
+  const { profile: performanceProfile } = usePerformance();
   /** Aktywne 3D nie ma 2D underlay; 2D renderuje się tylko jako fallback przez showSelf2DMarker. */
   const showTripArrowUnderlay = false;
   const getTripActive = useCallback(
@@ -2675,6 +2683,28 @@ function MapScreenInner() {
     updateSpeedLimitRef.current = updateSpeedLimit;
   }, [updateSpeedLimit]);
   const speedKmh = (speed ?? 0) * 3.6;
+  const [mapPreferredFramesPerSecond, setMapPreferredFramesPerSecond] = useState<15 | 30 | 60>(() => (
+    resolveMapFps({ profile: performanceProfile, speedKmh: 0, idleForMs: 0 })
+  ));
+
+  useEffect(() => {
+    if (!mapScene.uiVisible) return undefined;
+    setMapPreferredFramesPerSecond(resolveMapFps({
+      profile: performanceProfile,
+      speedKmh,
+      idleForMs: 0,
+    }));
+    if (speedKmh >= 1) return undefined;
+    const idleDelay = performanceProfile === 'battery' ? 3_000 : performanceProfile === 'smooth' ? 10_000 : 5_000;
+    const timer = setTimeout(() => {
+      setMapPreferredFramesPerSecond(resolveMapFps({
+        profile: performanceProfile,
+        speedKmh: 0,
+        idleForMs: idleDelay,
+      }));
+    }, idleDelay);
+    return () => clearTimeout(timer);
+  }, [mapScene.uiVisible, performanceProfile, speedKmh]);
   /** OSM + sticky — bez mieszania z limitem fotoradaru (eliminuje mruganie znaku). */
   const effectiveSpeedLimit = useMemo(() => speedLimit, [speedLimit]);
   const ALERT_DIST = 400;
@@ -13167,6 +13197,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   // RENDER GUARDS
   // ─────────────────────────────────────────────────────────
 
+  if (!mapScene.uiVisible) {
+    return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
+  }
+
   if (Platform.OS === 'web') {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg }}>
@@ -13406,6 +13440,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         <MapCanvas
           ref={mapRef}
           styleURL={mapStyle}
+          preferredFramesPerSecond={mapPreferredFramesPerSecond}
           onPress={(e: any) => {
             if (!isBuilding) return;
             const [longitude, latitude] = e.geometry.coordinates;
@@ -14143,7 +14178,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           selectedOfficialMeet={selectedOfficialMeet}
           addFuelStationCoords={addFuelStationCoords}
           pendingAddCameraParams={pendingAddCameraParams}
-          pickCenterRef={pickCenterRef}
+          onSetPickCenter={setPickCenter}
           leaderboardRouteId={leaderboardRouteId}
           leaderboardRouteName={leaderboardRouteName}
           leaderboardData={leaderboardData}

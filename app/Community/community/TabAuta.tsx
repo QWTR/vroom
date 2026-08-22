@@ -20,6 +20,7 @@ import { ReelVideo } from '../../../components/vroomki/ReelVideo';
 import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
+import { usePerformance } from '../../../contexts/PerformanceContext';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 import { track } from '../../../lib/analytics/client';
 import { sponsoredAdStore } from '../../../hooks/sponsoredAdStore';
@@ -318,6 +319,7 @@ export function TabAuta({
   feedActive?: boolean;
 }) {
   const { theme } = useTheme();
+  const { profile: performanceProfile } = usePerformance();
   const [commentsPost, setCommentsPost] = useState<VroomkiPost | null>(null);
   const [sharePost, setSharePost] = useState<VroomkiPost | null>(null);
   const [activeId, setActiveId] = useState<number | null>(posts[0]?.id ?? null);
@@ -380,14 +382,15 @@ export function TabAuta({
   }, [feedActive, router, suspendPlayback]);
 
   const prefetchAroundIndex = useCallback((index: number) => {
+    if (!feedActive) return;
     const list = postsRef.current;
-    const urls = [
-      list[index]?.videos[0],
-      list[index + 1]?.videos[0],
-      list[index - 1]?.videos[0],
-    ].filter(Boolean) as string[];
+    const urls = performanceProfile === 'battery'
+      ? [list[index]?.videos[0]]
+      : performanceProfile === 'smooth'
+        ? [list[index]?.videos[0], list[index + 1]?.videos[0], list[index - 1]?.videos[0]]
+        : [list[index]?.videos[0], list[index + 1]?.videos[0]];
     warmFeedVideos(urls);
-  }, []);
+  }, [feedActive, performanceProfile]);
 
   useEffect(() => {
     if (initialActiveSetRef.current) return;
@@ -522,7 +525,7 @@ export function TabAuta({
 
   return (
     <>
-      <VroomkiPrefetch posts={posts} activeId={activeId} />
+      <VroomkiPrefetch posts={posts} activeId={activeId} profile={performanceProfile} active={!!feedActive} />
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}

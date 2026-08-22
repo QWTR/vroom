@@ -15,6 +15,7 @@ import { normalizeMediaUri } from '../../lib/mediaUri';
 import { sanitizeGlbForExpoGl } from '../../lib/sanitizeGlbForExpoGl';
 import { normalizeVehicleModelMeta } from '../../lib/vehicleModelMeta';
 import { resolveMapVehicleScale } from '../../lib/mapVehicleScale';
+import { useHeavySurface } from '../../hooks/useHeavySurface';
 
 type Props = {
   item: CatalogItem;
@@ -94,10 +95,9 @@ function VehicleModel({
     const group = groupRef.current;
     if (!group) return;
     group.rotation.x = THREE.MathUtils.degToRad(Number(meta.pitch) || 0);
-    group.rotation.y += (rotationYRef.current + THREE.MathUtils.degToRad(Number(meta.yawOffset) || 0) - group.rotation.y) * 0.28;
+    group.rotation.y = rotationYRef.current + THREE.MathUtils.degToRad(Number(meta.yawOffset) || 0);
     group.rotation.z = THREE.MathUtils.degToRad(Number(meta.roll) || 0);
-    const nextScale = THREE.MathUtils.lerp(group.scale.x, prepared.fitScale * zoomRef.current, 0.22);
-    group.scale.setScalar(nextScale);
+    group.scale.setScalar(prepared.fitScale * zoomRef.current);
   });
 
   return (
@@ -133,6 +133,7 @@ function touchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>): nu
 }
 
 export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
+  useHeavySurface('three:vehicle-preview');
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const rotationYRef = useRef(0);
@@ -141,6 +142,7 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
   const pinchStartDistanceRef = useRef(0);
   const pinchStartZoomRef = useRef(1);
   const isPinchingRef = useRef(false);
+  const invalidateRef = useRef<(() => void) | null>(null);
   const modelUrl = normalizeMediaUri(item.assetUrl);
 
   useEffect(() => {
@@ -178,6 +180,7 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
           const startDistance = pinchStartDistanceRef.current;
           if (startDistance > 0 && nextDistance > 0) {
             zoomRef.current = clamp(pinchStartZoomRef.current * (nextDistance / startDistance), 0.72, 1.75);
+            invalidateRef.current?.();
           }
           return;
         }
@@ -186,6 +189,7 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
           dragStartRotationRef.current = rotationYRef.current - gesture.dx * 0.024;
         }
         rotationYRef.current = dragStartRotationRef.current + gesture.dx * 0.024;
+        invalidateRef.current?.();
       },
       onPanResponderRelease: () => {
         isPinchingRef.current = false;
@@ -224,6 +228,8 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
         }}
       >
         <Canvas
+          frameloop="demand"
+          onCreated={({ invalidate }) => { invalidateRef.current = invalidate; }}
           camera={{ position: [0, 1.2, 4.2], fov: 35 }}
           style={{ ...StyleSheet.absoluteFillObject }}
           gl={{ antialias: true, alpha: true }}

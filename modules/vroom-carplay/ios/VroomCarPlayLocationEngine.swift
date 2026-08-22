@@ -25,7 +25,9 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   private var displayedHeading = 0.0
   private var targetHeading = 0.0
   private var lastProjectionSegmentIndex: Int?
-  private var highFrameRateEnabled = true
+  private var performanceProfile = VroomCarPlayPerformanceProfile.stored()
+  private var stationarySince: Date?
+  private var preferredFramesPerSecond = 0
   private var offRouteStartedAt: TimeInterval?
   private var lastOffRouteCallbackAt: TimeInterval = 0
 
@@ -57,6 +59,15 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
   }
 
+  func setPerformanceProfile(_ raw: String) {
+    performanceProfile = .normalized(raw)
+    updateDisplayRate(speedMetersPerSecond: max(0, latestLocation?.speed ?? 0))
+  }
+
+  func currentPreferredFramesPerSecond() -> Int {
+    preferredFramesPerSecond
+  }
+
   func stop() {
     started = false
     usingSharedLocation = false
@@ -81,6 +92,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     displayedHeading = 0
     targetHeading = 0
     offRouteStartedAt = nil
+    stationarySince = nil
+    preferredFramesPerSecond = 0
   }
 
   func setRoute(_ route: [VroomCoordinate]) {
@@ -260,13 +273,9 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       return
     }
     let link = CADisplayLink(target: self, selector: #selector(tick))
-    link.preferredFrameRateRange = CAFrameRateRange(
-      minimum: 30,
-      maximum: 60,
-      preferred: 60
-    )
     link.add(to: .main, forMode: .common)
     displayLink = link
+    updateDisplayRate(speedMetersPerSecond: max(0, latestLocation?.speed ?? 0))
   }
 
   @objc
@@ -322,17 +331,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       }
     }
     renderedCoordinate = coordinate
-    if #available(iOS 15.0, *) {
-      let moving = location.speed >= 0.7
-      if moving != highFrameRateEnabled {
-        highFrameRateEnabled = moving
-        displayLink?.preferredFrameRateRange = CAFrameRateRange(
-          minimum: moving ? 55 : 10,
-          maximum: moving ? 60 : 20,
-          preferred: moving ? 60 : 15
-        )
-      }
-    }
+    updateDisplayRate(speedMetersPerSecond: max(0, location.speed))
     displayedHeading = interpolateHeading(
       displayedHeading,
       targetHeading,
@@ -347,6 +346,28 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
         horizontalAccuracy: max(0, location.horizontalAccuracy),
         timestamp: location.timestamp
       )
+    )
+  }
+
+  private func updateDisplayRate(speedMetersPerSecond: Double) {
+    let now = Date()
+    if speedMetersPerSecond * 3.6 >= 1 {
+      stationarySince = nil
+    } else if stationarySince == nil {
+      stationarySince = now
+    }
+    let stationaryFor = stationarySince.map { now.timeIntervalSince($0) } ?? 0
+    let next = VroomCarPlayMotionPolicy.preferredFramesPerSecond(
+      profile: performanceProfile,
+      speedMetersPerSecond: speedMetersPerSecond,
+      stationaryFor: stationaryFor
+    )
+    guard next != preferredFramesPerSecond else { return }
+    preferredFramesPerSecond = next
+    displayLink?.preferredFrameRateRange = CAFrameRateRange(
+      minimum: Float(next),
+      maximum: Float(next),
+      preferred: Float(next)
     )
   }
 

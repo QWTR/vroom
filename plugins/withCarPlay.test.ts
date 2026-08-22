@@ -16,6 +16,14 @@ describe('native VROOM CarPlay plugin', () => {
     resolve('modules/vroom-carplay/ios/VroomCarPlayCoordinator.swift'),
     'utf8',
   );
+  const locationEngine = readFileSync(
+    resolve('modules/vroom-carplay/ios/VroomCarPlayLocationEngine.swift'),
+    'utf8',
+  );
+  const motionPolicy = readFileSync(
+    resolve('modules/vroom-carplay/ios/VroomCarPlayMotionPolicy.swift'),
+    'utf8',
+  );
 
   it('registers the navigation scene and current Apple maps entitlement', () => {
     expect(plugin).toContain('UISceneSession.Role.carTemplateApplication');
@@ -48,6 +56,16 @@ describe('native VROOM CarPlay plugin', () => {
     expect(coordinator).not.toContain(
       'private let locationEngine = VroomCarPlayLocationEngine()',
     );
+  });
+
+  it('applies the persisted manual performance profile to CarPlay rendering', () => {
+    expect(coordinator).toContain('locationEngine.setPerformanceProfile');
+    expect(coordinator).toContain('VroomCarPlayPerformanceProfile.storageKey');
+    expect(locationEngine).toContain('VroomCarPlayMotionPolicy.preferredFramesPerSecond');
+    expect(locationEngine).toContain('preferredFrameRateRange');
+    expect(motionPolicy).toContain('stationaryFor >= 3 ? 15 : 30');
+    expect(motionPolicy).toContain('stationaryFor >= 10 ? 30 : 60');
+    expect(motionPolicy).toContain('speedKmh > 10 ? 60 : 30');
   });
 
   it('injects CarPlay scene selection inside the Expo AppDelegate class', () => {
