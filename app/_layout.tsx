@@ -78,6 +78,11 @@ import {
 } from '../lib/notifications/routing';
 import { handleNotificationAction } from '../lib/notifications/runtime';
 import { allowNotificationCenterEntry } from '../lib/notifications/notificationCenterAccess';
+import {
+  isMapPathname,
+  isMapScreenVisible,
+  setMapScreenVisible,
+} from '../lib/mapScreenVisibility';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -329,9 +334,15 @@ function RootLayoutInner() {
   const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
   const pathnameRef = useRef(pathname);
   const searchParamsRef = useRef(globalSearchParams);
+  const suppressMapToasts = isMapPathname(pathname);
 
   useEffect(() => { pathnameRef.current = pathname; }, [pathname]);
   useEffect(() => { searchParamsRef.current = globalSearchParams; }, [globalSearchParams]);
+  useEffect(() => {
+    setMapScreenVisible(suppressMapToasts);
+    if (suppressMapToasts) Toast.hide();
+    return () => setMapScreenVisible(false);
+  }, [suppressMapToasts]);
   const bootReady = (loaded || !!error) && !splashBootAnimationsLoading && splashAssetsReady;
   const bootProgressTarget = useMemo(() => {
     if (!loaded && !error) return 0.06;
@@ -459,7 +470,7 @@ function RootLayoutInner() {
         || type === 'public_chat_message'
         || (['club_chat', 'mention_club'].includes(type) && String(currentChannelId || '') === String(data.channelId || ''))
       );
-      if (isExactConversation) return;
+      if (isExactConversation || isMapScreenVisible()) return;
       Toast.show({
         type: 'info',
         text1: notification.request.content.title || 'Nowe powiadomienie',
@@ -791,7 +802,9 @@ function RootLayoutInner() {
       <AnalyticsBootstrap />
       <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
-      <Toast config={toastConfig} topOffset={insets.top + 8} visibilityTime={4000} />
+      {!suppressMapToasts && (
+        <Toast config={toastConfig} topOffset={insets.top + 8} visibilityTime={4000} />
+      )}
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}
         loading={updateDownloading}

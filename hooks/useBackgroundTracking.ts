@@ -914,7 +914,18 @@ async function finalizeTripSessionOnce(
     avgSpeedKmh: input.avgSpeedKmh,
     mode: input.mode,
   });
-  if (ledger.distanceKm < 0.05) return false;
+  if (ledger.distanceKm < 0.05) {
+    // A very short/accidental session is intentionally not uploaded, but it is
+    // still finished. Leaving its ledger "open" made the crash-recovery dialog
+    // return on every app launch after the user chose "Zakończ i zapisz".
+    await clearFinalizedActiveSession(ledger.tripSessionId);
+    void recordTripPersistenceEvent('short_session_discarded', {
+      tripSessionId: ledger.tripSessionId,
+      distanceKm: ledger.distanceKm,
+      reason: input.reason,
+    });
+    return false;
+  }
 
   const pendingLedger = markLedgerFinalizationPending(ledger, input.reason);
   const routePoints = trimRoutePointsForActivitySave(pendingLedger.routePoints);

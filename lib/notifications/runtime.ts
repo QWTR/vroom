@@ -5,6 +5,7 @@ import { AppState, Platform } from 'react-native';
 import { API_URL } from '../../constants/config';
 import { NotificationData } from './routing';
 import { shouldPresentForegroundNotification } from './routingCore';
+import { shouldSuppressMapForegroundOverlay } from '../mapScreenVisibility';
 
 export const CHAT_NOTIFICATION_CATEGORY = 'chat_message';
 export const CHAT_REPLY_ACTION = 'chat_reply';
@@ -23,9 +24,10 @@ type PendingReply = {
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const shouldPresent = shouldPresentForegroundNotification(
-      notification.request.content.data as NotificationData,
-    );
+    const shouldPresent = !shouldSuppressMapForegroundOverlay(AppState.currentState)
+      && shouldPresentForegroundNotification(
+        notification.request.content.data as NotificationData,
+      );
     return {
       shouldShowAlert: shouldPresent,
       shouldShowBanner: shouldPresent,

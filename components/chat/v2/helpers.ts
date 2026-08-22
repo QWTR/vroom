@@ -4,11 +4,18 @@ import type { ChatActionCapabilities, ChatMenuAction, GroupedMessageMeta, Unifie
 const MEDIA_BASE = 'https://v-room.app';
 
 export function formatChatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '';
+  const day = date.toLocaleDateString('pl-PL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const time = date.toLocaleTimeString('pl-PL', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${day}, ${time}`;
 }
 
 export function formatConversationTime(iso: string): string {

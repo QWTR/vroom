@@ -292,7 +292,7 @@ import {
   resolveResumeSpeedKmh,
   shouldAcceptResumeSource,
 } from '../../lib/mapScreen/resumeRecovery';
-import { loadTripSessionLedger } from '../../lib/tripSessionLedger';
+import { clearTripSessionLedger, loadTripSessionLedger } from '../../lib/tripSessionLedger';
 import { validateGeometryAgainstRaw } from '../../hooks/useDrivingSnap';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
 import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
@@ -325,7 +325,10 @@ import { useGamification } from '../../hooks/useGamification';
 import { fetchDropStatus, type GeoDropNearby } from '../../lib/gamificationClient';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
-import { routeDurationMinutesToSeconds } from '../../lib/tripEstimate';
+import {
+  estimateRemainingRouteMinutes,
+  routeDurationMinutesToSeconds,
+} from '../../lib/tripEstimate';
 import {
   useAutoNavigationBridge,
   type AutoNavigationStartedPayload,
@@ -1731,6 +1734,8 @@ function MapScreenInner() {
   // ── State — live distances (nawigacja) ────────────────────
   const [distToTurnM,     setDistToTurnM]     = useState<number | null>(null);
   const [remainingDistKm, setRemainingDistKm] = useState<number | null>(null);
+  const [remainingDurationMin, setRemainingDurationMin] = useState<number | null>(null);
+  const remainingDurationMinRef = useRef<number | null>(null);
 
   // ── State – markery ───────────────────────────────────────
   const [carMarkerImage,      setCarMarkerImage]      = useState<string | null>(null);
@@ -8745,13 +8750,28 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                 style: 'destructive',
                 onPress: () => {
                   void (async () => {
-                    await finalizeTripSession({
+                    await BackgroundDriveController.stop('app');
+                    const finalized = await finalizeTripSession({
                       reason: 'crash',
                       mode: ledger.mode,
                       distanceKm: ledger.distanceKm,
                       maxSpeedKmh: ledger.maxSpeedKmh,
                       routePoints: ledger.routePoints,
                     });
+                    if (!finalized) {
+                      const remainingLedger = await loadTripSessionLedger();
+                      if (
+                        remainingLedger?.tripSessionId === ledger.tripSessionId
+                        && remainingLedger.finalization.state === 'open'
+                      ) {
+                        await Promise.all([
+                          clearTripSessionLedger(),
+                          clearEmergencyTripSave(),
+                          clearTripCheckpointSavedKm(),
+                          AsyncStorage.removeItem(TRIP_SESSION_ID_KEY),
+                        ]);
+                      }
+                    }
                     await setNavigatingFlag(false);
                     await setDrivingFlag(false);
                     await AsyncStorage.removeItem(NAV_SESSION_KEY);
@@ -10800,12 +10820,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   });
 
   useEffect(() => {
+    if (isNavigating) return;
     if (isOffroadRoute && offroadPreviewRoute) {
       setRouteInfo({
         distance: offroadPreviewRoute.distance,
         duration: 0,
         durationText: '—',
       });
+      remainingDurationMinRef.current = null;
+      setRemainingDurationMin(null);
       return;
     }
     if (previewRoute) {
@@ -10813,8 +10836,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         distance: (previewRoute.distanceValue / 1000).toFixed(1),
         duration: previewRoute.duration,
       });
+      remainingDurationMinRef.current = previewRoute.duration;
+      setRemainingDurationMin(previewRoute.duration);
     }
-  }, [previewRoute, isOffroadRoute, offroadPreviewRoute]);
+  }, [previewRoute, isOffroadRoute, offroadPreviewRoute, isNavigating]);
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -10845,20 +10870,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     const pts = rerouteResult.points ?? [];
     const rerouteSig = buildRerouteRouteSignature(pts);
     if (rerouteSig && lastAppliedRerouteSigRef.current === rerouteSig) {
-      // Ta sama geometria co poprzedni reroute — wznów snap i nawigację bez ponownego apply.
-      reroutePendingRef.current = false;
-      reroutePendingSinceRef.current = 0;
-      offRouteRef.current = false;
-      v3SnapToRouteSuppressedRef.current = false;
-      offRouteStreakRef.current = 0;
-      offRouteSinceRef.current = 0;
-      setOffRoute(false);
-      setRerouteOrigin(null);
-      setRerouteHeadingForApi(undefined);
+      // Nawet identyczna geometria musi zostać ponownie przycięta od bieżącej
+      // pozycji. Samo wznowienie starej trasy zostawiało auto na starym odcinku.
       visionEvent('NAV_REROUTE_DEDUP', { pts: pts.length, sig: rerouteSig });
-      return;
+    } else {
+      lastAppliedRerouteSigRef.current = rerouteSig;
     }
-    lastAppliedRerouteSigRef.current = rerouteSig;
 
     const now = Date.now();
     reroutePendingRef.current = false;
@@ -10866,6 +10883,17 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     rerouteBlockedUntilRef.current = 0;
     rerouteGraceUntilRef.current = now + REROUTE_GRACE_AFTER_APPLY_MS;
     setNavRouteOverride(rerouteResult);
+    const rerouteDuration = Number(rerouteResult.duration);
+    if (Number.isFinite(rerouteDuration) && rerouteDuration > 0) {
+      const rerouteDistanceKm = Math.max(0, Number(rerouteResult.distanceValue) / 1_000);
+      setRouteInfo({
+        distance: rerouteDistanceKm.toFixed(1),
+        duration: rerouteDuration,
+        durationText: rerouteResult.durationText,
+      });
+      remainingDurationMinRef.current = rerouteDuration;
+      setRemainingDurationMin(rerouteDuration);
+    }
     if (rerouteResult.points?.length) {
       const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
         ? drLatRef.current
@@ -11942,6 +11970,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setArrived(true);
     setDistToTurnM(null);
     setRemainingDistKm(null);
+    remainingDurationMinRef.current = null;
+    setRemainingDurationMin(null);
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
     navigationVoice.stop();
@@ -12302,8 +12332,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
 
         const previousHead = lastRemainingRouteHeadRef.current;
-        const headLat = hasSmoothedMarker ? mLat : routeProjection.latitude;
-        const headLng = hasSmoothedMarker ? mLng : routeProjection.longitude;
+        // Linia trasy zawsze zaczyna się na geometrii drogi. Łączenie jej z
+        // animowanym markerem tworzyło ukośny, trójkątny artefakt na zakrętach.
+        const headLat = routeProjection.latitude;
+        const headLng = routeProjection.longitude;
         const headMovedM = previousHead
           ? haversineKm(
               previousHead.lat,
@@ -12355,6 +12387,20 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           setRemainingDistKm(remKm);
         }
 
+        const routeForEta = effectiveNavRoute;
+        const nextDurationMin = estimateRemainingRouteMinutes({
+          routeDurationMinutes: routeForEta?.duration ?? routeInfoRef.current?.duration,
+          routeDistanceMeters: routeForEta?.distanceValue,
+          remainingDistanceKm: remKm,
+        });
+        if (
+          nextDurationMin != null
+          && nextDurationMin !== remainingDurationMinRef.current
+        ) {
+          remainingDurationMinRef.current = nextDurationMin;
+          setRemainingDurationMin(nextDurationMin);
+        }
+
         const nowMs = Date.now();
         if (nowMs - notifThrottleRef.current > 30_000) {
           notifThrottleRef.current = nowMs;
@@ -12366,10 +12412,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               ? `${Math.round(remKm * 1000)} m`
               : `${remKm.toFixed(1)} km`;
             const ri = routeInfoRef.current;
+            const etaMin = remainingDurationMinRef.current ?? ri?.duration ?? null;
             showNavigationNotification(
               stepForNotif,
               distStr,
-              ri ? formatDuration(ri.duration) : '',
+              etaMin != null ? formatDuration(etaMin) : '',
               resolvedNavigationCueRef.current?.distanceM ?? distToManeuver,
             );
           }
@@ -12462,6 +12509,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     const navStart = { latitude: pose.latitude, longitude: pose.longitude, name: 'Moja pozycja' };
     const seededRoute = previewRouteRef.current ?? navRouteRef.current;
+    const initialDurationMin = Number(seededRoute?.duration ?? routeInfo?.duration);
+    remainingDurationMinRef.current = Number.isFinite(initialDurationMin) && initialDurationMin > 0
+      ? initialDurationMin
+      : null;
+    setRemainingDurationMin(remainingDurationMinRef.current);
 
     if (seededRoute?.points?.length) {
       const routePts = trimRoutePointsFromVehicle(
@@ -12675,6 +12727,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setRerouteOrigin(null);
     setDistToTurnM(null);
     setRemainingDistKm(null);
+    remainingDurationMinRef.current = null;
+    setRemainingDurationMin(null);
     lastRemainingRouteHeadRef.current = null;
     lastManeuverDistanceRef.current = null;
     notifThrottleRef.current = 0;
@@ -12790,6 +12844,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       autoStartRouteAfterApproachRef.current = false;
       setRouteEndpointImages({});
       setRemainingDistKm(null);
+      remainingDurationMinRef.current = null;
+      setRemainingDurationMin(null);
       setDistToTurnM(null);
       setArrived(false);
       endLocationRef.current = null;
@@ -13714,11 +13770,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                       <>
                         <View style={hudStyles.metaDot} />
                         <Text style={hudStyles.metaPrimary}>
-                          {formatDuration(routeInfo.duration)}
+                          {formatDuration(remainingDurationMin ?? routeInfo.duration)}
                         </Text>
                         <View style={hudStyles.metaDot} />
                         <Text style={hudStyles.meta}>
-                          Cel {new Date(Date.now() + (routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+                          Cel {new Date(Date.now() + (remainingDurationMin ?? routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </>
                     )}
