@@ -74,8 +74,6 @@ const SelfModelLayer = memo(function SelfModelLayer({
   layerKey,
   initialYaw,
   sourceId,
-  dataDrivenHeading,
-  yawOffset,
 }: {
   modelYawSv: SharedValue<number>;
   pitch: number;
@@ -85,8 +83,6 @@ const SelfModelLayer = memo(function SelfModelLayer({
   layerKey: string;
   initialYaw: number;
   sourceId: string;
-  dataDrivenHeading: boolean;
-  yawOffset: number;
 }) {
   const [yaw, setYaw] = useState(initialYaw);
   const lastPushedSv = useSharedValue(NaN);
@@ -100,7 +96,6 @@ const SelfModelLayer = memo(function SelfModelLayer({
     () => modelYawSv.value,
     (v) => {
       'worklet';
-      if (dataDrivenHeading) return;
       if (!Number.isFinite(v)) return;
       const now = Date.now();
       const prev = lastPushedSv.value;
@@ -115,10 +110,11 @@ const SelfModelLayer = memo(function SelfModelLayer({
 
   const style = useMemo(() => ({
     ...layerBase,
-    modelRotation: dataDrivenHeading
-      ? [pitch, roll, ['+', ['get', 'worldHeading'], yawOffset]]
-      : [pitch, roll, yaw],
-  }) as any, [dataDrivenHeading, layerBase, pitch, roll, yaw, yawOffset]);
+    // Jedna konwencja na postoju i podczas jazdy. Natywne źródło odpowiada
+    // wyłącznie za płynną pozycję; heading zawsze przechodzi przez wspólną
+    // formułę panelu: travelHeading + yawOffset.
+    modelRotation: [pitch, roll, yaw],
+  }) as any, [layerBase, pitch, roll, yaw]);
 
   return (
     <Mapbox.ModelLayer
@@ -163,8 +159,7 @@ function VehicleModelMarkerInner({
 
   const initialYaw = useMemo(
     () => computeVehicleModelYaw(browseHeading, yawOffset),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [metaKey],
+    [browseHeading, yawOffset],
   );
 
   const logLiveDbg = useCallback((s: string) => {
@@ -258,10 +253,11 @@ function VehicleModelMarkerInner({
   }, false);
 
   useEffect(() => {
-    // The native trip source already publishes position + world heading.
-    frameCallback.setActive(enabled && modelReady && !isTripActive);
+    // Podczas jazdy pozycję publikuje natywne źródło, ale nadal potrzebujemy
+    // wspólnego modelYawSv, aby obrót nie zmieniał konwencji po starcie tripu.
+    frameCallback.setActive(enabled && modelReady);
     return () => frameCallback.setActive(false);
-  }, [enabled, isTripActive, modelReady, frameCallback]);
+  }, [enabled, modelReady, frameCallback]);
 
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';
@@ -292,8 +288,6 @@ function VehicleModelMarkerInner({
         layerKey={`${metaKey}-${sourceId}`}
         initialYaw={initialYaw}
         sourceId={sourceId}
-        dataDrivenHeading={isTripActive}
-        yawOffset={yawOffset}
       />
     </>
   );

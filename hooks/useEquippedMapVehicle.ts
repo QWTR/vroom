@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
@@ -8,6 +8,7 @@ import {
   type VehicleModelContractItem,
 } from '../lib/vehicleModelContract';
 import { subscribeMapVehicleChanged } from '../lib/mapVehicleEvents';
+import { subscribeSharedSocket } from '../lib/sharedSocket';
 import {
   cacheVehicleModelUri,
   getCachedVehicleModelUri,
@@ -61,9 +62,16 @@ export function useEquippedMapVehicle() {
   const [modelHealth, setModelHealth] = useState<VehicleModelHealth>('unknown');
   const [modelBytes, setModelBytes] = useState(0);
   const [modelUri, setModelUri] = useState<string | null>(null);
+  const activeReloadRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
+    activeReloadRef.current?.abort();
+    const controller = new AbortController();
+    activeReloadRef.current = controller;
+    const isCurrent = () => activeReloadRef.current === controller && !controller.signal.aborted;
+
     const token = await getToken();
+    if (!isCurrent()) return;
     if (!token) {
       setVehicle(null);
       setLoading(false);
@@ -76,9 +84,18 @@ export function useEquippedMapVehicle() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/shop/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+      // Konfiguracja auta jest edytowana poza aplikacją (panel admina), więc nie
+      // może pochodzić z pamięci HTTP urządzenia. Parametr zmienia wyłącznie URL
+      // odczytu i nie wpływa na kontrakt endpointu.
+      const res = await fetch(`${API_URL}/api/shop/me?vehicleConfigAt=${Date.now()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+        signal: controller.signal,
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
         setError(`shop/me ${res.status}`);
         setVehicle(null);
@@ -87,24 +104,28 @@ export function useEquippedMapVehicle() {
         return;
       }
       const data = await res.json();
+      if (!isCurrent()) return;
       const picked = pickEquippedMapVehicle(data);
       setVehicle(picked);
       setError(picked ? null : 'Brak założonego modelu GLB');
 
       if (picked?.assetUrl) {
         const peeked = await peekCachedVehicleModelUri(picked.id, picked.assetUrl);
+        if (!isCurrent()) return;
         if (peeked) {
           setModelUri(peeked);
           setModelHealth('ok');
         }
 
         const cached = await getCachedVehicleModelUri(picked.id, picked.assetUrl);
+        if (!isCurrent()) return;
         if (cached) {
           setModelUri(cached);
           setModelHealth('ok');
         }
 
         const probe = await probeGlbHealth(picked.assetUrl);
+        if (!isCurrent()) return;
         setModelBytes(probe.bytes);
 
         if (probe.health === 'too_large') {
@@ -119,13 +140,15 @@ export function useEquippedMapVehicle() {
         setModelLoading(true);
         try {
           const localUri = await cacheVehicleModelUri(picked.id, picked.assetUrl);
+          if (!isCurrent()) return;
           if (__DEV__) {
             console.log('[vehicle3d] cached', { localUri });
           }
         } catch (cacheErr) {
+          if (!isCurrent()) return;
           if (__DEV__) console.warn('[vehicle3d] cache failed (using remote URL)', cacheErr);
         } finally {
-          setModelLoading(false);
+          if (isCurrent()) setModelLoading(false);
         }
 
         if (__DEV__) {
@@ -146,18 +169,27 @@ export function useEquippedMapVehicle() {
         setModelLoading(false);
       }
     } catch (e) {
+      if (controller.signal.aborted) return;
       setVehicle(null);
       setModelHealth('unknown');
       setModelUri(null);
       setError(e instanceof Error ? e.message : 'Błąd ładowania modelu');
     } finally {
-      setLoading(false);
+      if (activeReloadRef.current === controller) {
+        activeReloadRef.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => () => {
+    activeReloadRef.current?.abort();
+    activeReloadRef.current = null;
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
@@ -169,6 +201,21 @@ export function useEquippedMapVehicle() {
   useEffect(() => subscribeMapVehicleChanged(() => {
     void reload();
   }), [reload]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe = () => {};
+    void subscribeSharedSocket('shop:vehicle-model-changed', () => {
+      if (!disposed) void reload();
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unsubscribe = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [reload]);
 
   useEffect(() => {
     if (vehicle?.id && vehicle.assetUrl) {
