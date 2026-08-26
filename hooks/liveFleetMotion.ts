@@ -1,5 +1,5 @@
 /** Gorąca flota publikuje GeoJSON maksymalnie 30 razy na sekundę. */
-export const FLEET_PUBLISH_INTERVAL_MS = 16;
+export const FLEET_PUBLISH_INTERVAL_MS = 33;
 /** Cel renderu jest cofnięty o mały bufor, aby interpolować między prawdziwymi fixami. */
 export const FLEET_INTERPOLATION_BUFFER_MS = 350;
 const SOFT_CORRECTION_MIN_MS = 450;

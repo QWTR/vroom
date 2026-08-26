@@ -779,6 +779,8 @@ export function useLiveFleetAnimator(
   const [metaPinRequests, setMetaPinRequests] = useState<FleetMetaPinRequest[]>([]);
   const metaPinsKeyRef = useRef('');
   const coldShapesKeyRef = useRef('');
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
 
   const visibleKey = useMemo(
     () => visibleUserIds.slice().sort((a, b) => a - b).join(','),
@@ -903,7 +905,7 @@ export function useLiveFleetAnimator(
       const prev = prevById.get(id);
       const bounds = prev ? exitBounds : enterBounds;
       if (!isStorePositionInBounds(id, bounds)) continue;
-      const slot = mergeSlotFromStore(id, store, prev, anchor, now);
+      const slot = mergeSlotFromStore(id, store, prev, anchorRef.current, now);
       if (slot) next.push(slot);
     }
 
@@ -927,7 +929,6 @@ export function useLiveFleetAnimator(
     store,
     visibleUserIds,
     enabled,
-    anchor,
     fleetSv,
     hotShapeSv,
     hotVehicleShapeSv,
@@ -966,7 +967,7 @@ export function useLiveFleetAnimator(
         const idx = next.findIndex((slot) => slot.id === id);
         const prev = idx >= 0 ? next[idx] : undefined;
         if (!prev && !isInViewport(pos.lat, pos.lng, enterViewportSv.value)) continue;
-        const merged = mergeSlotFromStore(id, store, prev, anchor, now);
+        const merged = mergeSlotFromStore(id, store, prev, anchorRef.current, now);
         if (!merged) continue;
 
         if (idx >= 0) {
@@ -1023,7 +1024,6 @@ export function useLiveFleetAnimator(
     enabled,
     visibleUserIds,
     fleetSv,
-    anchor,
     enterViewportSv,
     exitViewportSv,
     fleetStatsSv,

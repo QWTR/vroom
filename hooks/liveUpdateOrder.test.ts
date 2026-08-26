@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLiveUpdateNewer } from './liveUpdateOrder';
+import { isLiveUpdateNewer, resolveLiveUserLivenessAt } from './liveUpdateOrder';
 
 describe('live update ordering', () => {
   it('rejects duplicates and older socket sequences', () => {
@@ -21,5 +21,17 @@ describe('live update ordering', () => {
 
   it('accepts the first known position', () => {
     expect(isLiveUpdateNewer({ incomingSeq: 1, incomingServerAt: 1000 })).toBe(true);
+  });
+});
+
+describe('resolveLiveUserLivenessAt', () => {
+  it('prefers local receipt time over a skewed remote fix clock', () => {
+    expect(resolveLiveUserLivenessAt(10_000, 1_000)).toBe(10_000);
+    expect(resolveLiveUserLivenessAt(10_000, 100_000)).toBe(10_000);
+  });
+
+  it('falls back to fix time when no receipt time exists', () => {
+    expect(resolveLiveUserLivenessAt(null, 5_000)).toBe(5_000);
+    expect(resolveLiveUserLivenessAt(null, null)).toBe(0);
   });
 });

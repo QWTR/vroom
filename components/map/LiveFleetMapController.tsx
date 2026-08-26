@@ -43,6 +43,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const lastValidBoundsRef = useRef<ViewportBounds>(EMPTY_VIEWPORT);
   const lastViewportKeyRef = useRef('');
   const viewportQueryInFlightRef = useRef(false);
+  const viewportQueryQueuedRef = useRef(false);
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds>(EMPTY_VIEWPORT);
   const [viewportZoom, setViewportZoom] = useState(0);
 
@@ -63,37 +64,43 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const refreshViewportFromNative = useCallback(async () => {
     const map = mapRef.current;
     if (!map || !enabled) return;
-    if (viewportQueryInFlightRef.current) return;
+    if (viewportQueryInFlightRef.current) {
+      viewportQueryQueuedRef.current = true;
+      return;
+    }
     viewportQueryInFlightRef.current = true;
     try {
-      const bounds = await map.getVisibleBounds();
-      const topRight = bounds?.[0];
-      const bottomLeft = bounds?.[1];
-      if (!Array.isArray(topRight) || !Array.isArray(bottomLeft)) return;
-      const east = Number(topRight[0]);
-      const north = Number(topRight[1]);
-      const west = Number(bottomLeft[0]);
-      const south = Number(bottomLeft[1]);
-      if (
-        !Number.isFinite(north)
-        || !Number.isFinite(south)
-        || !Number.isFinite(east)
-        || !Number.isFinite(west)
-      ) {
-        return;
-      }
-      const getZoom = (map as unknown as { getZoom?: () => Promise<number> }).getZoom;
-      if (typeof getZoom === 'function') {
-        const zoom = await getZoom.call(map).catch(() => NaN);
-        if (Number.isFinite(zoom)) setViewportZoom(zoom);
-      }
-      commitViewport(normalizeViewportBounds({
-        north,
-        south,
-        east,
-        west,
-        valid: 1,
-      }));
+      do {
+        viewportQueryQueuedRef.current = false;
+        const bounds = await map.getVisibleBounds();
+        const topRight = bounds?.[0];
+        const bottomLeft = bounds?.[1];
+        if (Array.isArray(topRight) && Array.isArray(bottomLeft)) {
+          const east = Number(topRight[0]);
+          const north = Number(topRight[1]);
+          const west = Number(bottomLeft[0]);
+          const south = Number(bottomLeft[1]);
+          if (
+            Number.isFinite(north)
+            && Number.isFinite(south)
+            && Number.isFinite(east)
+            && Number.isFinite(west)
+          ) {
+            commitViewport(normalizeViewportBounds({
+              north,
+              south,
+              east,
+              west,
+              valid: 1,
+            }));
+          }
+        }
+        const getZoom = (map as unknown as { getZoom?: () => Promise<number> }).getZoom;
+        if (typeof getZoom === 'function') {
+          const zoom = await getZoom.call(map).catch(() => NaN);
+          if (Number.isFinite(zoom)) setViewportZoom(zoom);
+        }
+      } while (viewportQueryQueuedRef.current && enabled && mapRef.current === map);
     } catch {
       if (lastValidBoundsRef.current.valid === 1) {
         commitViewport(lastValidBoundsRef.current);
@@ -117,6 +124,19 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     void refreshViewportFromNative();
   }, [enabled, mapIdleNonce, refreshViewportFromNative]);
 
+  const movingAnchorKey = anchor
+    && Number.isFinite(anchor.latitude)
+    && Number.isFinite(anchor.longitude)
+    ? `${anchor.latitude.toFixed(5)}:${anchor.longitude.toFixed(5)}`
+    : 'invalid';
+
+  // Kamera follow podczas jazdy praktycznie nigdy nie przechodzi w idle.
+  // Odświeżaj więc natywne bounds razem z przesuwającym się anchorem mapy.
+  useEffect(() => {
+    if (!enabled || movingAnchorKey === 'invalid') return;
+    void refreshViewportFromNative();
+  }, [enabled, movingAnchorKey, refreshViewportFromNative]);
+
   const viewportReady = viewportBounds.valid === 1;
   const animator = useLiveFleetAnimator(
     store,
@@ -136,11 +156,13 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
         minZoomLevel={0}
         onUserPress={onUserPress}
       />
+      {/* ShapeSource zostaje zamontowany także dla chwilowo pustej klatki.
+          Remount przy każdym 0 -> 1 powodował widoczne mruganie ikon w Mapbox. */}
       <LiveUsersFleetLayer
         hotAnimatedShapeProps={animator.hotAnimatedShapeProps}
         coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
         metaPinRequests={animator.metaPinRequests}
-        visible={enabled && viewportReady && animator.hasFleet}
+        visible={enabled && viewportReady}
         onUserPress={onUserPress}
       />
     </>

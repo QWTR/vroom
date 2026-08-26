@@ -24,4 +24,9 @@ describe('ExplorationCoverageMap camera ownership', () => {
     expect(source).toContain('<Modal\n          visible');
     expect(source).toContain('OTWORZ MAPE');
   });
+
+  it('does not render the broken recenter control', () => {
+    expect(source).not.toContain('const resetView');
+    expect(source).not.toContain('name="crosshairs-gps"');
+  });
 });

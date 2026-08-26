@@ -169,16 +169,6 @@ export function ExplorationCoverageMap({
     fullscreenCameraRef.current?.zoomTo(nextZoom, 180);
   }, []);
 
-  const resetView = useCallback(() => {
-    cameraStateRef.current = camera;
-    fullscreenCameraRef.current?.setCamera({
-      centerCoordinate: camera.center,
-      zoomLevel: camera.zoom,
-      animationMode: 'easeTo',
-      animationDuration: 250,
-    });
-  }, [camera]);
-
   const handleMapIdle = useCallback((event: any) => {
     const center = event?.properties?.center;
     const zoom = Number(event?.properties?.zoom);
@@ -420,10 +410,6 @@ export function ExplorationCoverageMap({
             <View style={{ height: 1, backgroundColor: theme.border }} />
             <TouchableOpacity onPress={() => setZoom(-1)} style={{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: theme.text, fontSize: 26, fontWeight: '900', lineHeight: 26 }}>-</Text>
-            </TouchableOpacity>
-            <View style={{ height: 1, backgroundColor: theme.border }} />
-            <TouchableOpacity onPress={resetView} style={{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name="crosshairs-gps" size={20} color={theme.primary} />
             </TouchableOpacity>
           </View>
         </View>

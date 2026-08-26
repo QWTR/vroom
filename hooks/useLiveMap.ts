@@ -24,7 +24,7 @@ import {
   type FleetMotionTier,
 } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
-import { isLiveUpdateNewer } from './liveUpdateOrder';
+import { isLiveUpdateNewer, resolveLiveUserLivenessAt } from './liveUpdateOrder';
 import {
   WARNING_CATALOG,
   type CreateWarningInput,
@@ -295,7 +295,10 @@ export function useLiveMap(
   const pruneStaleLiveUsers = useCallback(() => {
     const now = Date.now();
     for (const id of store.getUserIdsSnapshot()) {
-      const last = liveUserFixAtRef.current.get(id) ?? liveUserLastSeenRef.current.get(id) ?? 0;
+      const last = resolveLiveUserLivenessAt(
+        liveUserLastSeenRef.current.get(id),
+        liveUserFixAtRef.current.get(id),
+      );
       if (now - last >= LIVE_USER_STALE_MS) {
         removeLiveUser(id);
       } else if (now - last >= 5_000) {
@@ -428,7 +431,10 @@ export function useLiveMap(
     const pruneIds: number[] = [];
     for (const id of store.getUserIdsSnapshot()) {
       if (incomingById.has(id)) continue;
-      const last = liveUserFixAtRef.current.get(id) ?? liveUserLastSeenRef.current.get(id) ?? 0;
+      const last = resolveLiveUserLivenessAt(
+        liveUserLastSeenRef.current.get(id),
+        liveUserFixAtRef.current.get(id),
+      );
       if (now - last >= LIVE_USER_STALE_MS) {
         liveUserLastSeenRef.current.delete(id);
         liveUserLastSeqRef.current.delete(id);
@@ -862,7 +868,9 @@ export function useLiveMap(
             serverAt,
             fixAt,
             fixId: data?.fixId == null ? null : String(data.fixId),
-            stale: data?.stale === true || Date.now() - fixAt > 5_000,
+            // To zdarzenie właśnie dotarło na żywo. Nie porównuj Date.now() z
+            // fixAt obcego telefonu, bo przesunięcie zegara powoduje miganie stale/fresh.
+            stale: data?.stale === true,
             seq: Number.isFinite(seq) ? seq : null,
             heading: motion.heading ?? existingMeta?.heading ?? null,
             speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
