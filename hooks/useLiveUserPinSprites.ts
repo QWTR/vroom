@@ -48,6 +48,7 @@ export function buildPinSpriteSignature(input: {
   initials: string;
   distanceLabel: string;
   stale?: boolean;
+  visualVersion?: string | null;
 }): string {
   return [
     input.id,
@@ -56,6 +57,7 @@ export function buildPinSpriteSignature(input: {
     input.isPremium ? '1' : '0',
     input.isFriend ? '1' : '0',
     input.initials,
+    input.visualVersion ?? 'free',
     'v5-stable',
   ].join('|');
 }

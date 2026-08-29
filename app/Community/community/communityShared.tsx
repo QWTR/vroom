@@ -16,6 +16,7 @@ import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
 import { filterProvinceSuggestions, getProvinceByMention } from '../../../constants/provinces';
 import { useKeyboardInset }   from '../../../hooks/useKeyboardInset';
+import { PremiumAvatar, type PremiumVisual } from '../../../components/user/PremiumIdentity';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -48,7 +49,7 @@ export function getDiscussionCategoryMeta(category?: string | null) {
   return DISCUSSION_CATEGORIES.find((c) => c.id === category) ?? DISCUSSION_CATEGORIES[0];
 }
 
-export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; isAdmin?: boolean; nickColor?: string | null; }
+export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; isAdmin?: boolean; nickColor?: string | null; premiumVisual?: PremiumVisual | null; }
 export interface Comment      {
   id: number; content: string; photos: string[]; createdAt: string; editedAt?: string | null; author: Author;
   replyTo?: { id: number; username: string } | null;
@@ -68,8 +69,8 @@ export interface Post         {
   reactions?: DiscussionReaction[];
   poll?: PostPollData | null;
 }
-export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points?: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
-export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: { id: number; username: string; avatarUrl: string | null }; likesCount: number; commentsCount: number; isLiked: boolean; }
+export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: Omit<Author, 'points'> & { points?: number }; points?: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
+export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: Omit<Author, 'points'> & { points?: number }; likesCount: number; commentsCount: number; isLiked: boolean; }
 export interface VroomkiCar {
   id: number;
   brand: string;
@@ -526,36 +527,10 @@ export const PhotoViewer = ({
 // ─────────────────────────────────────────────────────────
 // AVATAR
 // ─────────────────────────────────────────────────────────
-export const Avatar = ({ user, size = 40 }: { user: { username: string; avatarUrl: string | null }; size?: number }) => {
-  const { theme, isDark } = useTheme();
-  return (
-    <View style={{
-      width: size, height: size, borderRadius: size / 2,
-      overflow: 'hidden',
-      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-      justifyContent: 'center', alignItems: 'center',
-      borderWidth: 1,
-      borderColor: 'rgba(150, 150, 150, 0.2)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.25 : 0.08,
-      shadowRadius: 4,
-      elevation: 2,
-    }}>
-      {user.avatarUrl
-        ? <Image source={{ uri: user.avatarUrl }} style={{ width: size, height: size }} resizeMode="cover" />
-        : <Text style={{
-            color: theme.primary,
-            fontFamily: 'Orbitron',
-            fontSize: size * 0.3,
-            fontWeight: '700',
-          }}>
-            {user.username.slice(0, 2).toUpperCase()}
-          </Text>
-      }
-    </View>
-  );
-};
+export const Avatar = ({ user, size = 40 }: {
+  user: { id?: number; username: string; avatarUrl: string | null; isPremium?: boolean; isAdmin?: boolean; premiumVisual?: PremiumVisual | null };
+  size?: number;
+}) => <PremiumAvatar user={{ id: user.id ?? 0, ...user }} size={size} />;
 
 // Wyrównanie mediów do treści posta w karcie dyskusji
 export const POST_CONTENT_INSET = 16;

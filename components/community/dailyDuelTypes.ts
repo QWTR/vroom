@@ -1,3 +1,5 @@
+import type { PremiumVisual } from '../user/PremiumIdentity';
+
 export type DailyDuelCarSide = {
   id: number;
   brand: string;
@@ -5,7 +7,7 @@ export type DailyDuelCarSide = {
   power: number;
   photo: string | null;
   photos: string[];
-  owner: { id: number; username: string; avatarUrl: string | null };
+  owner: { id: number; username: string; avatarUrl: string | null; isPremium?: boolean; isAdmin?: boolean; premiumVisual?: PremiumVisual | null };
 };
 
 export type DailyDuelData = {

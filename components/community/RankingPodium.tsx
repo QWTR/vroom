@@ -7,10 +7,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { PremiumAvatar, PremiumName, type PremiumVisual } from '../user/PremiumIdentity';
 
 export interface RankingUser {
   id: number;
@@ -21,8 +21,10 @@ export interface RankingUser {
   sub: string;
   streak?: number;
   isPremium?: boolean;
+  isAdmin?: boolean;
   isWinner?: boolean;
   nickColor?: string | null;
+  premiumVisual?: PremiumVisual | null;
 }
 
 const MEDALS = {
@@ -51,27 +53,7 @@ function useReducedMotion() {
 }
 
 function RankingAvatar({ user, size, accent }: { user: RankingUser; size: number; accent: string }) {
-  const { theme } = useTheme();
-  return (
-    <LinearGradient
-      colors={[accent, `${accent}88`, theme.surface2]}
-      style={[styles.avatarRing, { width: size + 7, height: size + 7, borderRadius: (size + 7) / 2 }]}
-    >
-      <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: theme.surface2 }]}>
-        {user.avatar ? (
-          <Image
-            source={{ uri: user.avatar }}
-            style={{ width: size, height: size }}
-            contentFit="cover"
-            recyclingKey={String(user.id)}
-            transition={150}
-          />
-        ) : (
-          <Text style={[styles.initials, { color: theme.text }]}>{user.username.slice(0, 2).toUpperCase()}</Text>
-        )}
-      </View>
-    </LinearGradient>
-  );
+  return <PremiumAvatar user={{ ...user, avatarUrl: user.avatar }} size={size} representative />;
 }
 
 function PodiumPlace({
@@ -143,12 +125,7 @@ function PodiumPlace({
               {user.position}
             </Text>
           </View>
-          <Text
-            numberOfLines={1}
-            style={[styles.podiumName, { color: user.nickColor || theme.text }, isWinner && styles.winnerName]}
-          >
-            {user.username}{isMe ? ' · TY' : ''}
-          </Text>
+          <PremiumName user={{ ...user, avatarUrl: user.avatar }} suffix={isMe ? ' · TY' : ''} style={[styles.podiumName, { color: user.nickColor || theme.text }, isWinner && styles.winnerName]} />
           <Text numberOfLines={1} style={[styles.podiumScore, { color: config.color }]}>
             {formatRankingScore(user.score, scoreLabel)} <Text style={styles.podiumUnit}>{scoreLabel}</Text>
           </Text>
@@ -271,6 +248,7 @@ export function RankingListRow({
         styles.row,
         { backgroundColor: theme.surface, borderColor: isMe ? theme.primary : theme.border2 },
         isMe && { backgroundColor: '#E3383512', shadowColor: theme.primary },
+        user.isPremium && !user.isAdmin ? { borderColor: `${user.premiumVisual?.accentColors?.[0] ?? '#FFD700'}55`, backgroundColor: `${user.premiumVisual?.accentColors?.[0] ?? '#FFD700'}0B` } : null,
       ]}
     >
       <View style={[styles.rowPositionBox, { backgroundColor: user.position <= 10 ? '#E3383515' : theme.surface2 }]}>
@@ -281,9 +259,7 @@ export function RankingListRow({
       <RankingAvatar user={user} size={44} accent={isMe ? theme.primary : theme.border2} />
       <View style={styles.rowMain}>
         <View style={styles.nameLine}>
-          <Text style={[styles.username, { color: user.nickColor || theme.text }]} numberOfLines={1}>
-            {user.username}{isMe ? ' · TY' : ''}
-          </Text>
+          <PremiumName user={{ ...user, avatarUrl: user.avatar }} suffix={isMe ? ' · TY' : ''} style={[styles.username, { color: user.nickColor || theme.text }]} />
           {user.isPremium ? (
             <View style={styles.premiumPill}><Text style={styles.premiumText}>PREMIUM</Text></View>
           ) : null}

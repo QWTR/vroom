@@ -53,9 +53,10 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
                 działa w tle — np. po zminimalizowaniu z listy ostatnich aplikacji.
               </Text>
               <Text style={styles.text}>
-                Służy to wyłącznie do zliczania przejechanych kilometrów i statystyk jazdy
-                podczas aktywnej trasy. Wymaga uprawnienia lokalizacji „Zawsze” / „W tle”
-                w ustawieniach telefonu.
+                Służy to do zliczania kilometrów i statystyk jazdy podczas aktywnej trasy,
+                opcjonalnego Smart Start oraz — po osobnej zgodzie dla konkretnej sesji —
+                udostępniania pozycji w Convoy Live. Wymaga uprawnienia lokalizacji „Zawsze” /
+                „W tle” w ustawieniach telefonu.
               </Text>
               <Text style={styles.text}>
                 Włączenie funkcji „Praca w tle” w ustawieniach aplikacji jest osobnym krokiem

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -9,6 +9,10 @@ import { useProfile } from '../../hooks/useProfile';
 import { snapHistoryRouteToRoad } from '../../scripts/snapHistoryRoute';
 import { filterVisibleRideHistory } from '../../lib/activityHistoryFilter';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
+import { usePremium } from '../../contexts/PremiumContext';
+import { TripStoryComposer } from '../../components/trips/TripStoryComposer';
+import type { TripStoryData } from '../../components/trips/TripStoryCard';
+import { apiRequest } from '../../lib/api/client';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
@@ -110,6 +114,7 @@ export default function HistoryRidesScreen() {
   const router = useRouter();
   const { theme, isDark, presetId } = useTheme();
   const headerTop = useScreenHeaderTop(8);
+  const { isPremium } = usePremium();
   const {
     activityHistory,
     activityHistoryHasMore,
@@ -127,6 +132,8 @@ export default function HistoryRidesScreen() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [snappedCoordsById, setSnappedCoordsById] = useState<Record<number, [number, number][]>>({});
+  const [storyData, setStoryData] = useState<TripStoryData | null>(null);
+  const [storyLoadingId, setStoryLoadingId] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -157,6 +164,43 @@ export default function HistoryRidesScreen() {
       setRefreshing(false);
     }
   }, [fetchActivityHistory]);
+
+  const openHistoryStory = useCallback(async (item: any) => {
+    const activityId = Number(item?.id);
+    if (!Number.isInteger(activityId) || storyLoadingId != null) return;
+    setStoryLoadingId(activityId);
+    try {
+      const routeLoaded = (item?.routePoints?.length ?? 0) > 1;
+      const hydrated = routeLoaded ? item : await fetchActivityRoute(activityId);
+      if ((hydrated?.routePoints?.length ?? 0) < 2) {
+        Alert.alert('Brak przebiegu trasy', 'Dla tego przejazdu nie zapisano wystarczającej liczby punktów do utworzenia grafiki.');
+        return;
+      }
+      let detailed: any = null;
+      if (isPremium) {
+        detailed = await apiRequest<any>(`/activity/history/${activityId}/replay`).catch(() => null);
+      }
+      const activity = detailed?.activity || hydrated;
+      const insight = activity?.insight || {};
+      const duration = Number(activity?.duration ?? item?.duration ?? 0);
+      setStoryData({
+        points: activity.routePoints,
+        distanceKm: Number(activity?.distance ?? item?.distance ?? 0),
+        elapsedSec: duration,
+        movingSec: Number(insight.movingDurationSec ?? duration),
+        stoppedSec: Number(insight.stoppedDurationSec ?? 0),
+        avgSpeedKmh: Number(activity?.avgSpeed ?? item?.avgSpeed ?? 0),
+        maxSpeedKmh: Number(activity?.maxSpeed ?? item?.maxSpeed ?? 0),
+        elevationGainM: Number(insight.elevationGainM ?? 0),
+        hardAccelerationCount: Number(insight.hardAccelerationCount ?? 0),
+        hardBrakingCount: Number(insight.hardBrakingCount ?? 0),
+      });
+    } catch {
+      Alert.alert('Nie udało się przygotować Story', 'Odśwież historię i spróbuj ponownie.');
+    } finally {
+      setStoryLoadingId(null);
+    }
+  }, [fetchActivityRoute, isPremium, storyLoadingId]);
 
   useEffect(() => {
     if (showAllHistoryOnMap) return;
@@ -387,12 +431,28 @@ export default function HistoryRidesScreen() {
                       Brak zapisanego sladu mapy dla tego przejazdu.
                     </Text>
                   )}
+                  {isPremium && hasRoute && (
+                    <TouchableOpacity onPress={() => router.push(`/replay/${a.id}` as any)} style={{ marginTop: 9, borderRadius: 8, paddingVertical: 8, alignItems: 'center', backgroundColor: '#FFD44718', borderWidth: 1, borderColor: '#FFD44744' }}>
+                      <Text style={{ color: '#FFD447', fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900' }}>OTWÓRZ DRIVE REPLAY</Text>
+                    </TouchableOpacity>
+                  )}
+                  {hasRoute && (
+                    <TouchableOpacity
+                      onPress={(event) => { event.stopPropagation(); void openHistoryStory(a); }}
+                      disabled={storyLoadingId != null}
+                      style={{ marginTop: 8, borderRadius: 8, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, backgroundColor: '#ffffff0b', borderWidth: 1, borderColor: '#ffffff20' }}
+                    >
+                      {storyLoadingId === Number(a.id) ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="auto-awesome" size={15} color="#fff" />}
+                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900' }}>UTWÓRZ VROOM STORY</Text>
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
               );
             }}
           />
         )}
       </View>
+      {storyData ? <TripStoryComposer visible data={storyData} onClose={() => setStoryData(null)} /> : null}
     </View>
   );
 }

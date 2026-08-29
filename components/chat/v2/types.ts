@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { PremiumVisual } from '../../user/PremiumIdentity';
 
 export type UnifiedChatContext = 'dm' | 'public' | 'club' | 'market' | 'support';
 
@@ -12,6 +13,7 @@ export interface UnifiedChatUser {
   nickColor?: string | null;
   province?: string | null;
   subtitle?: string | null;
+  premiumVisual?: PremiumVisual | null;
 }
 
 export interface UnifiedChatAttachment {
@@ -28,7 +30,7 @@ export interface UnifiedChatReaction {
 export interface UnifiedChatReply {
   id: number;
   content: string;
-  sender: { id: number; username: string };
+  sender: { id: number; username: string; isPremium?: boolean; isAdmin?: boolean; premiumVisual?: PremiumVisual | null };
   hasMedia?: boolean;
 }
 
@@ -105,6 +107,14 @@ export interface ConversationListData {
     isMe?: boolean;
   } | null;
   unread?: number;
+  identity?: {
+    id: number;
+    username: string;
+    avatarUrl?: string | null;
+    isPremium?: boolean;
+    isAdmin?: boolean;
+    premiumVisual?: PremiumVisual | null;
+  } | null;
 }
 
 export type ChatHeaderStatus =

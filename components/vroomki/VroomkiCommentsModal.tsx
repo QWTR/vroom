@@ -22,6 +22,7 @@ import { API_URL } from '../../constants/config';
 import { Avatar, type Author, type VroomkiComment, type VroomkiPost } from '../../app/Community/community/communityShared';
 import { apiRequest } from '../../lib/api/client';
 import { enqueueSocialOperation, subscribeSocialQueue } from '../../lib/socialQueue';
+import { PremiumName } from '../user/PremiumIdentity';
 
 const getToken = () => AsyncStorage.getItem('token');
 
@@ -300,9 +301,7 @@ export function VroomkiCommentsModal({
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <Avatar user={item.author} size={34} />
                     <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 12 }}>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
-                        {item.author.username}
-                      </Text>
+                      <PremiumName user={item.author} style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }} />
                       {item.replyTo && (
                         <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10, marginTop: 5, opacity: 0.85 }}>
                           ↩ odpowiedź dla @{item.replyTo.username}

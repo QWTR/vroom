@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { UserBadges } from '../../user/UserBadges';
 import { ProvinceBadge } from '../../user/ProvinceBadge';
@@ -17,7 +17,8 @@ import {
   getTheirBubbleStyle,
 } from './helpers';
 import type { ChatActionCapabilities, GroupedMessageMeta, UnifiedChatMessage } from './types';
-import { VROOM_RED, VROOM_RED_BORDER } from './constants';
+import { VROOM_RED } from './constants';
+import { PremiumAvatar, PremiumName } from '../../user/PremiumIdentity';
 
 type Props = {
   message: UnifiedChatMessage;
@@ -182,9 +183,7 @@ function SenderName({ user }: { user: UnifiedChatMessage['sender'] }) {
   const { theme } = useTheme();
   return (
     <View style={styles.nameRow}>
-      <Text style={[styles.name, { color: user.nickColor || VROOM_RED }]}>
-        {user.username}
-      </Text>
+      <PremiumName user={user} style={[styles.name, { color: user.nickColor || VROOM_RED }]} />
       {!!user.province && (
         <ProvinceBadge province={user.province} compact theme={theme} />
       )}
@@ -194,20 +193,9 @@ function SenderName({ user }: { user: UnifiedChatMessage['sender'] }) {
 }
 
 function AvatarSlot({ show, user }: { show: boolean; user: UnifiedChatMessage['sender'] }) {
-  const { theme } = useTheme();
   return (
     <View style={styles.avatarSlot}>
-      {show && (
-        user.avatarUrl ? (
-          <Image source={{ uri: user.avatarUrl }} style={[styles.avatar, { borderColor: VROOM_RED_BORDER }]} />
-        ) : (
-          <View style={[styles.avatarFallback, { backgroundColor: theme.surface2, borderColor: VROOM_RED_BORDER }]}>
-            <Text style={[styles.avatarText, { color: VROOM_RED }]}>
-              {user.username?.slice(0, 2).toUpperCase()}
-            </Text>
-          </View>
-        )
-      )}
+      {show && <PremiumAvatar user={user} size={28} />}
     </View>
   );
 }

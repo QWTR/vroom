@@ -17,6 +17,7 @@ import { normalizeMediaUri, normalizePhotoList } from '../../../lib/mediaUri';
 import { CommunityScreenHeader } from '../../../components/community';
 import { EntranceIntroGate, VoteCastPulse } from '../../../components/motion';
 import { invalidateQuestTrack } from '../../../lib/questTrack';
+import { PremiumAvatar, PremiumName, type PremiumVisual } from '../../../components/user/PremiumIdentity';
 
 const { width, height } = Dimensions.get('window');
 const DIVIDER_H = 60;
@@ -35,7 +36,7 @@ const getToken = async () =>
 interface Entry {
   id: number; photos?: string[]; description: string | null;
   wins: number; userId: number;
-  user: { id: number; username: string; avatarUrl: string | null };
+  user: { id: number; username: string; avatarUrl: string | null; isPremium?: boolean; isAdmin?: boolean; premiumVisual?: PremiumVisual | null };
   car:  { brand: string; specs: string; photos?: string[] } | null;
 }
 
@@ -386,18 +387,9 @@ function EntryCard({
       {/* Dół: info */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 14, paddingTop: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ width: 32, height: 32, borderRadius: 16, overflow: 'hidden', borderWidth: 1.5, borderColor: isVoted ? goldColor : '#ffffff30', backgroundColor: '#1a1a1a' }}>
-            {normalizePhotoUri(entry.user.avatarUrl)
-              ? <Image source={{ uri: normalizePhotoUri(entry.user.avatarUrl)! }} style={{ width: 32, height: 32 }} contentFit="cover" cachePolicy="memory-disk" />
-              : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9, textAlign: 'center', lineHeight: 32 }}>
-                  {entry.user.username.slice(0, 2).toUpperCase()}
-                </Text>
-            }
-          </View>
+          <PremiumAvatar user={entry.user} size={32} representative />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
-              {entry.user.username}
-            </Text>
+            <PremiumName user={entry.user} style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }} />
             {entry.car && (
               <Text style={{ fontFamily: 'Orbitron', color: '#ffffff55', fontSize: 8, marginTop: 1 }} numberOfLines={1}>
                 {entry.car.brand}  ·  {entry.car.specs}

@@ -14,6 +14,7 @@ import {
   type LiveUserMeta,
 } from './liveMapStore';
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
+import type { PremiumVisual } from '../components/user/PremiumIdentity';
 import { normalizeVehicleLiveFields } from '../lib/vehicleModelContract';
 import {
   FLEET_FULL_ANIMATION_RADIUS_KM,
@@ -44,6 +45,7 @@ export interface LiveUser {
   online:    boolean;
   isFriend?: boolean;
   isPremium?: boolean;
+  premiumVisual?: PremiumVisual | null;
   vehicleModelUrl?: string | null;
   vehicleModelMeta?: VehicleModelMeta | null;
   serverAt?: number | null;
@@ -388,6 +390,7 @@ export function useLiveMap(
           online: u.online,
           isFriend,
           isPremium: u.isPremium ?? prevMeta?.isPremium,
+          premiumVisual: u.premiumVisual !== undefined ? u.premiumVisual : prevMeta?.premiumVisual,
           vehicleModelUrl: liveVehicle.vehicleModelUrl,
           vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt: incomingNewer ? (u.serverAt ?? prevMeta?.serverAt ?? null) : (prevMeta?.serverAt ?? null),
@@ -863,6 +866,7 @@ export function useLiveMap(
             online: data?.online ?? existingMeta?.online ?? true,
             isFriend: data?.isFriend ?? existingMeta?.isFriend,
             isPremium: data?.isPremium ?? existingMeta?.isPremium,
+            premiumVisual: data?.premiumVisual !== undefined ? data.premiumVisual : existingMeta?.premiumVisual,
             vehicleModelUrl: liveVehicle.vehicleModelUrl,
             vehicleModelMeta: liveVehicle.vehicleModelMeta,
             serverAt,
@@ -923,6 +927,7 @@ export function useLiveMap(
             online: u?.online !== false,
             isFriend: u?.isFriend === true,
             isPremium: !!u?.isPremium,
+            premiumVisual: u?.premiumVisual ?? null,
             vehicleModelUrl: u?.vehicleModelUrl === undefined
               ? undefined
               : (typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null),

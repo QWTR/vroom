@@ -96,6 +96,7 @@ class SponsoredAdStore {
 
   setEnabled(placement: AdPlacement, enabled: boolean) {
     this.enabledPlacements.set(placement, enabled);
+    if (!enabled) this.invalidate(placement);
   }
 
   refreshActivePlacements() {
@@ -114,8 +115,7 @@ class SponsoredAdStore {
 
   async fetch(placement: AdPlacement, enabled: boolean, force = false) {
     if (!enabled) {
-      this.cache.set(placement, { result: { source: 'admob' }, fetchedAt: Date.now() });
-      this.notify();
+      this.invalidate(placement);
       return;
     }
 
@@ -152,6 +152,7 @@ class SponsoredAdStore {
         ? { source: 'sponsored', campaign: data.campaign }
         : { source: 'admob' };
 
+      if (this.enabledPlacements.get(placement) === false) return;
       this.cache.set(placement, { result, fetchedAt: Date.now() });
       this.notify();
     } catch {

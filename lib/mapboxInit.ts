@@ -8,8 +8,13 @@ let mapboxReady = false;
 export async function initMapbox(): Promise<void> {
   if (mapboxReady) return;
   Mapbox.setAccessToken(MAPBOX_TOKEN);
-  await initMapTileCache();
   mapboxReady = true;
+  // Rendering a map must never wait for cache migration/housekeeping. On a
+  // few Android devices that native operation can take a long time, which
+  // previously left Route Studio and Offline Navigation as an empty panel.
+  void initMapTileCache().catch((error) => {
+    if (__DEV__) console.warn('[MapboxInit] tile cache unavailable', error);
+  });
 }
 
 export function ensureMapboxToken(): void {

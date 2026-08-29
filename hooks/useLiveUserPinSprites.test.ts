@@ -29,6 +29,12 @@ describe('live user pin sprite cache', () => {
       .toBe(buildPinSpriteSignature({ ...base, stale: true }));
   });
 
+  it('rebuilds a bitmap when the premium visual version changes', () => {
+    const base = { id: 9, avatarUrl: '', avatarFrameUrl: '', isPremium: true, isFriend: false, initials: 'VR', distanceLabel: 'LIVE' };
+    expect(buildPinSpriteSignature({ ...base, visualVersion: 'v1' }))
+      .not.toBe(buildPinSpriteSignature({ ...base, visualVersion: 'v2' }));
+  });
+
   it('backfills the capture queue after the first four Android sprites finish', () => {
     const requests = ['1', '2', '3', '4', '5', '6'];
     expect(fillPinCaptureQueue(requests, [], [], 4)).toEqual(['1', '2', '3', '4']);

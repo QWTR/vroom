@@ -21,6 +21,7 @@ import { API_URL } from '../../../constants/config';
 import { CommunityScreenHeader } from '../../../components/community';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { VroomkiPost } from '../community/communityShared';
+import { PremiumName } from '../../../components/user/PremiumIdentity';
 
 const GRID_GAP = 1;
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -152,7 +153,7 @@ export default function VroomkiSearchScreen() {
                 )}
                 <View style={styles.tileShade} />
                 <View style={styles.meta}>
-                  <Text style={styles.username} numberOfLines={1}>@{item.author.username}</Text>
+                  <PremiumName user={{ ...item.author, username: `@${item.author.username}` }} style={styles.username} />
                   {!!item.caption && (
                     <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text>
                   )}

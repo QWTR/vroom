@@ -3,6 +3,7 @@ import type { FleetLatLng, FleetTrailPoint } from './fleetTrailInterpolation';
 import { FLEET_SLOT_MAX_POINTS, type FleetMotionTier } from './liveFleetMotion';
 
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
+import type { PremiumVisual } from '../components/user/PremiumIdentity';
 
 export type LiveUserMeta = {
   id: number;
@@ -12,6 +13,7 @@ export type LiveUserMeta = {
   online: boolean;
   isFriend?: boolean;
   isPremium?: boolean;
+  premiumVisual?: PremiumVisual | null;
   vehicleModelUrl?: string | null;
   vehicleModelMeta?: VehicleModelMeta | null;
   serverAt?: number | null;

@@ -28,6 +28,7 @@ import {
 import { DailyDuelHistorySection } from './DailyDuelHistorySection';
 import { EntranceIntroGate, VoteCastPulse } from '../motion';
 import { DailyDuelCarCarousel } from './DailyDuelCarCarousel';
+import { PremiumName } from '../user/PremiumIdentity';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
@@ -236,9 +237,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
             style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
           >
             <MaterialIcons name="person" size={12} color={color} />
-            <Text style={{ color, fontFamily: 'Orbitron', fontSize: 11 }} numberOfLines={1}>
-              @{car.owner.username}
-            </Text>
+            <PremiumName user={{ ...car.owner, username: `@${car.owner.username}` }} style={{ color, fontFamily: 'Orbitron', fontSize: 11 }} />
           </TouchableOpacity>
 
           <TouchableOpacity

@@ -7,6 +7,7 @@ import {
   LIVE_USER_PIN_SPRITE_H,
   LIVE_USER_PIN_SPRITE_W,
 } from '../../hooks/useLiveUserPinSprites';
+import type { PremiumVisual } from '../user/PremiumIdentity';
 
 const AVATAR_SIZE = 40;
 const FRAME_SIZE = 46;
@@ -18,18 +19,19 @@ export type LiveUserPinSpriteData = {
   avatarUrl: string | null;
   avatarFrameUrl: string | null;
   isPremium: boolean;
+  premiumVisual?: PremiumVisual | null;
   isFriend: boolean;
   stale?: boolean;
 };
 
 function pinAccent(data: LiveUserPinSpriteData) {
-  if (data.isPremium) return '#FFD700';
+  if (data.isPremium) return data.premiumVisual?.accentColors?.[0] ?? '#FFD700';
   if (data.isFriend) return '#4de926';
   return '#00bfff';
 }
 
 function pinBorderColor(data: LiveUserPinSpriteData) {
-  if (data.isPremium) return '#FFD700';
+  if (data.isPremium) return data.premiumVisual?.accentColors?.[1] ?? '#FFD700';
   if (data.isFriend) return '#4de92650';
   return '#00bfff50';
 }
@@ -88,7 +90,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   }, [notifyReady]);
 
   const avatarBorderStyle = data.isPremium
-    ? { borderWidth: 3, borderColor: '#FFD700' as const }
+    ? { borderWidth: 3, borderColor: accent }
     : { borderWidth: 1.5, borderColor: borderColor as string };
 
   return (
@@ -121,7 +123,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
           <Text
             numberOfLines={1}
             style={{
-              color: '#ffffff',
+              color: data.premiumVisual?.nickColor ?? '#ffffff',
               fontSize: 10,
               fontWeight: '700',
               textAlign: 'center',

@@ -18,6 +18,7 @@ import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import { UserBadges } from '../../../components/user/UserBadges';
+import { PremiumName } from '../../../components/user/PremiumIdentity';
 import { track, trackContentImpression } from '../../../lib/analytics/client';
 import {
   type Post,
@@ -204,7 +205,8 @@ const PostCard = React.memo(({
 
           <View style={{ flex: 1, minWidth: 0 }}>
             <TouchableOpacity onPress={() => onProfile(post.author.id)} activeOpacity={0.7}>
-              <Text
+              <PremiumName
+                user={post.author}
                 style={{
                   fontFamily: 'Orbitron',
                   color: post.author.nickColor || theme.text,
@@ -213,10 +215,7 @@ const PostCard = React.memo(({
                   letterSpacing: 0.3,
                 }}
                 numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {post.author.username}
-              </Text>
+              />
             </TouchableOpacity>
 
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 5 }}>

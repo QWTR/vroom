@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location      from 'expo-location';
 import * as TaskManager   from 'expo-task-manager';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
@@ -50,6 +51,8 @@ import {
 } from '../lib/tripPersistenceCoordinator';
 import type { NavMode } from '../lib/navigationV3/types';
 import { sendLiveLocation } from '../lib/liveLocationBroker';
+import { evaluateSmartStart, initialSmartStartState, type SmartStartState } from '../lib/smartStart';
+import { compactDriveTelemetry, type DriveTelemetryPoint } from '../lib/driveTelemetry';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -117,6 +120,8 @@ const BG_SPEED_MAX_KEY          = 'nav_speed_max';
 export const BG_PENDING_KM_KEY  = 'bg_pending_km';
 /** Lokalny snapshot statystyk trasy po każdym pełnym km (Android kill recovery). */
 export const EMERGENCY_TRIP_SAVE_KEY = 'vroom_emergency_trip_save';
+/** Local hand-off for finish cards created by Smart Start/headless recovery. */
+export const PENDING_TRIP_FINISH_CARD_KEY = 'vroom_pending_trip_finish_card_v1';
 /** Ile km z bieżącej trasy już trafiło na serwer (checkpointy) — przetrwa kill procesu. */
 export const TRIP_CHECKPOINT_SAVED_KM_KEY = 'trip_checkpoint_saved_km';
 /** Session that owns the persisted checkpoint watermark. Old app versions stored
@@ -132,8 +137,12 @@ export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
 export const LIVE_SHARING_USER_PREF_KEY = 'vroom_live_sharing_user_pref';
 /** Mirror premium for BACKGROUND_LOCATION_TASK (React state unavailable in headless task). */
 export const USER_IS_PREMIUM_KEY = 'USER_IS_PREMIUM';
+export const BG_ACTIVE_CONVOY_ID_KEY = 'bg_active_convoy_id';
+export const BG_ACTIVE_CONVOY_HOST_KEY = 'bg_active_convoy_host';
 /** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
+export const SMART_START_ENABLED_KEY = 'smart_start_enabled';
+const SMART_START_STATE_KEY = 'smart_start_state_v1';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
 export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
 /** Mirror of foreground stationary-parked (driving idle) — lowers BG GPS cadence. */
@@ -254,7 +263,7 @@ export async function flushTracePendingKmToStorage(): Promise<void> {
 export type EmergencyTripSavePayload = {
   tripSessionId: string;
   distanceKm: number;
-  trackedPoints: { latitude: number; longitude: number }[];
+  trackedPoints: DriveTelemetryPoint[];
   speedSamples: number[];
   startTimeMs: number | null;
   estimatedSec: number;
@@ -567,30 +576,16 @@ function safePendingKm(raw: string | null): number {
 
 /** Align with server ROUTE_POINTS_MAX before POST /api/activity/save. */
 export function trimRoutePointsForActivitySave(
-  points?: { latitude: number; longitude: number }[],
-): { latitude: number; longitude: number }[] | undefined {
+  points?: DriveTelemetryPoint[],
+): DriveTelemetryPoint[] | undefined {
   if (!points || points.length <= 1) return undefined;
   return compactBgRoutePoints(points).slice(0, BG_ROUTE_MAX_POINTS);
 }
 
 function compactBgRoutePoints(
-  points: { latitude: number; longitude: number }[],
-): { latitude: number; longitude: number }[] {
-  if (points.length <= BG_ROUTE_MAX_POINTS) return points;
-  let compacted = points;
-  while (compacted.length > BG_ROUTE_MAX_POINTS) {
-    const next: { latitude: number; longitude: number }[] = [];
-    for (let i = 0; i < compacted.length; i += 2) {
-      next.push(compacted[i]);
-    }
-    const last = compacted[compacted.length - 1];
-    const tail = next[next.length - 1];
-    if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
-      next.push(last);
-    }
-    compacted = next;
-  }
-  return compacted;
+  points: DriveTelemetryPoint[],
+): DriveTelemetryPoint[] {
+  return compactDriveTelemetry(points, BG_ROUTE_MAX_POINTS);
 }
 
 export async function consumeNativeDriveStatsToStorage(): Promise<void> {
@@ -747,8 +742,43 @@ export type TripSessionFinalizationInput = {
   maxSpeedKmh?: number;
   avgSpeedKmh?: number;
   durationSec?: number;
-  routePoints?: { latitude: number; longitude: number }[];
+  routePoints?: DriveTelemetryPoint[];
 };
+
+export type PendingTripFinishCard = {
+  version: 1;
+  tripSessionId: string;
+  distanceKm: number;
+  maxSpeedKmh: number;
+  avgSpeedKmh: number;
+  durationSec: number;
+  routePoints: DriveTelemetryPoint[];
+  reason: TripFinalizationReason;
+  createdAt: number;
+};
+
+export async function readPendingTripFinishCard(): Promise<PendingTripFinishCard | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_TRIP_FINISH_CARD_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as PendingTripFinishCard;
+    if (value?.version !== 1 || !value.tripSessionId || !Number.isFinite(Number(value.distanceKm))) return null;
+    return {
+      ...value,
+      distanceKm: Math.max(0, Number(value.distanceKm) || 0),
+      maxSpeedKmh: Math.max(0, Number(value.maxSpeedKmh) || 0),
+      avgSpeedKmh: Math.max(0, Number(value.avgSpeedKmh) || 0),
+      durationSec: Math.max(0, Number(value.durationSec) || 0),
+      routePoints: compactTripRoute(Array.isArray(value.routePoints) ? value.routePoints : []),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingTripFinishCard(): Promise<void> {
+  await AsyncStorage.removeItem(PENDING_TRIP_FINISH_CARD_KEY);
+}
 
 async function readPendingTripFinalizations(): Promise<PendingTripFinalization[]> {
   try {
@@ -915,6 +945,21 @@ async function finalizeTripSessionOnce(
     avgSpeedKmh: input.avgSpeedKmh,
     mode: input.mode,
   });
+  if (['idle', 'crash', 'auto_stop', 'premium_expired'].includes(input.reason)) {
+    const durationSec = input.durationSec ?? Math.max(0, Math.round((Date.now() - Date.parse(ledger.startedAt)) / 1000));
+    const finishCard: PendingTripFinishCard = {
+      version: 1,
+      tripSessionId: ledger.tripSessionId,
+      distanceKm: ledger.distanceKm,
+      maxSpeedKmh: Math.max(ledger.maxSpeedKmh, Number(input.maxSpeedKmh) || 0),
+      avgSpeedKmh: Number(input.avgSpeedKmh) > 0 ? Number(input.avgSpeedKmh) : averageLedgerSpeed(ledger),
+      durationSec,
+      routePoints: compactTripRoute(selectedRoute),
+      reason: input.reason,
+      createdAt: Date.now(),
+    };
+    await AsyncStorage.setItem(PENDING_TRIP_FINISH_CARD_KEY, JSON.stringify(finishCard));
+  }
   if (ledger.distanceKm < 0.05) {
     // A very short/accidental session is intentionally not uploaded, but it is
     // still finished. Leaving its ledger "open" made the crash-recovery dialog
@@ -1019,7 +1064,15 @@ export async function setDrivingFlag(active: boolean): Promise<void> {
 export async function recordDrivingTracePoint(
   latitude: number,
   longitude: number,
-  opts?: { addDistanceKm?: number; speedKmh?: number },
+  opts?: {
+    addDistanceKm?: number;
+    speedKmh?: number;
+    recordedAt?: number | string;
+    altitudeM?: number | null;
+    accuracyM?: number | null;
+    headingDeg?: number | null;
+    source?: 'foreground' | 'background' | 'native' | 'recovered';
+  },
 ): Promise<void> {
   try {
     if (opts?.addDistanceKm && opts.addDistanceKm > 0) {
@@ -1067,10 +1120,21 @@ export async function recordDrivingTracePoint(
 
     const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
     const routePts = routeRaw ? JSON.parse(routeRaw) : [];
+    const telemetryPoint: DriveTelemetryPoint = {
+      latitude,
+      longitude,
+      recordedAt: new Date(opts?.recordedAt ?? now).toISOString(),
+      speedKmh: Number.isFinite(Number(opts?.speedKmh)) ? Number(opts?.speedKmh) : null,
+      altitudeM: Number.isFinite(Number(opts?.altitudeM)) ? Number(opts?.altitudeM) : null,
+      accuracyM: Number.isFinite(Number(opts?.accuracyM)) ? Number(opts?.accuracyM) : null,
+      headingDeg: Number.isFinite(Number(opts?.headingDeg)) ? Number(opts?.headingDeg) : null,
+      source: opts?.source ?? 'foreground',
+      accepted: true,
+    };
     const seeded = routePts.length === 0
-      ? [{ latitude, longitude }]
+      ? [telemetryPoint]
       : routePts;
-    const nextRoute = compactBgRoutePoints([...seeded, { latitude, longitude }]);
+    const nextRoute = compactBgRoutePoints([...seeded, telemetryPoint]);
 
     const writes: Promise<any>[] = [
       AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
@@ -1164,19 +1228,69 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 
   if (!(await isBackgroundWorkAllowed())) return;
 
-  const premiumStatus = await AsyncStorage.getItem(USER_IS_PREMIUM_KEY);
-  if (premiumStatus !== 'true') return;
-
   const locations = Array.isArray(data.locations) ? data.locations : [];
   const location = locations[locations.length - 1];
   if (!location) return;
+
+  const [premiumStatus, activeConvoyId, activeConvoyHost] = await Promise.all([
+    AsyncStorage.getItem(USER_IS_PREMIUM_KEY),
+    AsyncStorage.getItem(BG_ACTIVE_CONVOY_ID_KEY),
+    AsyncStorage.getItem(BG_ACTIVE_CONVOY_HOST_KEY),
+  ]);
+  if (premiumStatus !== 'true') {
+    try {
+      const rawState = await AsyncStorage.getItem(SMART_START_STATE_KEY);
+      const state = rawState ? JSON.parse(rawState) as SmartStartState : initialSmartStartState();
+      if (state.phase === 'driving') await finalizeTripSession({ reason: 'premium_expired', mode: 'freeDrive' });
+      await AsyncStorage.removeItem(SMART_START_STATE_KEY);
+    } catch { /* safe shutdown only */ }
+    if (!activeConvoyId || activeConvoyHost !== 'true') return;
+  }
 
   try {
     const token = await getAuthToken();
     if (!token) return;
 
-    const { latitude, longitude, speed, accuracy, heading } = location.coords;
+    const { latitude, longitude, speed, accuracy, heading, altitude } = location.coords;
     const fixAt = Number.isFinite(Number(location.timestamp)) ? Number(location.timestamp) : Date.now();
+
+    if (activeConvoyId && (premiumStatus === 'true' || activeConvoyHost === 'true')) {
+      await fetch(`${API_URL}/api/convoys/${encodeURIComponent(activeConvoyId)}/position`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitude, longitude, heading, speedKmh: Math.max(0, Number(speed || 0) * 3.6), accuracyM: accuracy, foreground: false, fixAt }),
+      }).catch(() => null);
+    }
+    if (premiumStatus !== 'true') return;
+
+    const [smartStartEnabled, navigationFlag, manualDriveFlag] = await Promise.all([
+      AsyncStorage.getItem(SMART_START_ENABLED_KEY),
+      AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+      AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+    ]);
+    if (smartStartEnabled === 'true' && (manualDriveFlag !== 'true' || (await AsyncStorage.getItem(SMART_START_STATE_KEY)) != null)) {
+      const rawState = await AsyncStorage.getItem(SMART_START_STATE_KEY);
+      let smartState: SmartStartState;
+      try { smartState = rawState ? JSON.parse(rawState) as SmartStartState : initialSmartStartState(); } catch { smartState = initialSmartStartState(); }
+      const evaluated = evaluateSmartStart(smartState, {
+        latitude, longitude, timestamp: fixAt, speedKmh: Math.max(0, Number(speed || 0) * 3.6), accuracyM: accuracy ?? null,
+      }, { navigating: navigationFlag === 'true', now: Date.now() });
+      await AsyncStorage.setItem(SMART_START_STATE_KEY, JSON.stringify(evaluated.state));
+      if (evaluated.action === 'start') {
+        await startDriveSession('freeDrive');
+        const bufferedRoute = evaluated.state.buffer.map((point) => ({
+          latitude: point.latitude, longitude: point.longitude, recordedAt: new Date(point.timestamp).toISOString(), speedKmh: point.speedKmh, accuracyM: point.accuracyM,
+        }));
+        await AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(bufferedRoute));
+        await Notifications.scheduleNotificationAsync({
+          content: { title: 'Smart Start rozpoczął jazdę', body: 'VROOM wykrył ruch. Dotknij „Odrzuć”, jeśli to pomyłka.', categoryIdentifier: 'smart-start', data: { smartStart: true } },
+          trigger: null,
+        }).catch(() => {});
+      } else if (evaluated.action === 'finish') {
+        await finalizeTripSession({ reason: 'auto_stop', mode: 'freeDrive' });
+        await AsyncStorage.removeItem(SMART_START_STATE_KEY);
+      }
+    }
 
     // ── Send live location only when sharing is active (Ghost = zero POST) ─
     const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
@@ -1216,7 +1330,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate distance ───────────────────────────────────────────────
-    const nowMs = Date.now();
+    const nowMs = fixAt;
     const appActiveRaw = await AsyncStorage.getItem(BG_APP_ACTIVE_KEY);
     // Foreground TripStats already counts distance — skip BG accumulation when app is active.
     const shouldAccumulateDistance = !isAppLikelyActive(appActiveRaw, nowMs);
@@ -1299,12 +1413,30 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         }
         const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const routePts = routeRaw ? JSON.parse(routeRaw) : [];
+        const currentTelemetryPoint: DriveTelemetryPoint = {
+          latitude,
+          longitude,
+          recordedAt: new Date(nowMs).toISOString(),
+          speedKmh,
+          altitudeM: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
+          accuracyM: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
+          headingDeg: Number.isFinite(Number(heading)) ? Number(heading) : null,
+          source: 'background',
+          accepted: true,
+        };
         const seedPts = routePts.length === 0
-          ? [{ latitude: lastLat, longitude: lastLng }]
+          ? [{
+              latitude: lastLat,
+              longitude: lastLng,
+              recordedAt: new Date(lastTs).toISOString(),
+              accuracyM: Number.isFinite(lastAcc) ? lastAcc : null,
+              source: 'background',
+              accepted: true,
+            }]
           : routePts;
         const nextRoute = compactBgRoutePoints([
           ...seedPts,
-          { latitude, longitude },
+          currentTelemetryPoint,
         ]);
 
         const checkpointedPending = await maybeFlushBgTripCheckpoint(newPending);
@@ -1324,6 +1456,9 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       longitude,
       time: nowMs,
       accuracy: accuracy ?? null,
+      altitude: altitude ?? null,
+      heading: heading ?? null,
+      speedKmh: speed != null && speed >= 0 ? speed * 3.6 : null,
     }));
 
     await maybeIngestGamificationInBackground(
@@ -1348,6 +1483,7 @@ export function useBackgroundTracking(
   sharingHydrated: boolean = true,
   /** GPS w tle (nawigacja / jazda po zminimalizowaniu) — tylko Premium. */
   isPremium: boolean = false,
+  smartStartEnabled: boolean = false,
 ) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const flushInFlightRef = useRef(false);
@@ -1364,6 +1500,29 @@ export function useBackgroundTracking(
     bgStops: 0,
     forceStarts: 0,
   });
+
+  useEffect(() => {
+    AsyncStorage.setItem(SMART_START_ENABLED_KEY, smartStartEnabled && isPremium && bgEnabled ? 'true' : 'false').catch(() => {});
+  }, [bgEnabled, isPremium, smartStartEnabled]);
+
+  useEffect(() => {
+    void Notifications.setNotificationCategoryAsync('smart-start', [{ identifier: 'reject', buttonTitle: 'Odrzuć', options: { opensAppToForeground: true } }]);
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      if (response.actionIdentifier !== 'reject' || response.notification.request.content.data?.smartStart !== true) return;
+      void (async () => {
+        const sessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+        if (sessionId) await clearFinalizedActiveSession(sessionId);
+        await BackgroundDriveController.stop('app').catch(() => {});
+        await AsyncStorage.multiRemove([
+          SMART_START_STATE_KEY,
+          TRIP_SESSION_ID_KEY,
+          BG_ROUTE_POINTS_KEY,
+        ]);
+        await AsyncStorage.setItem(BG_IS_DRIVING_KEY, 'false');
+      })();
+    });
+    return () => subscription.remove();
+  }, []);
   const bgEnabledRef = useRef(bgEnabled);
   const forceEnabledRef = useRef(forceEnabled);
   const lastBgCadenceRef = useRef<'high' | 'low' | null>(null);
@@ -1442,7 +1601,7 @@ export function useBackgroundTracking(
       maxSpeedKmh?: number;
       avgSpeedKmh?: number;
       durationSec?: number;
-      routePoints?: { latitude: number; longitude: number }[];
+      routePoints?: DriveTelemetryPoint[];
       checkpointDistanceKm?: number;
     },
     sourceTag: 'navigation' | 'driving' = 'navigation',
@@ -1462,7 +1621,7 @@ export function useBackgroundTracking(
 
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
-        const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
+        const bgRoutePoints: DriveTelemetryPoint[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         const savedCheckpointKm = Math.max(
           safePendingKm(String(navPayload?.checkpointDistanceKm ?? 0)),
           await loadTripCheckpointSavedKm(),
@@ -1604,7 +1763,7 @@ export function useBackgroundTracking(
         // Passive flush: no navigation was active, save whatever background accumulated
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
-        const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
+        const bgRoutePoints: DriveTelemetryPoint[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         if (bgPending < 0.05) return;
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);

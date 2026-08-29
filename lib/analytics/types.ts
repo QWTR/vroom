@@ -14,14 +14,20 @@ export type AnalyticsEventName =
   | 'share_started'
   | 'navigation_started'
   | 'navigation_completed'
-  | 'funnel_step';
+  | 'funnel_step'
+  | 'premium_viewed'
+  | 'premium_benefit_opened'
+  | 'premium_purchase_started'
+  | 'premium_purchase_completed'
+  | 'premium_paywall_shown'
+  | 'premium_feature_used';
 
 export type AnalyticsEventInput = {
   eventName: AnalyticsEventName;
   priority?: AnalyticsPriority;
   screenName?: string;
   surface?: string;
-  entityType?: 'post' | 'vroomki' | 'meet' | 'spot' | 'profile' | 'market' | 'map';
+  entityType?: 'post' | 'vroomki' | 'meet' | 'spot' | 'profile' | 'market' | 'map' | 'premium_feature';
   entityId?: string | number;
   position?: number;
   durationMs?: number;

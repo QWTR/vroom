@@ -6,6 +6,7 @@ import {
   type DirectionsProxyResult,
 } from '../scripts/mapboxProxyClient';
 import { routeStartsWithUTurn } from '../lib/navigation/reroute';
+import { requestOfflineNavigationRoute } from '../lib/offlineNavigation';
 
 // ── Debug flag — set to true to log cache hits, misses, and in-flight dedup ──
 // Flip to false (or guard with __DEV__) in production.
@@ -324,6 +325,21 @@ export function useGoogleDirections(
         );
         if (controller.signal.aborted) return;
         if (!response.ok) {
+          const offlineRoute = isTransientDirectionsFailure(response.reason)
+            ? await requestOfflineNavigationRoute({
+                origin: { latitude: originLat, longitude: originLng },
+                destination: { latitude: destLat, longitude: destLng },
+                headingDeg: roundedHeading,
+              })
+            : null;
+          if (controller.signal.aborted) return;
+          if (offlineRoute) {
+            const result: DirectionsResult = { ...offlineRoute, index: 0 };
+            directionsCache.set(cacheKey, { result, fetchedAt: Date.now() });
+            setRoute(result);
+            setError(null);
+            return;
+          }
           setError(directionsErrorFromProxyFailure(response.reason));
           setRoute(null);
           return;
@@ -449,6 +465,20 @@ export function useGoogleDirectionsAlternatives(
         );
         if (controller.signal.aborted) return;
         if (!response.ok) {
+          const offlineRoute = isTransientDirectionsFailure(response.reason)
+            ? await requestOfflineNavigationRoute({
+                origin: { latitude: originLat, longitude: originLng },
+                destination: { latitude: destLat, longitude: destLng },
+              })
+            : null;
+          if (controller.signal.aborted) return;
+          if (offlineRoute) {
+            const result: DirectionsResult = { ...offlineRoute, index: 0 };
+            directionsCache.set(cacheKey, { result: [result], fetchedAt: Date.now() });
+            setRoutes([result]);
+            setError(null);
+            return;
+          }
           setError(directionsErrorFromProxyFailure(response.reason));
           setRoutes([]);
           return;

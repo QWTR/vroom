@@ -1,389 +1,98 @@
-import React from 'react';
-import {
-  View, Text, Modal, TouchableOpacity,
-  ScrollView, Platform, Pressable, Dimensions,
-} from 'react-native';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Dimensions, Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import Mapbox from '@rnmapbox/maps';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { TripStoryComposer } from '../trips/TripStoryComposer';
 import { resolveStandardMapStyle } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { TripStats } from '../../hooks/useTripStats';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
-const { height: SCREEN_H } = Dimensions.get('window');
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
+import { apiRequest } from '../../lib/api/client';
+import { initMapbox } from '../../lib/mapboxInit';
 
-function formatTime(sec: number): string {
-  if (!sec || sec <= 0) return '0s';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
+const SCREEN_H = Dimensions.get('window').height;
+type ServerSummary = { activityId: number; analysisStatus: string; telemetryQuality: any; availability: any; summary: any; insight?: any; personalRecords?: Array<{ kind: string; value: number }>; premiumLocked?: boolean };
+const formatTime = (seconds: number) => { const sec = Math.max(0, Math.round(seconds || 0)); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = sec % 60; return h ? `${h} h ${m} min` : m ? `${m} min ${s} s` : `${s} s`; };
+const statCard = (theme: any) => ({ flex: 1, minHeight: 84, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, padding: 12 });
 
-interface Props {
-  visible: boolean;
-  stats:   TripStats | null;
-  onClose: () => void;
-}
+interface Props { visible: boolean; stats: TripStats | null; onClose: () => void }
 
 export function TripStatsModal({ visible, stats, onClose }: Props) {
   const { theme, isDark, presetId } = useTheme();
+  const { isPremium } = useEffectivePremium();
+  const router = useRouter();
+  const [server, setServer] = useState<ServerSummary | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [storyVisible, setStoryVisible] = useState(false);
   useModalBackHandler(visible, onClose);
-
+  useEffect(() => { if (visible) void initMapbox().catch(() => {}); }, [visible]);
+  useEffect(() => {
+    if (!visible || !stats?.tripSessionId) return undefined;
+    let cancelled = false; let attempt = 0; let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = async () => {
+      setSyncing(true);
+      try { const response = await apiRequest<ServerSummary>(`/activity/summary/session/${encodeURIComponent(stats.tripSessionId!)}`); if (!cancelled) { setServer(response); setSyncing(false); } }
+      catch { attempt += 1; if (!cancelled && attempt < 6) timer = setTimeout(load, 1300); else if (!cancelled) setSyncing(false); }
+    };
+    void load();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [stats?.tripSessionId, visible]);
+  useEffect(() => { if (!visible) { setServer(null); setStoryVisible(false); } }, [visible]);
+  const points = useMemo(() => (stats?.trackedPoints || []).filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)).slice(-1500), [stats]);
+  const speedValues = useMemo(() => points.map((point) => Number(point.speedKmh)).filter(Number.isFinite), [points]);
+  const altitudeValues = useMemo(() => points.map((point) => Number(point.altitudeM)).filter(Number.isFinite), [points]);
+  const routeShape = useMemo(() => ({ type: 'FeatureCollection', features: points.slice(0, -1).map((point, index) => ({ type: 'Feature', properties: { speed: (Number(point.speedKmh) + Number(points[index + 1]?.speedKmh)) / 2 || 0 }, geometry: { type: 'LineString', coordinates: [[point.longitude, point.latitude], [points[index + 1].longitude, points[index + 1].latitude]] } })) }) as any, [points]);
   if (!stats) return null;
-
-  const diffSec  = stats.estimatedSec - stats.elapsedSec;
-  const faster   = diffSec > 0;
-  const diffAbs  = Math.abs(diffSec);
-  const diffText = formatTime(diffAbs);
-
-  const pts = stats.trackedPoints;
-  const hasRoute = pts.length > 1;
-
-  const mapBounds = hasRoute ? (() => {
-    const lats  = pts.map(p => p.latitude);
-    const lngs  = pts.map(p => p.longitude);
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    return { minLat, maxLat, minLng, maxLng };
-  })() : null;
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
-        {/* Tapnięcie tła zamyka */}
-        <Pressable
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-          onPress={onClose}
-        />
-
-        <View style={{
-          backgroundColor:      theme.surface,
-          borderTopLeftRadius:  24,
-          borderTopRightRadius: 24,
-          maxHeight:            SCREEN_H * 0.82,
-          borderTopWidth:       1,
-          borderColor:          theme.border2,
-          paddingBottom:        Platform.OS === 'ios' ? 34 : 20,
-        }}>
-          {/* Handle */}
-          <View style={{
-            width: 40, height: 4, borderRadius: 2,
-            backgroundColor: theme.border3,
-            alignSelf: 'center', marginTop: 12, marginBottom: 0,
-          }} />
-
-          <ScrollView
-            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            {/* ── Nagłówek ─────────────────────────────────── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <View style={{
-                width: 36, height: 36, borderRadius: 10,
-                backgroundColor: '#e3383520', borderWidth: 1, borderColor: '#e3383540',
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                <MaterialIcons name="flag" size={20} color="#e33835" />
-              </View>
-              <Text style={{
-                fontFamily: 'Orbitron', fontSize: 14,
-                color: theme.text, letterSpacing: 2,
-                fontWeight: '700', flex: 1,
-              }}>
-                STATYSTYKI PRZEJAZDU
-              </Text>
-              <TouchableOpacity
-                onPress={onClose}
-                style={{
-                  width: 30, height: 30, borderRadius: 15,
-                  backgroundColor: theme.surface2,
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <MaterialIcons name="close" size={16} color={theme.textDim} />
-              </TouchableOpacity>
+  const summary = server?.summary || {};
+  const movingSec = Number(summary.movingDurationSec || stats.elapsedSec);
+  const stoppedSec = Number(summary.stoppedDurationSec || 0);
+  const shortTrip = stats.distanceKm < 1;
+  const bounds = points.length > 1 ? { minLat: Math.min(...points.map((p) => p.latitude)), maxLat: Math.max(...points.map((p) => p.latitude)), minLng: Math.min(...points.map((p) => p.longitude)), maxLng: Math.max(...points.map((p) => p.longitude)) } : null;
+  const hasSpeed = speedValues.length >= 2;
+  const hasAltitude = altitudeValues.length >= 2;
+  const storyData = {
+    points,
+    distanceKm: stats.distanceKm,
+    elapsedSec: stats.elapsedSec,
+    movingSec,
+    stoppedSec,
+    avgSpeedKmh: stats.avgSpeedKmh,
+    maxSpeedKmh: stats.maxSpeedKmh,
+    elevationGainM: Number(summary.elevationGainM || server?.insight?.elevationGainM || 0),
+    hardAccelerationCount: Number(server?.insight?.hardAccelerationCount || 0),
+    hardBrakingCount: Number(server?.insight?.hardBrakingCount || 0),
+    rankingPoints: Number(summary.rankingPointsAwarded || 0),
+  };
+  return <><Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <View style={{ flex: 1, backgroundColor: '#000000c7', justifyContent: 'flex-end' }}><Pressable style={{ position: 'absolute', inset: 0 } as any} onPress={onClose} />
+      <View style={{ maxHeight: SCREEN_H * 0.93, backgroundColor: theme.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10 }}><View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#22c55e20', alignItems: 'center', justifyContent: 'center' }}><MaterialIcons name="flag" size={22} color="#22c55e" /></View><View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'OrbitronBold', fontSize: 14, letterSpacing: 1.5 }}>PRZEJAZD ZAKOŃCZONY</Text><Text style={{ color: syncing ? '#FFD447' : shortTrip ? '#f59e0b' : '#22c55e', fontSize: 10, marginTop: 3 }}>{syncing ? 'Zapisuję i uzupełniam analizę…' : shortTrip ? 'Poniżej 1 km — przejazd nie trafi do historii' : 'Przejazd zapisany w historii'}</Text></View><TouchableOpacity onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}><MaterialIcons name="close" size={19} color={theme.text} /></TouchableOpacity></View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 34, gap: 12 }}>
+          {bounds ? <View style={{ height: 250, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}><Mapbox.MapView style={{ flex: 1 }} styleURL={resolveStandardMapStyle(isDark, presetId)} logoEnabled={false} attributionEnabled={false} scrollEnabled={false} zoomEnabled={false} rotateEnabled={false} pitchEnabled={false}><Mapbox.Camera bounds={{ ne: [bounds.maxLng, bounds.maxLat], sw: [bounds.minLng, bounds.minLat], paddingTop: 34, paddingBottom: 34, paddingLeft: 34, paddingRight: 34 }} /><Mapbox.ShapeSource id="finish-route" shape={routeShape}><Mapbox.LineLayer id="finish-route-line" style={{ lineColor: isPremium && hasSpeed ? ['interpolate', ['linear'], ['get', 'speed'], 0, '#22c55e', 60, '#FFD447', 120, '#f97316', 180, '#ef4444'] as any : '#FFD447', lineWidth: 6, lineCap: 'round' }} /></Mapbox.ShapeSource><Mapbox.PointAnnotation id="finish-start" coordinate={[points[0].longitude, points[0].latitude]}><View style={{ width: 13, height: 13, borderRadius: 7, backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#fff' }} /></Mapbox.PointAnnotation><Mapbox.PointAnnotation id="finish-end" coordinate={[points.at(-1)!.longitude, points.at(-1)!.latitude]}><View style={{ width: 13, height: 13, borderRadius: 7, backgroundColor: '#ef4444', borderWidth: 2, borderColor: '#fff' }} /></Mapbox.PointAnnotation></Mapbox.MapView><View style={{ position: 'absolute', left: 10, bottom: 10, borderRadius: 10, backgroundColor: '#050505dd', paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: '#fff', fontWeight: '900' }}>{stats.distanceKm.toFixed(2)} km</Text></View>{isPremium && hasSpeed ? <View style={{ position: 'absolute', right: 10, bottom: 10, borderRadius: 10, backgroundColor: '#050505dd', paddingHorizontal: 9, paddingVertical: 6 }}><Text style={{ color: '#ffffffbb', fontSize: 8 }}>WOLNO <Text style={{ color: '#FFD447' }}>●</Text> SZYBKO <Text style={{ color: '#ef4444' }}>●</Text></Text></View> : null}</View> : <View style={{ height: 100, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}><MaterialIcons name="map" size={25} color={theme.textDim} /><Text style={{ color: theme.textDim, fontSize: 10, marginTop: 6 }}>Brak zapisanego przebiegu mapy</Text></View>}
+          <LinearGradient colors={['#0b2530', '#11140e', '#191303']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 19, borderWidth: 1, borderColor: '#FFD44745', padding: 15, overflow: 'hidden' }}>
+            <View style={{ position: 'absolute', width: 145, height: 145, borderRadius: 80, right: -48, top: -70, backgroundColor: '#29c7ff16' }} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ width: 45, height: 45, borderRadius: 14, backgroundColor: '#FFD447', alignItems: 'center', justifyContent: 'center' }}><MaterialIcons name="auto-awesome" size={23} color="#111" /></View>
+              <View style={{ flex: 1 }}><Text style={{ color: '#fff', fontFamily: 'OrbitronBold', fontSize: 12, letterSpacing: 1.2 }}>VROOM STORY</Text><Text style={{ color: '#ffffff8b', fontSize: 9, lineHeight: 14, marginTop: 4 }}>Twoja trasa i statystyki w efektownej grafice 1080×1920.</Text></View>
             </View>
-
-            {/* ── Mapa historii trasy ───────────────────────── */}
-            {hasRoute && mapBounds ? (
-              <View style={{
-                borderRadius: 16, overflow: 'hidden',
-                marginBottom: 14, height: 180,
-                borderWidth: 1, borderColor: theme.border,
-              }}>
-                <Mapbox.MapView
-                  style={{ flex: 1 }}
-                  styleURL={resolveStandardMapStyle(isDark, presetId)}
-                  logoEnabled={false}
-                  attributionEnabled={false}
-                  scrollEnabled={false}
-                  zoomEnabled={false}
-                  pitchEnabled={false}
-                  rotateEnabled={false}
-                >
-                  <Mapbox.Camera
-                    bounds={{
-                      ne: [mapBounds.maxLng, mapBounds.maxLat],
-                      sw: [mapBounds.minLng, mapBounds.minLat],
-                      paddingTop: 30,
-                      paddingBottom: 30,
-                      paddingLeft: 30,
-                      paddingRight: 30,
-                    }}
-                  />
-                  {/* Cień */}
-                  <Mapbox.ShapeSource
-                    id="tripShadowSource"
-                    shape={{
-                      type: 'Feature',
-                      geometry: {
-                        type: 'LineString',
-                        coordinates: pts.map(p => [p.longitude, p.latitude]),
-                      },
-                      properties: {},
-                    }}
-                  >
-                    <Mapbox.LineLayer
-                      id="tripShadowLayer"
-                      style={{ lineColor: '#00000060', lineWidth: 8, lineCap: 'round', lineJoin: 'round' }}
-                    />
-                  </Mapbox.ShapeSource>
-                  {/* Linia trasy */}
-                  <Mapbox.ShapeSource
-                    id="tripRouteSource"
-                    shape={{
-                      type: 'Feature',
-                      geometry: {
-                        type: 'LineString',
-                        coordinates: pts.map(p => [p.longitude, p.latitude]),
-                      },
-                      properties: {},
-                    }}
-                  >
-                    <Mapbox.LineLayer
-                      id="tripRouteLayer"
-                      style={{ lineColor: '#e33835', lineWidth: 4, lineCap: 'round', lineJoin: 'round' }}
-                    />
-                  </Mapbox.ShapeSource>
-                  {/* Start */}
-                  <Mapbox.PointAnnotation
-                    id="tripStart"
-                    coordinate={[pts[0].longitude, pts[0].latitude]}
-                  >
-                    <View style={{
-                      width: 12, height: 12, borderRadius: 6,
-                      backgroundColor: '#4de926',
-                      borderWidth: 2, borderColor: '#fff',
-                    }} />
-                  </Mapbox.PointAnnotation>
-                  {/* Koniec */}
-                  <Mapbox.PointAnnotation
-                    id="tripEnd"
-                    coordinate={[pts[pts.length - 1].longitude, pts[pts.length - 1].latitude]}
-                  >
-                    <View style={{
-                      width: 12, height: 12, borderRadius: 6,
-                      backgroundColor: '#e33835',
-                      borderWidth: 2, borderColor: '#fff',
-                    }} />
-                  </Mapbox.PointAnnotation>
-                </Mapbox.MapView>
-
-                {/* Dystans overlay */}
-                <View style={{
-                  position: 'absolute', bottom: 8, left: 8,
-                  backgroundColor: '#111111cc', borderRadius: 8,
-                  paddingHorizontal: 8, paddingVertical: 4,
-                  flexDirection: 'row', alignItems: 'center', gap: 4,
-                }}>
-                  <MaterialIcons name="straighten" size={10} color="#ffffff80" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff80' }}>
-                    {stats.distanceKm.toFixed(1)} km
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              // Placeholder jeśli brak punktów trasy
-              <View style={{
-                height: 80, borderRadius: 16, marginBottom: 14,
-                backgroundColor: theme.surface2,
-                borderWidth: 1, borderColor: theme.border,
-                alignItems: 'center', justifyContent: 'center', gap: 6,
-              }}>
-                <MaterialIcons name="map" size={24} color={theme.border3} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
-                  BRAK DANYCH TRASY
-                </Text>
-              </View>
-            )}
-
-            {/* ── Siatka 2×2 ───────────────────────────────── */}
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-              {/* Max prędkość */}
-              <View style={[card(theme), { flex: 1 }]}>
-                <View style={iconWrap('#e33835')}>
-                  <MaterialIcons name="speed" size={16} color="#e33835" />
-                </View>
-                <Text style={label(theme)}>MAX PRĘDKOŚĆ</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3 }}>
-                  <Text style={[value(theme), { color: '#e33835' }]}>{stats.maxSpeedKmh}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, marginBottom: 3 }}>km/h</Text>
-                </View>
-              </View>
-
-              {/* Śred. prędkość */}
-              <View style={[card(theme), { flex: 1 }]}>
-                <View style={iconWrap('#268bff')}>
-                  <MaterialCommunityIcons name="gauge" size={16} color="#268bff" />
-                </View>
-                <Text style={label(theme)}>ŚRED. PRĘDKOŚĆ</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3 }}>
-                  <Text style={[value(theme), { color: '#268bff' }]}>{stats.avgSpeedKmh}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, marginBottom: 3 }}>km/h</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-              {/* Czas przejazdu */}
-              <View style={[card(theme), { flex: 1 }]}>
-                <View style={iconWrap('#4de926')}>
-                  <MaterialIcons name="timer" size={16} color="#4de926" />
-                </View>
-                <Text style={label(theme)}>CZAS PRZEJAZDU</Text>
-                <Text style={[value(theme), { color: '#4de926', fontSize: 20 }]}>
-                  {formatTime(stats.elapsedSec)}
-                </Text>
-              </View>
-
-              {/* Szacowany czas */}
-              <View style={[card(theme), { flex: 1 }]}>
-                <View style={iconWrap('#FFD700')}>
-                  <MaterialIcons name="navigation" size={16} color="#FFD700" />
-                </View>
-                <Text style={label(theme)}>SZAC. CZAS</Text>
-                <Text style={[value(theme), { color: '#FFD700', fontSize: 20 }]}>
-                  {formatTime(stats.estimatedSec)}
-                </Text>
-              </View>
-            </View>
-
-            {/* ── Porównanie czasu ──────────────────────────── */}
-            {stats.estimatedSec > 0 && diffAbs > 2 && (
-              <View style={{
-                flexDirection: 'row', alignItems: 'center', gap: 12,
-                backgroundColor: faster ? '#4de92612' : '#e3383512',
-                borderRadius: 14, padding: 14, marginBottom: 10,
-                borderWidth: 1, borderColor: faster ? '#4de92630' : '#e3383530',
-              }}>
-                <View style={{
-                  width: 40, height: 40, borderRadius: 10,
-                  backgroundColor: faster ? '#4de92620' : '#e3383520',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <MaterialIcons
-                    name={faster ? 'trending-up' : 'trending-down'}
-                    size={22}
-                    color={faster ? '#4de926' : '#e33835'}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1 }}>
-                    {faster ? 'SZYBCIEJ NIŻ PROGNOZA' : 'WOLNIEJ NIŻ PROGNOZA'}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 22,
-                    fontWeight: '700', marginTop: 2,
-                    color: faster ? '#4de926' : '#e33835',
-                  }}>
-                    {faster ? '-' : '+'}{diffText}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* ── Dystans ───────────────────────────────────── */}
-            <View style={[card(theme), {
-              flexDirection: 'row', alignItems: 'center',
-              gap: 12, marginBottom: 4,
-            }]}>
-              <View style={iconWrap(theme.primary)}>
-                <MaterialIcons name="straighten" size={16} color={theme.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={label(theme)}>DYSTANS</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
-                  <Text style={value(theme)}>{stats.distanceKm.toFixed(1)}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, marginBottom: 3 }}>km</Text>
-                </View>
-              </View>
-            </View>
-
-          </ScrollView>
-
-          {/* ── Przycisk zamknij ──────────────────────────── */}
-          <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#e33835',
-                borderRadius: 14, paddingVertical: 14,
-                alignItems: 'center',
-              }}
-              onPress={onClose}
-              activeOpacity={0.85}
-            >
-              <Text style={{
-                fontFamily: 'Orbitron', fontSize: 12,
-                color: '#fff', fontWeight: '700', letterSpacing: 2,
-              }}>
-                ZAMKNIJ
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+            <TouchableOpacity onPress={() => setStoryVisible(true)} activeOpacity={0.86} style={{ height: 48, borderRadius: 14, backgroundColor: '#fff', flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 14 }}><MaterialIcons name="ios-share" size={19} color="#111" /><Text style={{ color: '#111', fontWeight: '900', fontSize: 11 }}>UTWÓRZ GRAFIKĘ I OPUBLIKUJ</Text></TouchableOpacity>
+          </LinearGradient>
+          <View style={{ flexDirection: 'row', gap: 9 }}><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>DYSTANS</Text><Text style={{ color: theme.text, fontSize: 24, fontWeight: '900', marginTop: 8 }}>{stats.distanceKm.toFixed(1)} <Text style={{ fontSize: 10 }}>km</Text></Text></View><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>CAŁY CZAS</Text><Text style={{ color: theme.text, fontSize: 20, fontWeight: '900', marginTop: 9 }}>{formatTime(stats.elapsedSec)}</Text></View></View>
+          <View style={{ flexDirection: 'row', gap: 9 }}><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>ŚREDNIA</Text><Text style={{ color: '#38bdf8', fontSize: 23, fontWeight: '900', marginTop: 8 }}>{stats.avgSpeedKmh} <Text style={{ fontSize: 9 }}>km/h</Text></Text></View><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>MAKSYMALNA</Text><Text style={{ color: '#ef4444', fontSize: 23, fontWeight: '900', marginTop: 8 }}>{stats.maxSpeedKmh} <Text style={{ fontSize: 9 }}>km/h</Text></Text></View></View>
+          <View style={{ flexDirection: 'row', gap: 9 }}><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>RUCH</Text><Text style={{ color: '#22c55e', fontSize: 18, fontWeight: '900', marginTop: 10 }}>{formatTime(movingSec)}</Text></View><View style={statCard(theme)}><Text style={{ color: theme.textDim, fontSize: 8 }}>POSTÓJ</Text><Text style={{ color: '#f59e0b', fontSize: 18, fontWeight: '900', marginTop: 10 }}>{formatTime(stoppedSec)}</Text></View></View>
+          {Number(summary.rankingPointsAwarded || 0) > 0 || summary.achievements?.length ? <View style={{ borderRadius: 16, borderWidth: 1, borderColor: '#FFD44755', backgroundColor: '#FFD44710', padding: 14 }}><Text style={{ color: '#FFD447', fontWeight: '900' }}>+{summary.rankingPointsAwarded || 0} punktów</Text>{summary.achievements?.map((achievement: any) => <Text key={String(achievement.id)} style={{ color: theme.text, fontSize: 10, marginTop: 6 }}>🏆 {achievement.name}</Text>)}</View> : null}
+          {isPremium ? <><View style={{ borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, padding: 13, gap: 13 }}><Text style={{ color: '#FFD447', fontFamily: 'OrbitronBold', fontSize: 11 }}>ANALIZA PREMIUM</Text><Text style={{ color: theme.textMuted, fontSize: 10 }}>Przewyższenie: {Math.round(summary.elevationGainM || server?.insight?.elevationGainM || 0)} m · mocne przyspieszenia: {server?.insight?.hardAccelerationCount || 0} · hamowania: {server?.insight?.hardBrakingCount || 0}</Text><MiniChart label="PRĘDKOŚĆ" values={speedValues} color="#FFD447" textColor={theme.text} /><MiniChart label="WYSOKOŚĆ" values={altitudeValues} color="#38bdf8" textColor={theme.text} /></View>{server?.personalRecords?.length ? <View style={{ borderRadius: 16, backgroundColor: '#22c55e12', borderWidth: 1, borderColor: '#22c55e44', padding: 13 }}><Text style={{ color: '#22c55e', fontWeight: '900' }}>NOWY REKORD</Text>{server.personalRecords.map((record) => <Text key={record.kind} style={{ color: theme.text, fontSize: 10, marginTop: 5 }}>{record.kind.startsWith('route_time') ? 'Najlepszy czas tej trasy' : record.kind === 'distance' ? 'Najdłuższy przejazd' : record.kind === 'elevation_gain' ? 'Największe przewyższenie' : 'Najdłuższy czas ruchu'}</Text>)}</View> : null}{server?.activityId ? <TouchableOpacity onPress={() => { onClose(); router.push(`/replay/${server.activityId}` as any); }} style={{ height: 50, borderRadius: 14, backgroundColor: '#FFD447', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#111', fontWeight: '900' }}>OTWÓRZ ANIMOWANY REPLAY</Text></TouchableOpacity> : null}</> : <TouchableOpacity onPress={() => { onClose(); router.push('/premium-hub' as any); }} style={{ borderRadius: 17, borderWidth: 1, borderColor: '#FFD44755', backgroundColor: '#FFD4470d', padding: 16 }}><Text style={{ color: '#FFD447', fontFamily: 'OrbitronBold', fontSize: 11 }}>ODBLOKUJ PEŁNĄ ANALIZĘ</Text><Text style={{ color: theme.textMuted, fontSize: 10, lineHeight: 15, marginTop: 8 }}>Animowany Replay, heatmapa prędkości, wykresy, postoje, zdarzenia, rekordy i porównania tras.</Text><View style={{ marginTop: 12, height: 42, borderRadius: 12, backgroundColor: '#FFD447', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#111', fontWeight: '900' }}>ZOBACZ PREMIUM</Text></View></TouchableOpacity>}
+          <TouchableOpacity onPress={onClose} style={{ height: 49, borderRadius: 14, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text, fontWeight: '900' }}>GOTOWE</Text></TouchableOpacity>
+        </ScrollView>
       </View>
-    </Modal>
-  );
+    </View>
+  </Modal><TripStoryComposer visible={visible && storyVisible} data={storyData} onClose={() => setStoryVisible(false)} /></>;
 }
 
-// ── Style helpers ─────────────────────────────────────────
-const card = (theme: any) => ({
-  backgroundColor: theme.surface2,
-  borderRadius:    14,
-  padding:         14,
-  borderWidth:     1,
-  borderColor:     theme.border,
-  gap:             6 as any,
-});
-
-const iconWrap = (color: string) => ({
-  width:            28,
-  height:           28,
-  borderRadius:     8,
-  backgroundColor:  color + '20',
-  alignItems:       'center' as const,
-  justifyContent:   'center' as const,
-  marginBottom:     2,
-});
-
-const label = (theme: any) => ({
-  fontFamily:    'Orbitron',
-  fontSize:      8,
-  color:         theme.textDim,
-  letterSpacing: 1,
-});
-
-const value = (theme: any) => ({
-  fontFamily: 'Orbitron',
-  fontSize:   24,
-  color:      theme.text,
-  fontWeight: '700' as const,
-});
+function MiniChart({ label, values, color, textColor }: { label: string; values: number[]; color: string; textColor: string }) {
+  const step = Math.max(1, Math.ceil(values.length / 55)); const sample = values.filter((_, index) => index % step === 0).slice(0, 55); const min = sample.length ? Math.min(...sample) : 0; const max = sample.length ? Math.max(...sample) : 1;
+  return <View><Text style={{ color: textColor, fontSize: 9, fontWeight: '900' }}>{label}</Text><View style={{ height: 65, flexDirection: 'row', alignItems: 'flex-end', gap: 2, marginTop: 6 }}>{sample.length ? sample.map((value, index) => <View key={index} style={{ flex: 1, minWidth: 2, height: 4 + ((value - min) / Math.max(1, max - min)) * 58, backgroundColor: color, opacity: 0.45 + index / Math.max(1, sample.length) * 0.5, borderTopLeftRadius: 2, borderTopRightRadius: 2 }} />) : <Text style={{ color: '#888', fontSize: 9 }}>Brak wiarygodnych danych — niczego nie zgadujemy.</Text>}</View></View>;
+}

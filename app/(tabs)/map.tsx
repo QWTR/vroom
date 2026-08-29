@@ -245,6 +245,8 @@ import {
   setNavigatingFlag,
   readEmergencyTripSave,
   clearEmergencyTripSave,
+  readPendingTripFinishCard,
+  clearPendingTripFinishCard,
   writeEmergencyTripSave,
   persistTripCheckpointSavedKm,
   loadTripCheckpointSavedKm,
@@ -392,9 +394,11 @@ import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useOfficialMapMeets, type OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { useEquippedMapVehicle } from '../../hooks/useEquippedMapVehicle';
+import { useActiveConvoyMap } from '../../hooks/useActiveConvoyMap';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
 import { LiveFleetMapController } from '../../components/map/LiveFleetMapController';
+import { ConvoyMapLayer } from '../../components/map/ConvoyMapLayer';
 import { MapFabActionsModal } from '../../components/map/MapFabActionsModal';
 import { CameraPickOverlay } from '../../components/map/CameraPickOverlay';
 import { ManualTargetPickOverlay } from '../../components/map/ManualTargetPickOverlay';
@@ -1843,6 +1847,11 @@ function MapScreenInner() {
   useEffect(() => {
     isPremiumRef.current = isPremium;
   }, [isPremium]);
+  const { activeConvoy } = useActiveConvoyMap({
+    currentUserId,
+    isPremium,
+    location: userLocation,
+  });
   const { activeSkin: cursorSkinActive } = useCursorSkin();
   const {
     vehicle: equippedMapVehicle,
@@ -2762,10 +2771,48 @@ function MapScreenInner() {
 
   const {
     startTrip, updateTripEstimate, feedSpeed, feedPosition,
-    finishTrip, clearStats, restoreTripSnapshot, stats: tripStats, liveDistanceKm,
+    snapshotTrip, finishTrip, clearStats, restoreTripSnapshot, stats: tripStats, liveDistanceKm,
   } = useTripStats();
   feedPositionRef.current = feedPosition;
   feedSpeedRef.current = feedSpeed;
+
+  const restoredFinishCardSessionRef = useRef<string | null>(null);
+  const showPendingTripFinishCard = useCallback(async () => {
+    const pending = await readPendingTripFinishCard();
+    if (!pending || restoredFinishCardSessionRef.current === pending.tripSessionId) return false;
+    if (isDrivingRef.current || isNavigatingRef.current) return false;
+    restoredFinishCardSessionRef.current = pending.tripSessionId;
+    restoreTripSnapshot({
+      tripSessionId: pending.tripSessionId,
+      distanceKm: pending.distanceKm,
+      trackedPoints: pending.routePoints,
+      speedSamples: pending.routePoints
+        .map((point) => Number(point.speedKmh))
+        .filter((value) => Number.isFinite(value) && value >= 0),
+      startTimeMs: Date.now() - pending.durationSec * 1000,
+      estimatedSec: 0,
+      floorKm: pending.distanceKm,
+      savedAt: pending.createdAt,
+    });
+    finishTrip({
+      tripSessionId: pending.tripSessionId,
+      distanceKm: pending.distanceKm,
+      maxSpeedKmh: pending.maxSpeedKmh,
+      avgSpeedKmh: pending.avgSpeedKmh,
+      elapsedSec: pending.durationSec,
+      trackedPoints: pending.routePoints,
+    });
+    setTripStatsVisible(true);
+    return true;
+  }, [finishTrip, restoreTripSnapshot]);
+
+  useEffect(() => {
+    void showPendingTripFinishCard();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void showPendingTripFinishCard();
+    });
+    return () => sub.remove();
+  }, [showPendingTripFinishCard]);
 
   useEffect(() => {
     liveDistanceKmRef.current = Number(liveDistanceKm || 0);
@@ -2788,7 +2835,7 @@ function MapScreenInner() {
       const foregroundKm = parseFloat(
         (liveDistanceKmRef.current > 0
           ? liveDistanceKmRef.current
-          : finishTrip().distanceKm
+          : snapshotTrip().distanceKm
         ).toFixed(3),
       );
       // Prefer the native session total when it is running. The foreground HUD
@@ -2884,7 +2931,7 @@ function MapScreenInner() {
         tripCheckpointInFlightRef.current = null;
       }
     }
-  }, [finishTrip]);
+  }, [snapshotTrip]);
 
   useEffect(() => {
     flushTripDistanceCheckpointRef.current = flushTripDistanceCheckpoint;
@@ -3986,6 +4033,7 @@ function MapScreenInner() {
     isNavigating || isDriving,
     sharingHydrated,
     isPremium,
+    settings.smartStartEnabled,
   );
 
   const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
@@ -4924,7 +4972,7 @@ function MapScreenInner() {
     tripMoveSamplesRef.current = [];
     speedKmhRef.current = 0;
     setSpeed(null);
-    clearStats({ preserveEmergency: true });
+    setTimeout(() => setTripStatsVisible(true), 250);
     tripPeakSpeedRef.current = 0;
     resetSpeedometerEmitterThrottle();
     emitSpeedometerKmh(0);
@@ -7660,9 +7708,27 @@ publishSpeed(0, {
             || browseMovedRawM >= 24
             || browseMovedFilteredM >= 20;
           if (likelyMotorMotion && appStateRef.current === 'active') {
-            const segKm = feedPosition(lat, lng, sanitizedSpeedMs ?? undefined, Number.isFinite(acc) ? acc : null);
+            const segKm = feedPosition(
+              lat,
+              lng,
+              sanitizedSpeedMs ?? undefined,
+              Number.isFinite(acc) ? acc : null,
+              {
+                recordedAt: loc.timestamp ?? now,
+                altitudeM: Number.isFinite(Number((loc as any).altitude)) ? Number((loc as any).altitude) : null,
+                headingDeg: browseHdg,
+                source: 'foreground',
+              },
+            );
             if (segKm > 0) {
-              recordDrivingTracePoint(lat, lng, { speedKmh: kmh }).catch(() => {});
+              recordDrivingTracePoint(lat, lng, {
+                speedKmh: kmh,
+                recordedAt: loc.timestamp ?? now,
+                altitudeM: Number.isFinite(Number((loc as any).altitude)) ? Number((loc as any).altitude) : null,
+                accuracyM: Number.isFinite(acc) ? acc : null,
+                headingDeg: browseHdg,
+                source: 'foreground',
+              }).catch(() => {});
               maybeClearDrivingManualDisable(segKm, now);
             }
           }
@@ -8360,13 +8426,31 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             );
           const distLat = useRawForDistance ? rawLat : appliedSnap.latitude;
           const distLng = useRawForDistance ? rawLng : appliedSnap.longitude;
-          const segKm = feedPosition(distLat, distLng, sanitizedSpeedMs ?? undefined, Number.isFinite(acc) ? acc : null);
+          const segKm = feedPosition(
+            distLat,
+            distLng,
+            sanitizedSpeedMs ?? undefined,
+            Number.isFinite(acc) ? acc : null,
+            {
+              recordedAt: loc.timestamp ?? now,
+              altitudeM: Number.isFinite(Number((loc as any).altitude)) ? Number((loc as any).altitude) : null,
+              headingDeg: loc.heading ?? lastHeadingRef.current,
+              source: 'foreground',
+            },
+          );
           if (segKm > 0) {
             const traceLat = appliedSnap.latitude;
             const traceLng = appliedSnap.longitude;
             const traceKmh = kmh;
             InteractionManager.runAfterInteractions(() => {
-              recordDrivingTracePoint(traceLat, traceLng, { speedKmh: traceKmh }).catch(() => {});
+              recordDrivingTracePoint(traceLat, traceLng, {
+                speedKmh: traceKmh,
+                recordedAt: loc.timestamp ?? now,
+                altitudeM: Number.isFinite(Number((loc as any).altitude)) ? Number((loc as any).altitude) : null,
+                accuracyM: Number.isFinite(acc) ? acc : null,
+                headingDeg: loc.heading ?? lastHeadingRef.current,
+                source: 'foreground',
+              }).catch(() => {});
             });
             maybeClearDrivingManualDisable(segKm, now);
           }
@@ -8809,6 +8893,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                     setIsDriving(false);
                     isNavigatingRef.current = false;
                     isDrivingRef.current = false;
+                    await showPendingTripFinishCard();
                   })();
                 },
               },
@@ -8882,6 +8967,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     locationReady,
     restoreTripSnapshot,
     finalizeTripSession,
+    showPendingTripFinishCard,
     startTrip,
     navV3,
     setFollowMode,
@@ -9109,7 +9195,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
           lastSetLocRef.current = { lat: navSnapped.latitude, lng: navSnapped.longitude };
           if (appStateRef.current === 'active') {
-            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null);
+            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null, {
+              recordedAt: loc.timestamp ?? Date.now(),
+              altitudeM: Number.isFinite(Number(loc.coords.altitude)) ? Number(loc.coords.altitude) : null,
+              headingDeg: loc.coords.heading ?? navHdg,
+              source: 'foreground',
+            });
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -9124,7 +9215,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           lastSetLocRef.current = { lat, lng };
           lastNavLocRef.current = { latitude: lat, longitude: lng };
           if (appStateRef.current === 'active') {
-            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null);
+            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null, {
+              recordedAt: loc.timestamp ?? Date.now(),
+              altitudeM: Number.isFinite(Number(loc.coords.altitude)) ? Number(loc.coords.altitude) : null,
+              headingDeg: loc.coords.heading ?? lastHeadingRef.current,
+              source: 'foreground',
+            });
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -10616,7 +10712,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             rememberMapLastLocation(holdLat, holdLng);
             void saveMapLastLocation(holdLat, holdLng);
           }
-          const bgStats = finishTrip();
+           const bgStats = snapshotTrip();
           void writeEmergencyTripSave({
             distanceKm: bgStats.distanceKm,
             trackedPoints: bgStats.trackedPoints,
@@ -10689,7 +10785,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       }
     });
     return () => sub.remove();
-  }, [resumeLiveSession]);
+  }, [resumeLiveSession, snapshotTrip]);
 
   useGpsForegroundLifecycle({
     getTripActive: () => isDrivingRef.current || isNavigatingRef.current,
@@ -11886,7 +11982,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
 
-    finishTrip();
+    snapshotTrip();
     // Entering the route from its approach is still the same drive. Keep the
     // ledger open; only arrival/manual stop/idle may create history.
     void flushTripDistanceCheckpointRef.current({
@@ -11939,7 +12035,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     stopSimulation,
     stopTimer,
     timerRunning,
-    finishTrip,
+    snapshotTrip,
   ]);
 
   // ── handleArrived ─────────────────────────────────────────
@@ -13648,6 +13744,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             onUserPress={handleLiveUserPress}
           />
 
+          <ConvoyMapLayer snapshot={activeConvoy} />
+
           <MapActiveRouteLayers
             remainingRoutePoints={navigationUiReady && !arrived ? remainingRoutePoints : []}
             isNavigating={isNavigating}
@@ -13945,6 +14043,35 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           }}
         />
 
+        {activeConvoy && (
+          <TouchableOpacity
+            onPress={() => router.push('/convoy' as any)}
+            activeOpacity={0.88}
+            style={{
+              position: 'absolute',
+              top: 66,
+              left: 12,
+              zIndex: 24,
+              minHeight: 38,
+              maxWidth: '72%',
+              paddingHorizontal: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: '#FFD44788',
+              backgroundColor: isDark ? '#15130df2' : '#fff9e8f2',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <MaterialCommunityIcons name="car-multiple" size={18} color="#FFD447" />
+            <View style={{ flexShrink: 1 }}>
+              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 9, fontFamily: 'Orbitron', fontWeight: '900' }}>{activeConvoy.convoy.name}</Text>
+              <Text style={{ color: '#FFD447', fontSize: 8, marginTop: 2 }}>LIVE · {activeConvoy.participants.length}/50 · DOTKNIJ, ABY OTWORZYĆ</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         <MapFabActionsModal
           visible={mapFabModalVisible}
           isSpeechEnabled={isSpeechEnabled}
@@ -13977,6 +14104,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           }}
           onToggleSpeech={() => { void navigationVoice.toggleMaster(); }}
           onReport={() => setReportVisible(true)}
+          onConvoy={() => router.push('/convoy' as any)}
           onSpot={() => router.push('/(tabs)/spotmap' as any)}
           onCamera={() => setAddCameraVisible(true)}
           onLayers={() => setSettingsVisible(true)}
@@ -14224,7 +14352,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           }}
           totalDistance={totalDistance}
           onCloseLeaderboard={() => { setLeaderboardVisible(false); setMyFinishedTime(null); }}
-          onCloseTripStats={() => { setTripStatsVisible(false); clearStats(); }}
+          onCloseTripStats={() => {
+            setTripStatsVisible(false);
+            clearStats();
+            void clearPendingTripFinishCard();
+          }}
           onCloseAddCamera={() => setAddCameraVisible(false)}
           onConfirmAddCamera={handleAddCamera}
           onPickCameraOnMap={(params) => {

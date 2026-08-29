@@ -4,8 +4,10 @@ import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { Club }               from './types';
+import { PremiumAvatar, type PublicUserIdentity } from '../user/PremiumIdentity';
 
-export const UAv = ({ uri, name, size = 36 }: { uri?: string | null; name?: string; size?: number }) => {
+export const UAv = ({ uri, name, size = 36, user }: { uri?: string | null; name?: string; size?: number; user?: PublicUserIdentity | null }) => {
+  if (user) return <PremiumAvatar user={user} size={size} />;
   return uri ? (
     <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2 }} />
   ) : (

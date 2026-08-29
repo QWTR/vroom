@@ -94,6 +94,7 @@ export interface AppSettings {
   hideLocation:        boolean;
   locationFriendsOnly: boolean;
   backgroundTracking:  boolean;
+  smartStartEnabled:    boolean;
   notifMeets:          boolean;
   notifLikes:          boolean;
   notifComments:       boolean;
@@ -178,6 +179,7 @@ const DEFAULTS: AppSettings = {
   hideLocation:        false,
   locationFriendsOnly: false,
   backgroundTracking:  false,
+  smartStartEnabled:    false,
   notifMeets:          true,
   notifLikes:          true,
   notifComments:       true,

@@ -1,13 +1,14 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  Image, StatusBar, ActivityIndicator,
+  StatusBar, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useChat, ChatUser } from '../../../hooks/useChats';
 import { CommunityScreenHeader } from '../../../components/community';
+import { PremiumAvatar, PremiumName } from '../../../components/user/PremiumIdentity';
 
 export default function NewChatScreen() {
   const router = useRouter();
@@ -77,18 +78,9 @@ export default function NewChatScreen() {
         onPress={() => toggleSelect(item)}
         activeOpacity={0.75}
       >
-        {item.avatarUrl
-          ? <Image source={{ uri: item.avatarUrl }} style={{ width: 46, height: 46, borderRadius: 23 }} />
-          : (
-            <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>
-                {item.username?.slice(0, 2).toUpperCase()}
-              </Text>
-            </View>
-          )
-        }
+        <PremiumAvatar user={item} size={46} />
         <View style={{ flex: 1 }}>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{item.username}</Text>
+          <PremiumName user={item} style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }} />
           <View style={{
             flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 4,
             paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,

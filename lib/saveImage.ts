@@ -15,6 +15,12 @@ async function tryMediaLibrarySave(uri: string): Promise<boolean> {
   }
 }
 
+/** Zapisuje gotowy obraz bez otwierania systemowego arkusza udostępniania. */
+export async function saveImageToGallery(uri: string): Promise<boolean> {
+  const fileUri = await ensureFileUri(uri);
+  return tryMediaLibrarySave(fileUri);
+}
+
 async function trySharing(uri: string): Promise<boolean> {
   try {
     const Sharing = require('expo-sharing') as typeof import('expo-sharing');

@@ -21,7 +21,8 @@ export type TripPersistenceEvent =
   | 'checkpoint_fail'
   | 'finalization_queued'
   | 'finalization_ok'
-  | 'finalization_fail';
+  | 'finalization_fail'
+  | 'short_session_discarded';
 
 type ActiveTripCheckpointFlusher = (opts?: {
   minKm?: number;

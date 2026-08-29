@@ -154,7 +154,6 @@ export type LiveFleetFeature = {
     scaleZ?: number;
     minZoom?: number;
     stale?: number;
-    pinColor?: string;
   };
 };
 
@@ -561,6 +560,7 @@ function buildMetaPinRequests(
         isFriend: !!meta.isFriend,
         initials,
         distanceLabel,
+        visualVersion: meta.premiumVisual?.visualVersion ?? null,
       }),
       data: {
         username,
@@ -569,6 +569,7 @@ function buildMetaPinRequests(
         avatarUrl: hasAvatar ? avatarUri : null,
         avatarFrameUrl: frameUri || null,
         isPremium: !!meta.isPremium,
+        premiumVisual: meta.premiumVisual ?? null,
         isFriend: !!meta.isFriend,
       },
     });

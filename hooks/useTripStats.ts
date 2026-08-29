@@ -6,7 +6,13 @@ import { BackgroundDriveController } from '../lib/backgroundDriveController';
 import { GPS_DISCONTINUITY_EVENT } from '../lib/recoverableImagePicker';
 import { evaluateGpsContinuityFix } from '../lib/gpsContinuity';
 import {
+  compactDriveTelemetry,
+  type DriveTelemetryPoint,
+  type DriveTelemetrySource,
+} from '../lib/driveTelemetry';
+import {
   clearEmergencyTripSave,
+  ensureTripSessionId,
   writeEmergencyTripSave,
   type EmergencyTripSavePayload,
 } from './useBackgroundTracking';
@@ -17,7 +23,8 @@ export interface TripStats {
   elapsedSec:    number;
   estimatedSec:  number;
   distanceKm:    number;
-  trackedPoints: { latitude: number; longitude: number }[];
+  trackedPoints: DriveTelemetryPoint[];
+  tripSessionId?: string | null;
 }
 
 /** Segment distance sanity only - not a vmax cap. */
@@ -44,27 +51,13 @@ function isValidSpeedSampleKmh(kmh: number): boolean {
   return Number.isFinite(kmh) && kmh > 2 && kmh <= TRIP_STATS_MAX_PLAUSIBLE_KMH;
 }
 
-function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
-  if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
-  let compacted = points;
-  while (compacted.length > TRIP_MAX_TRACKED_POINTS) {
-    const next: { latitude: number; longitude: number }[] = [];
-    for (let i = 0; i < compacted.length; i += 2) {
-      next.push(compacted[i]);
-    }
-    const last = compacted[compacted.length - 1];
-    const tail = next[next.length - 1];
-    if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
-      next.push(last);
-    }
-    compacted = next;
-  }
-  return compacted;
+function compactTrackPoints(points: DriveTelemetryPoint[]) {
+  return compactDriveTelemetry(points, TRIP_MAX_TRACKED_POINTS);
 }
 
 export function useTripStats() {
   const speedSamples = useRef<number[]>([]);
-  const trackedPts   = useRef<{ latitude: number; longitude: number }[]>([]);
+  const trackedPts   = useRef<DriveTelemetryPoint[]>([]);
   const startTimeRef = useRef<number | null>(null);
   const estSecRef    = useRef<number>(0);
   const distanceRef  = useRef<number>(0);
@@ -105,6 +98,7 @@ export function useTripStats() {
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
   const [tripActive, setTripActive] = useState(false);
   const nativeOwnsRef = useRef(false);
+  const tripSessionIdRef = useRef<string | null>(null);
   const nativeProgressSyncInFlightRef = useRef(false);
 
   const maybeEmergencyCheckpoint = useCallback(() => {
@@ -256,6 +250,7 @@ export function useTripStats() {
     setTripActive(true);
     resetSegmentDiag();
     void clearEmergencyTripSave();
+    void ensureTripSessionId().then((value) => { tripSessionIdRef.current = value; }).catch(() => {});
   }, [resetSegmentDiag]);
 
   /** Continue a route (e.g. drive -> navigation) without resetting distance. */
@@ -277,11 +272,36 @@ export function useTripStats() {
     }
   }, []);
 
-  const feedPosition = useCallback((lat: number, lng: number, speedMs?: number, accuracyM?: number | null): number => {
-    const now = Date.now();
+  const feedPosition = useCallback((
+    lat: number,
+    lng: number,
+    speedMs?: number,
+    accuracyM?: number | null,
+    telemetry?: {
+      recordedAt?: number | string | null;
+      altitudeM?: number | null;
+      headingDeg?: number | null;
+      source?: DriveTelemetrySource;
+    },
+  ): number => {
+    const suppliedTime = telemetry?.recordedAt == null
+      ? NaN
+      : new Date(telemetry.recordedAt).getTime();
+    const now = Number.isFinite(suppliedTime) ? suppliedTime : Date.now();
     const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
+    const telemetryPoint = (): DriveTelemetryPoint => ({
+      latitude: lat,
+      longitude: lng,
+      recordedAt: new Date(now).toISOString(),
+      speedKmh,
+      altitudeM: Number.isFinite(Number(telemetry?.altitudeM)) ? Number(telemetry?.altitudeM) : null,
+      accuracyM: Number.isFinite(Number(accuracyM)) ? Number(accuracyM) : null,
+      headingDeg: Number.isFinite(Number(telemetry?.headingDeg)) ? Number(telemetry?.headingDeg) : null,
+      source: telemetry?.source ?? 'foreground',
+      accepted: true,
+    });
 
     if (reanchorFixesRemainingRef.current > 0) {
       const continuity = evaluateGpsContinuityFix(
@@ -299,7 +319,7 @@ export function useTripStats() {
       lastAccuracyRef.current = accuracyM ?? null;
       const previous = pts[pts.length - 1];
       if (!previous || haversineKm(previous.latitude, previous.longitude, lat, lng) >= 0.03) {
-        pts.push({ latitude: lat, longitude: lng });
+        pts.push(telemetryPoint());
         trackedPts.current = compactTrackPoints(pts);
       }
       reanchorFixesRemainingRef.current = continuity.remaining;
@@ -318,7 +338,7 @@ export function useTripStats() {
       lastAccuracyRef.current = accuracyM ?? null;
       const lastPt = pts[pts.length - 1];
       if (!lastPt || haversineKm(lastPt.latitude, lastPt.longitude, lat, lng) >= 0.03) {
-        pts.push({ latitude: lat, longitude: lng });
+        pts.push(telemetryPoint());
         trackedPts.current = compactTrackPoints(pts);
       }
       return 0;
@@ -337,7 +357,7 @@ export function useTripStats() {
       }
     }
     if (!lastMeta) {
-      pts.push({ latitude: lat, longitude: lng });
+      pts.push(telemetryPoint());
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       lastAccuracyRef.current = accuracyM ?? null;
       return 0;
@@ -406,7 +426,7 @@ export function useTripStats() {
           } else if (speedKmh == null || speedKmh < 2) {
             segmentDiagRef.current.derivedSpeedRejected += 1;
           }
-          pts.push({ latitude: lat, longitude: lng });
+          pts.push(telemetryPoint());
           if (pts.length > TRIP_MAX_TRACKED_POINTS) {
             trackedPts.current = compactTrackPoints(pts);
           }
@@ -455,7 +475,7 @@ export function useTripStats() {
       }
     }
 
-    pts.push({ latitude: lat, longitude: lng });
+    pts.push(telemetryPoint());
     if (pts.length > TRIP_MAX_TRACKED_POINTS) {
       trackedPts.current = compactTrackPoints(pts);
     }
@@ -537,7 +557,7 @@ export function useTripStats() {
     return () => clearInterval(id);
   }, []);
 
-  const finishTrip = useCallback(() => {
+  const snapshotTrip = useCallback((overrides?: Partial<TripStats>) => {
     const elapsed  = startTimeRef.current
       ? Math.round((Date.now() - startTimeRef.current) / 1000)
       : 0;
@@ -556,11 +576,19 @@ export function useTripStats() {
       estimatedSec:  estSecRef.current,
       distanceKm:    parseFloat(distanceRef.current.toFixed(2)),
       trackedPoints: [...trackedPts.current],
+      tripSessionId: tripSessionIdRef.current,
+      ...overrides,
     };
     setStats(result);
     setLiveDistanceKm(result.distanceKm);
     return result;
   }, []);
+
+  const finishTrip = useCallback((overrides?: Partial<TripStats>) => {
+    const result = snapshotTrip(overrides);
+    setTripActive(false);
+    return result;
+  }, [snapshotTrip]);
 
   const clearStats = useCallback((opts?: { preserveEmergency?: boolean }) => {
     setStats(null);
@@ -573,6 +601,7 @@ export function useTripStats() {
     reanchorFixesRemainingRef.current = 0;
     lastEmergencyKmRef.current = 0;
     nativeOwnsRef.current = false;
+    tripSessionIdRef.current = null;
     setTripActive(false);
     setLiveDistanceKm(0);
     if (!opts?.preserveEmergency) {
@@ -585,6 +614,7 @@ export function useTripStats() {
     updateTripEstimate,
     feedSpeed,
     feedPosition,
+    snapshotTrip,
     finishTrip,
     clearStats,
     restoreTripSnapshot,

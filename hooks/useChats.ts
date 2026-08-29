@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { apiRequest } from '../lib/api/client';
 import { currentSharedSocket, subscribeSharedSocket } from '../lib/sharedSocket';
+import type { PremiumVisual } from '../components/user/PremiumIdentity';
 
 const API = '/chat';
 
@@ -10,6 +11,9 @@ export interface ChatUser {
   username:  string;
   avatarUrl: string | null;
   online:    boolean;
+  isPremium?: boolean;
+  isAdmin?: boolean;
+  premiumVisual?: PremiumVisual | null;
   friendshipId?: number;
 }
 

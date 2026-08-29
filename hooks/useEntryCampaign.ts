@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import { invalidateQuestTrack } from '../lib/questTrack';
+import { useEffectivePremium } from './useEffectivePremium';
 
 export type CampaignStep =
   | { id: number; type: 'gift'; sortOrder: number; gift: { id: number; title: string; description: string | null; icon: string; type: string; data: any } }
@@ -20,10 +21,19 @@ const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 export function useEntryCampaign() {
+  const { isPremium } = useEffectivePremium();
   const [campaign, setCampaign] = useState<ActiveCampaign | null>(null);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (isPremium) setCampaign(null);
+  }, [isPremium]);
+
   const fetchActiveCampaign = useCallback(async (): Promise<ActiveCampaign | null> => {
+    if (isPremium) {
+      setCampaign(null);
+      return null;
+    }
     setLoading(true);
     try {
       const token = await getToken();
@@ -46,7 +56,7 @@ export function useEntryCampaign() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isPremium]);
 
   const completeCampaign = useCallback(async (campaignId: number) => {
     try {

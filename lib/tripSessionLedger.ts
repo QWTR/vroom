@@ -1,10 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  compactDriveTelemetry,
+  type DriveTelemetryPoint,
+} from './driveTelemetry';
 
 export type TripLedgerMode = 'navigation' | 'freeDrive';
-export type TripFinalizationReason = 'arrival' | 'manual' | 'idle' | 'crash';
+export type TripFinalizationReason = 'arrival' | 'manual' | 'idle' | 'crash' | 'auto_stop' | 'premium_expired';
 
 export type TripSessionLedger = {
-  version: 1;
+  version: 2;
   tripSessionId: string;
   startedAt: string;
   updatedAt: number;
@@ -13,7 +17,7 @@ export type TripSessionLedger = {
   mode: TripLedgerMode;
   distanceKm: number;
   checkpointKm: number;
-  routePoints: Array<{ latitude: number; longitude: number }>;
+  routePoints: DriveTelemetryPoint[];
   speedSamples: number[];
   maxSpeedKmh: number;
   finalization: {
@@ -29,7 +33,7 @@ export type NativeLedgerSnapshot = {
   mode?: string | null;
   distanceKm: number;
   checkpointKm?: number | null;
-  routePoints?: Array<{ latitude: number; longitude: number }>;
+  routePoints?: DriveTelemetryPoint[];
   speedSamples?: number[];
   maxSpeedKmh?: number | null;
   movedAt?: number | null;
@@ -48,30 +52,13 @@ function safeNumber(value: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function validPoint(point: any): point is { latitude: number; longitude: number } {
-  return Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)
-    && point.latitude >= -90 && point.latitude <= 90
-    && point.longitude >= -180 && point.longitude <= 180;
-}
-
-export function compactTripRoute(points: Array<{ latitude: number; longitude: number }>) {
-  const clean = points.filter(validPoint).filter((point, index, all) => {
-    if (index === 0) return true;
-    const previous = all[index - 1];
-    return Math.abs(previous.latitude - point.latitude) >= 1e-7
-      || Math.abs(previous.longitude - point.longitude) >= 1e-7;
-  });
-  if (clean.length <= MAX_ROUTE_POINTS) return clean;
-  const slots = MAX_ROUTE_POINTS - 1;
-  const compact = clean.filter((_, index) => index < clean.length - 1 && index % Math.ceil((clean.length - 1) / slots) === 0);
-  const last = clean[clean.length - 1];
-  if (last && compact[compact.length - 1] !== last) compact.push(last);
-  return compact.slice(0, MAX_ROUTE_POINTS);
+export function compactTripRoute(points: DriveTelemetryPoint[]) {
+  return compactDriveTelemetry(points, MAX_ROUTE_POINTS);
 }
 
 function mergeRoute(
-  current: Array<{ latitude: number; longitude: number }>,
-  next: Array<{ latitude: number; longitude: number }>,
+  current: DriveTelemetryPoint[],
+  next: DriveTelemetryPoint[],
 ) {
   if (!next.length) return compactTripRoute(current);
   if (!current.length) return compactTripRoute(next);
@@ -114,9 +101,9 @@ function parseLedger(raw: string | null): TripSessionLedger | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw);
-    if (!value || value.version !== 1 || typeof value.tripSessionId !== 'string' || !value.tripSessionId) return null;
+    if (!value || ![1, 2].includes(value.version) || typeof value.tripSessionId !== 'string' || !value.tripSessionId) return null;
     return {
-      version: 1,
+      version: 2,
       tripSessionId: value.tripSessionId,
       startedAt: typeof value.startedAt === 'string' ? value.startedAt : new Date().toISOString(),
       updatedAt: safeNumber(value.updatedAt),
@@ -160,7 +147,7 @@ export function createTripSessionLedger(input: {
 }): TripSessionLedger {
   const now = input.now ?? Date.now();
   return {
-    version: 1,
+    version: 2,
     tripSessionId: input.tripSessionId,
     startedAt: input.startedAt ?? new Date(now).toISOString(),
     updatedAt: now,
@@ -216,7 +203,7 @@ export function mergeForegroundLedgerSnapshot(
   current: TripSessionLedger,
   input: {
     distanceKm: number;
-    routePoints?: Array<{ latitude: number; longitude: number }>;
+    routePoints?: DriveTelemetryPoint[];
     maxSpeedKmh?: number;
     avgSpeedKmh?: number;
     mode?: TripLedgerMode;

@@ -14,6 +14,8 @@ import type { PremiumProduct } from '../types/premiumProduct';
 import { isIosPremiumStoreReady } from '../lib/iosStoreKitPremium';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
+import { apiRequest } from '../lib/api/client';
+import { track } from '../lib/analytics/client';
 
 const { width } = Dimensions.get('window');
 const isTabletLayout = width >= 900;
@@ -41,18 +43,13 @@ function billingFrequencyAdverb(product: PremiumProduct): string {
   return `co ${period}`;
 }
 
-// ─── Benefity ─────────────────────────────────────────────────────────────────
-const BENEFITS = [
-  { icon: '🚗', text: 'Nieograniczony garaż',           sub: 'Free: max 3 auta' },
-  { icon: '🛣️', text: 'Nieograniczone prywatne trasy',  sub: 'Free: max 5' },
-  { icon: '🏠', text: 'Wiele klubów',                   sub: 'Free: 1 klub' },
-  { icon: '📊', text: 'Pełna historia aktywności',      sub: '' },
-  { icon: '🛒', text: '5 darmowych ogłoszeń/mies + tydzień promowania gratis', sub: '' },
-  { icon: '🏁', text: 'Tor VROOM Premium',              sub: '8 zadań/tydzień i +25% punktów' },
-  { icon: '🗺️', text: 'Tryb prywatny na mapie',         sub: '' },
-  { icon: '📤', text: 'Eksport GPX/CSV',                sub: '' },
-  { icon: '🚫', text: 'Zero reklam',                    sub: '' },
-];
+type PremiumCatalog = {
+  version: number;
+  billing: { plan: 'monthly'; trialAvailable: boolean; annualPlanAvailable: boolean };
+  groups: Array<{ key: string; title: string; benefits: Array<{ key: string; title: string; description: string; enabled: boolean }> }>;
+};
+
+const GROUP_ICONS: Record<string, string> = { drive: '🚗', garage: '🔧', community: '👥', market: '🛒', other: '✨' };
 
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
@@ -80,6 +77,8 @@ export default function PremiumScreen() {
   const [rcDebugLoading, setRcDebugLoading] = useState(false);
   const [rcDebugText, setRcDebugText] = useState('');
   const [justActivated, setJustActivated] = useState(false);
+  const [catalog, setCatalog] = useState<PremiumCatalog | null>(null);
+  const [catalogError, setCatalogError] = useState(false);
 
   const loadErrorText = (code: string | null): string => {
     if (!code) return '';
@@ -202,6 +201,21 @@ export default function PremiumScreen() {
     return () => { cancelled = true; };
   }, [getPremiumProducts, isLoading]);
 
+  useEffect(() => {
+    let active = true;
+    apiRequest<PremiumCatalog>('/premium/catalog', { priority: 'visible' })
+      .then((value) => { if (active) { setCatalog(value); setCatalogError(false); } })
+      .catch(() => { if (active) { setCatalog(null); setCatalogError(true); } });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => { track({ eventName: 'premium_viewed', screenName: 'premium_offer', surface: 'premium' }); }, []);
+
+  const monthlyProducts = useMemo(
+    () => products.filter((product) => billingPeriodLabel(product) === 'miesiąc'),
+    [products],
+  );
+
   // Zamknij tylko po aktywacji na tym ekranie (purchase/restore),
   // żeby użytkownik z już aktywnym premium nie był wyrzucany po kilku sekundach.
   useEffect(() => {
@@ -235,9 +249,11 @@ export default function PremiumScreen() {
       return;
     }
     setBuying(product.identifier);
+    track({ eventName: 'premium_purchase_started', priority: 'high', screenName: 'premium_offer', surface: 'premium', properties: { billing_period: billingPeriodLabel(product) } });
     const result = await purchasePremium(product);
     setBuying(null);
     if (result.ok) {
+      track({ eventName: 'premium_purchase_completed', priority: 'high', screenName: 'premium_offer', surface: 'premium', properties: { billing_period: billingPeriodLabel(product) } });
       await refreshPremiumStatus();
       setJustActivated(true);
       return;
@@ -286,7 +302,6 @@ export default function PremiumScreen() {
     Toast.show({ type: 'success', text1: 'Udostępnij', text2: 'Wybierz „Kopiuj” w systemowym panelu.' });
   };
 
-  const packages: PremiumProduct[] = products;
   const premiumEndsAt = premiumStatus.currentPeriodEnd ?? premiumStatus.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndsAt
     ? new Date(premiumEndsAt).toLocaleDateString('pl-PL')
@@ -347,6 +362,11 @@ export default function PremiumScreen() {
               </View>
             </View>
           )}
+          {isPremium && (
+            <TouchableOpacity style={s.offerCtaBtn} onPress={() => router.push('/premium-hub' as any)} activeOpacity={0.85}>
+              <Text style={s.offerCtaTxt}>OTWÓRZ CENTRUM PREMIUM 2.0</Text>
+            </TouchableOpacity>
+          )}
           {!isPremium && premiumStatus.status === 'inactive' && !!premiumStatus.premiumExpiresAt && (
             <View style={s.expiredBanner}>
               <MaterialIcons name="schedule" size={16} color="#ff922b" />
@@ -371,34 +391,41 @@ export default function PremiumScreen() {
           </View>
 
           {/* ─── Benefity ─── */}
-          <View style={s.benefitsCard}>
-            <LinearGradient
-              colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.primaryBg, theme.surface2, theme.surface]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={s.cardDeco} />
-            {BENEFITS.map((b, i) => (
-              <View key={i} style={s.benefitRow}>
-                <Text style={s.benefitIcon}>{b.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.benefitText}>{b.text}</Text>
-                  {!!b.sub && <Text style={s.benefitSub}>{b.sub}</Text>}
+          {(catalog?.groups ?? []).map((group) => {
+            const benefits = group.benefits.filter((benefit) => benefit.enabled);
+            if (!benefits.length) return null;
+            return (
+              <View key={group.key}>
+                <Text style={s.benefitGroupTitle}>{GROUP_ICONS[group.key] ?? '✨'} {group.title.toUpperCase()}</Text>
+                <View style={s.benefitsCard}>
+                  <LinearGradient colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.primaryBg, theme.surface2, theme.surface]} style={StyleSheet.absoluteFill} />
+                  <View style={s.cardDeco} />
+                  {benefits.map((benefit) => (
+                    <View key={benefit.key} style={s.benefitRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.benefitText}>{benefit.title}</Text>
+                        <Text style={s.benefitSub}>{benefit.description}</Text>
+                      </View>
+                      <MaterialIcons name="check-circle" size={16} color={GOLD} />
+                    </View>
+                  ))}
                 </View>
-                <MaterialIcons name="check-circle" size={16} color={GOLD} />
               </View>
-            ))}
-          </View>
+            );
+          })}
+          {!catalog && !catalogError && <ActivityIndicator color={GOLD} style={{ marginVertical: 24 }} />}
+          {catalogError && <View style={s.errorBanner}><MaterialIcons name="error-outline" size={16} color="#ff6b6b" /><Text style={s.errorBannerText}>Nie udało się pobrać aktualnego katalogu. Oferta nie jest wyświetlana, aby nie obiecywać nieaktywnych funkcji.</Text></View>}
 
           {/* ─── Oferty ─── */}
           <Text style={s.sectionLabel}>{isPremium ? 'TWOJE KORZYŚCI' : 'WYBIERZ PLAN'}</Text>
 
-          {!isPremium && Platform.OS === 'ios' && packages.length > 0 && (
+          {!isPremium && Platform.OS === 'ios' && monthlyProducts.length > 0 && (
             <Text style={s.storeKitHint}>
-              {packages[0].source === 'storekit'
+              {monthlyProducts[0].source === 'storekit'
                 ? 'Cena i zakup z App Store.'
                 : 'Cena z RevenueCat — zakup przez App Store / RC.'}
               {' '}
-              {(packages[0].priceString ?? '—') === '—'
+              {(monthlyProducts[0].priceString ?? '—') === '—'
                 ? 'Jeśli cena to „—”, na produkcji app musi być live w App Store z IAP w tej wersji.'
                 : ''}
             </Text>
@@ -406,8 +433,8 @@ export default function PremiumScreen() {
 
           {!isPremium && loadingOff ? (
             <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
-          ) : !isPremium && packages.length > 0 ? (
-            packages.map(product => {
+          ) : !isPremium && monthlyProducts.length > 0 ? (
+            monthlyProducts.map(product => {
               const priceStr = product.priceString ?? '—';
               const period = billingPeriodLabel(product);
               const frequency = billingFrequencyAdverb(product);
@@ -735,6 +762,10 @@ function makePremiumStyles(t: AppTheme) {
     fontFamily: 'Orbitron',
     fontSize: 8, color: t.textDim,
     marginTop: 2,
+  },
+  benefitGroupTitle: {
+    fontFamily: 'Orbitron', fontSize: 10, color: GOLD, fontWeight: '900',
+    letterSpacing: 2, marginBottom: 9, marginLeft: 4,
   },
 
   sectionLabel: {

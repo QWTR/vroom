@@ -2,7 +2,7 @@
   "expo": {
     "name": "vroom",
     "slug": "vroom",
-    "version": "1.0.29",
+    "version": "1.0.30",
     "orientation": "portrait",
     "icon": "./assets/images/Frame1933.png",
     "scheme": "vroom",
@@ -14,7 +14,7 @@
       "checkAutomatically": "NEVER",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.29",
+    "runtimeVersion": "1.0.30",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom.app",
@@ -94,8 +94,7 @@
       [
         "@rnmapbox/maps",
         {
-          "RNMapboxMapsImpl": "mapbox",
-          "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+          "RNMapboxMapsImpl": "mapbox"
         }
       ],
       [

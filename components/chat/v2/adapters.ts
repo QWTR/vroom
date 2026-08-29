@@ -2,6 +2,7 @@ import { API_URL } from '../../../constants/config';
 import type { BugReportMsg } from '../../../hooks/useBugReportSocket';
 import { normalizeChatMediaUri, parseRouteMessage, parseVroomkiMessage, replyPreviewLabel } from './helpers';
 import type { UnifiedChatMessage, UnifiedChatUser } from './types';
+import type { PremiumVisual } from '../../user/PremiumIdentity';
 
 function mapUser(u: {
   id: number;
@@ -12,6 +13,7 @@ function mapUser(u: {
   isAdmin?: boolean;
   nickColor?: string | null;
   province?: string | null;
+  premiumVisual?: PremiumVisual | null;
 }): UnifiedChatUser {
   return {
     id: u.id,
@@ -22,6 +24,7 @@ function mapUser(u: {
     isAdmin: u.isAdmin,
     nickColor: u.nickColor,
     province: u.province,
+    premiumVisual: u.premiumVisual ?? null,
   };
 }
 

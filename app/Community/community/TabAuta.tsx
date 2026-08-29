@@ -24,6 +24,7 @@ import { usePerformance } from '../../../contexts/PerformanceContext';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 import { track } from '../../../lib/analytics/client';
 import { sponsoredAdStore } from '../../../hooks/sponsoredAdStore';
+import { PremiumName } from '../../../components/user/PremiumIdentity';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -230,9 +231,7 @@ const ReelCard = React.memo(function ReelCard({
           activeOpacity={isSponsored ? 1 : 0.8}
           disabled={isSponsored}
         >
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '800' }}>
-            @{post.author.username}
-          </Text>
+          <PremiumName user={{ ...post.author, username: `@${post.author.username}` }} style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '800' }} />
         </TouchableOpacity>
         {post.car && (
           <TouchableOpacity onPress={() => onCar(post.car!.id)} activeOpacity={0.82} style={{ alignSelf: 'flex-start', marginTop: 8, backgroundColor: '#e33835d8', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 }}>

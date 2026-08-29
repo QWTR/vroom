@@ -32,6 +32,7 @@ type Props = {
   onManualPoint: () => void;
   onToggleSpeech: () => void;
   onReport: () => void;
+  onConvoy: () => void;
   onSpot: () => void;
   onCamera: () => void;
   onLayers: () => void;
@@ -48,6 +49,7 @@ export function MapFabActionsModal({
   onManualPoint,
   onToggleSpeech,
   onReport,
+  onConvoy,
   onSpot,
   onCamera,
   onLayers,
@@ -91,6 +93,7 @@ export function MapFabActionsModal({
       onPress: onToggleSpeech,
     },
     { key: 'alert', label: 'Zgłoś', icon: 'warning', lib: 'mi', onPress: onReport },
+    { key: 'convoy', label: 'Konwój', icon: 'car-multiple', lib: 'mci', onPress: onConvoy },
     { key: 'spot', label: 'Spoty', icon: 'map-marker-star', lib: 'mci', onPress: onSpot },
     { key: 'cam', label: 'Fotoradar', icon: 'camera-plus-outline', lib: 'mci', onPress: onCamera },
     { key: 'layers', label: 'Warstwy', icon: 'layers-outline', lib: 'mci', onPress: onLayers },
@@ -165,7 +168,7 @@ export function MapFabActionsModal({
                   <MaterialCommunityIcons
                     name={tile.icon as keyof typeof MaterialCommunityIcons.glyphMap}
                     size={26}
-                    color={theme.textMuted}
+                    color={tile.key === 'convoy' ? '#FFD447' : theme.textMuted}
                   />
                 )}
                 <Text style={{

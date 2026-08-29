@@ -187,7 +187,7 @@ export function useVroomkiFeed(
   }, [setPosts]);
 
   useEffect(() => {
-    return subscribeVroomkiPublish((event) => {
+    const unsubscribe = subscribeVroomkiPublish((event) => {
       if (event.type !== 'success') return;
       const post = event.post;
       console.info('[useVroomkiFeed] publish success received', { postId: post.id });
@@ -195,6 +195,7 @@ export function useVroomkiFeed(
       setResolvedFocusPostId(post.id);
       setPosts((prev) => [post, ...prev.filter((p) => p.id !== post.id)]);
     });
+    return () => { unsubscribe(); };
   }, [setPosts]);
 
   const normalizedSearchQuery = String(searchQuery ?? '').trim();
@@ -258,7 +259,8 @@ export function useVroomkiFeed(
 
         const allowAds = !authorFilterId
           && !normalizedSearchQuery
-          && !Number.isFinite(soundId ?? NaN);
+          && !Number.isFinite(soundId ?? NaN)
+          && !settings.isPremium;
 
         if (cursor && !authorFilterId) {
           const existingIds = new Set(postsRef.current.map((p) => p.id));
@@ -294,8 +296,14 @@ export function useVroomkiFeed(
         setLoadingMoreC(false);
       }
     },
-    [authorUserId, feedQueryKey, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
+    [authorUserId, feedQueryKey, mergeLocalState, normalizedSearchQuery, setPosts, settings.isPremium, soundId],
   );
+
+  useEffect(() => {
+    if (!settings.isPremium) return;
+    adRotationRef.current = createAdRotationState();
+    setPosts((previous) => previous.filter((post) => !post.sponsored));
+  }, [setPosts, settings.isPremium]);
 
   fetchVroomkiRef.current = fetchVroomki;
 

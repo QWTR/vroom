@@ -800,7 +800,7 @@ export default function ClubChatScreen() {
                 </Text>
                 {pinned.map(p => (
                   <View key={p.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                    <UAv uri={p.sender.avatarUrl} name={p.sender.username} size={22} />
+                    <UAv uri={p.sender.avatarUrl} name={p.sender.username} size={22} user={p.sender as any} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>{p.sender.username}</Text>
                       <Text style={{ color: theme.textMuted, fontSize: 12 }} numberOfLines={1}>{p.content || '📷 Zdjęcie'}</Text>
@@ -946,7 +946,7 @@ export default function ClubChatScreen() {
                         onPress={() => openMemberFromDirectory(m)}
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 11, marginBottom: 3, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
                       >
-                        <UAv uri={m.avatarUrl} name={m.username} size={32} />
+                        <UAv uri={m.avatarUrl} name={m.username} size={32} user={{ id: m.userId, ...m } as any} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{m.username}</Text>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
@@ -1082,7 +1082,7 @@ export default function ClubChatScreen() {
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 18, borderTopWidth: 1, borderColor: theme.border2 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                <UAv uri={memberModal?.avatarUrl} name={memberModal?.username ?? '?'} size={36} />
+                <UAv uri={memberModal?.avatarUrl} name={memberModal?.username ?? '?'} size={36} user={memberModal ? ({ id: memberModal.userId, ...memberModal } as any) : null} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>{memberModal?.username}</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>

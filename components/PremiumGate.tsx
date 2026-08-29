@@ -7,6 +7,7 @@ import MaterialIcons       from '@expo/vector-icons/MaterialIcons';
 import { useRouter }       from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
+import { track } from '../lib/analytics/client';
 
 const GOLD = '#FFD700';
 
@@ -22,6 +23,7 @@ export default function PremiumGate({ feature, description, children, locked }: 
   const { theme, isDark } = useTheme();
   const s = useMemo(() => makeStyles(theme), [theme]);
 
+  React.useEffect(() => { if (locked) track({ eventName: 'premium_paywall_shown', entityType: 'premium_feature', entityId: feature, surface: 'premium_gate', properties: { reason: feature } }); }, [feature, locked]);
   if (!locked) return <>{children}</>;
 
   return (

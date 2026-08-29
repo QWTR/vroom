@@ -23,6 +23,7 @@ import type { OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
 import type { LiveWarning } from '../../hooks/useLiveMap';
 import type { CreateWarningInput } from '../../lib/warnings/warningCatalog';
 import { API_URL } from '../../constants/mapConfig';
+import type { TripStats } from '../../hooks/useTripStats';
 
 export type MapModalsHostProps = {
   router: Router;
@@ -30,13 +31,13 @@ export type MapModalsHostProps = {
   userLocation: LocationState | null;
   nearbyUsers: User[];
   homeLocation: LocationState | null;
-  currentUserId: string | null;
+  currentUserId: number | null;
   mapType: string;
   pins: { id: string; latitude: number; longitude: number }[];
   snappedRoute: { latitude: number; longitude: number }[];
   saving: boolean;
   snapping: boolean;
-  tripStats: Record<string, unknown> | null;
+  tripStats: TripStats | null;
   selectedUser: User | null;
   selectedWarning: LiveWarning | null;
   selectedCamera: SpeedCamera | null;

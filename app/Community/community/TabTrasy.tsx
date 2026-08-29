@@ -6,6 +6,7 @@ import { useTheme }            from '../../../contexts/ThemeContext';
 import { RouteMiniMap }        from '../../../components/profile/RouteMiniMap';
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
+import { PremiumName } from '../../../components/user/PremiumIdentity';
 import {
   type PublicRoute,
   Avatar, StatPill, ListFooter,
@@ -41,7 +42,7 @@ const RouteCard = React.memo(({
           <Avatar user={route.author} size={38} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>{route.author.username}</Text>
+          <PremiumName user={route.author} style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} />
           <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>{time}</Text>
         </View>
         <TouchableOpacity

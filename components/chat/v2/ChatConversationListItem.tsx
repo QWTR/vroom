@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { formatConversationTime } from './helpers';
 import type { ConversationListData } from './types';
+import { PremiumAvatar, PremiumName } from '../../user/PremiumIdentity';
 
 type Props = {
   item: ConversationListData;
@@ -14,6 +15,7 @@ const AVATAR = 54;
 
 export function ChatConversationListItem({ item, onPress }: Props) {
   const { theme } = useTheme();
+  const identity = item.identity ?? { id: item.id, username: item.name, avatarUrl: item.avatarUrl };
 
   const lastText = item.lastMessage
     ? item.lastMessage.content?.trim() || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '')
@@ -27,15 +29,7 @@ export function ChatConversationListItem({ item, onPress }: Props) {
       activeOpacity={0.72}
     >
       <View style={styles.avatarWrap}>
-        {item.avatarUrl ? (
-          <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatarFallback, { backgroundColor: theme.surface2, borderColor: theme.primaryBorder }]}>
-            <Text style={[styles.avatarText, { color: theme.primary }]}>
-              {item.name?.slice(0, 2).toUpperCase() ?? '??'}
-            </Text>
-          </View>
-        )}
+        <PremiumAvatar user={identity} size={AVATAR} />
         {!item.isGroup && item.online && (
           <View style={[styles.onlineDot, { backgroundColor: theme.online, borderColor: theme.bg }]} />
         )}
@@ -48,9 +42,7 @@ export function ChatConversationListItem({ item, onPress }: Props) {
 
       <View style={styles.content}>
         <View style={styles.topRow}>
-          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
+          <PremiumName user={identity} style={styles.name} />
           {item.lastMessage?.createdAt && (
             <Text style={[styles.time, { color: theme.textDim }]}>
               {formatConversationTime(item.lastMessage.createdAt)}

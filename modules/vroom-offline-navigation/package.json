@@ -1,0 +1,8 @@
+{
+  "name": "vroom-offline-navigation",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "description": "VROOM Mapbox Navigation offline bridge",
+  "license": "UNLICENSED"
+}

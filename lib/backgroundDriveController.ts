@@ -2,6 +2,7 @@ import { DeviceEventEmitter, NativeEventEmitter, NativeModules, Platform } from 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { API_URL } from '../constants/mapConfig';
+import type { DriveTelemetryPoint } from './driveTelemetry';
 
 export type BackgroundDriveMode = 'freeDrive' | 'navigation';
 export type BackgroundDriveStopReason = 'app' | 'notification' | 'permission' | 'system';
@@ -23,6 +24,7 @@ export type BackgroundDriveFix = {
   speed: number | null;
   heading: number | null;
   accuracy: number | null;
+  altitude?: number | null;
   timestamp: number;
   mode?: BackgroundDriveMode | string;
   source?: 'live' | 'lastKnown' | 'buffer' | string;
@@ -44,7 +46,7 @@ export type BackgroundDriveState = {
 export type BackgroundDriveNativeStats = {
   distanceKm: number;
   tripSessionId?: string | null;
-  routePoints: Array<{ latitude: number; longitude: number }>;
+  routePoints: DriveTelemetryPoint[];
   speedSamples: number[];
   maxSpeedKmh: number;
   lastServerCheckpointKm?: number;

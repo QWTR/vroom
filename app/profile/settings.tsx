@@ -606,6 +606,32 @@ export default function SettingsScreen() {
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
+  const toggleSmartStart = async (enabled: boolean) => {
+    if (!enabled) {
+      await updateSetting('smartStartEnabled', false);
+      Toast.show({ type: 'info', text1: 'Smart Start wyłączony' });
+      return;
+    }
+    if (!effectivePremium) {
+      router.push('/premium');
+      return;
+    }
+    const accepted = await new Promise<boolean>((resolve) => Alert.alert(
+      'Włącz Smart Start?',
+      'VROOM będzie analizować ruch i dokładną lokalizację w tle, aby automatycznie wykrywać jazdę. Funkcja jest dobrowolna, domyślnie wyłączona i możesz ją wyłączyć w każdej chwili.',
+      [{ text: 'Anuluj', style: 'cancel', onPress: () => resolve(false) }, { text: 'Wyrażam zgodę', onPress: () => resolve(true) }],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    ));
+    if (!accepted) return;
+    if (!settings.backgroundTracking) {
+      await toggleBgTracking(true);
+      const permission = await Location.getBackgroundPermissionsAsync();
+      if (permission.status !== 'granted') return;
+    }
+    const saved = await updateSetting('smartStartEnabled', true);
+    Toast.show(saved ? { type: 'success', text1: 'Smart Start aktywny', text2: 'Jazda rozpocznie się dopiero po spełnieniu warunków ruchu.' } : { type: 'error', text1: 'Nie udało się włączyć Smart Start' });
+  };
+
   const acceptBgDisclosure = async () => {
     setBgDisclosureVisible(false);
     const granted = await requestBackgroundLocationPermissionAfterDisclosure();
@@ -2894,7 +2920,7 @@ export default function SettingsScreen() {
 							right={
 								<Switch
 									value={settings.privateProfile}
-									onValueChange={v => updateSetting("privateProfile", v)}
+									onValueChange={v => { void updateSetting("privateProfile", v); }}
 									{...swProps}
 								/>
 							}
@@ -2907,7 +2933,7 @@ export default function SettingsScreen() {
 							right={
 								<Switch
 									value={settings.hideLocation}
-									onValueChange={v => updateSetting("hideLocation", v)}
+									onValueChange={v => { void updateSetting("hideLocation", v); }}
 									{...swProps}
 								/>
 							}
@@ -2921,7 +2947,7 @@ export default function SettingsScreen() {
 							right={
 								<Switch
 									value={settings.friendsOnlyMessages}
-									onValueChange={v => updateSetting("friendsOnlyMessages", v)}
+									onValueChange={v => { void updateSetting("friendsOnlyMessages", v); }}
 									{...swProps}
 								/>
 							}
@@ -3088,6 +3114,22 @@ export default function SettingsScreen() {
 									value={settings.backgroundTracking}
 									onValueChange={toggleBgTracking}
 									disabled={!effectivePremium && !settings.backgroundTracking}
+									{...swProps}
+								/>
+							}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='auto-awesome'
+							iconBg='#FFD447'
+							label='Smart Start'
+							sublabel={settings.smartStartEnabled
+								? 'Aktywny · automatycznie wykrywa start i koniec jazdy'
+								: 'Dobrowolne wykrywanie jazdy · wymaga Premium i Lokalizacji: Zawsze'}
+							right={
+								<Switch
+									value={settings.smartStartEnabled}
+									onValueChange={toggleSmartStart}
+									disabled={!effectivePremium && !settings.smartStartEnabled}
 									{...swProps}
 								/>
 							}

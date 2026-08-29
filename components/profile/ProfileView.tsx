@@ -605,14 +605,9 @@ export default function ProfileView({
   );
   const explorationPercentText = formatExplorationPercent(explorationCellsRevealed, explorationPercent);
 
-  // 30-day activity filter for non-premium owners
-  const FREE_ACTIVITY_HISTORY_DAYS = 30;
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - FREE_ACTIVITY_HISTORY_DAYS);
-  const displayRoutes = (isOwner && !premiumActive)
-    ? routes.filter(r => new Date(r.createdAt) >= thirtyDaysAgo)
-    : routes;
-  const hiddenRoutesCount = routes.length - displayRoutes.length;
+  // Zapisane trasy nie wygasają. Free ma limit tworzenia 5 prywatnych tras,
+  // ale zawsze zachowuje dostęp do już zapisanych danych.
+  const displayRoutes = routes;
   const historyWithRoute = activityHistory.filter((a: any) => (a?.routePoints?.length ?? 0) > 1);
 
   // Club data
@@ -1274,22 +1269,6 @@ export default function ProfileView({
 
           {/* ══ MOJE TRASY ══ */}
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
-            {isOwner && !premiumActive && hiddenRoutesCount > 0 && (
-              <TouchableOpacity
-                style={{ ...glassCard(theme, { flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: '#FFD70030', backgroundColor: '#FFD70010' }) }}
-                onPress={() => router.push('/premium' as any)}
-                activeOpacity={0.8}
-              >
-                <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700', letterSpacing: 1 }}>HISTORIA OGRANICZONA DO 30 DNI</Text>
-                  <Text style={{ ...profileLabel(theme), marginTop: 2 }}>
-                    {hiddenRoutesCount} {hiddenRoutesCount === 1 ? 'trasa ukryta' : 'tras ukrytych'} · Odblokuj Premium
-                  </Text>
-                </View>
-                <MaterialIcons name="arrow-forward-ios" size={12} color="#FFD700" />
-              </TouchableOpacity>
-            )}
             {displayRoutes.length === 0
               ? <EmptyState surfaceTheme={theme} text={routesLoading ? 'Ładowanie...' : 'Brak zapisanych tras'} />
               : (
