@@ -44,6 +44,18 @@ describe('Android Auto canonical renderer', () => {
     expect(tracker).toContain('AutoLocationPolicy.maxRoadSnapDistance');
   });
 
+  it('keeps release builds safe from lifecycle obfuscation and forbidden service restarts', () => {
+    const renderer = readFileSync(resolve('native/android-auto/VroomMapSurfaceRenderer.kt'), 'utf8');
+    const service = readFileSync(resolve('native/android-auto/AutoLocationForegroundService.kt'), 'utf8');
+
+    expect(renderer).toContain('import androidx.lifecycle.setViewTreeLifecycleOwner');
+    expect(renderer).toContain('root.setViewTreeLifecycleOwner(owner)');
+    expect(renderer).not.toContain('Class.forName("androidx.lifecycle.ViewTreeLifecycleOwner")');
+    expect(service).toContain('if (intent == null)');
+    expect(service).toContain('ForegroundServiceStartNotAllowedException');
+    expect(service).not.toContain('return START_STICKY');
+  });
+
   it('ships every Android Auto action icon from the canonical drawable source', () => {
     const plugin = readFileSync(resolve('plugins/withAndroidAuto.js'), 'utf8');
     const icons = [

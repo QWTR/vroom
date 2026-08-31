@@ -143,6 +143,8 @@ export const BG_ACTIVE_CONVOY_HOST_KEY = 'bg_active_convoy_host';
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 export const SMART_START_ENABLED_KEY = 'smart_start_enabled';
 const SMART_START_STATE_KEY = 'smart_start_state_v1';
+/** Destination mirrored for headless Smart Stop when the map screen is asleep. */
+export const BG_NAV_DESTINATION_KEY = 'bg_navigation_destination_v1';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
 export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
 /** Mirror of foreground stationary-parked (driving idle) — lowers BG GPS cadence. */
@@ -1263,20 +1265,35 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
     if (premiumStatus !== 'true') return;
 
-    const [smartStartEnabled, navigationFlag, manualDriveFlag] = await Promise.all([
+    const [smartStartEnabled, navigationFlag, manualDriveFlag, destinationRaw] = await Promise.all([
       AsyncStorage.getItem(SMART_START_ENABLED_KEY),
       AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
       AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+      AsyncStorage.getItem(BG_NAV_DESTINATION_KEY),
     ]);
-    if (smartStartEnabled === 'true' && (manualDriveFlag !== 'true' || (await AsyncStorage.getItem(SMART_START_STATE_KEY)) != null)) {
+    const navigationSmartStopActive = navigationFlag === 'true' && manualDriveFlag === 'true' && destinationRaw != null;
+    if (smartStartEnabled === 'true' || navigationSmartStopActive) {
       const rawState = await AsyncStorage.getItem(SMART_START_STATE_KEY);
       let smartState: SmartStartState;
       try { smartState = rawState ? JSON.parse(rawState) as SmartStartState : initialSmartStartState(); } catch { smartState = initialSmartStartState(); }
+      // Smart Stop also protects a trip started manually. Previously the
+      // manual-drive flag skipped the state machine entirely, so such a trip
+      // could stay open for hours after parking.
+      if (manualDriveFlag === 'true' && smartState.phase === 'idle') {
+        smartState = { ...initialSmartStartState(), phase: 'driving', lastReliableAt: fixAt };
+      }
+      let destination: { latitude: number; longitude: number } | null = null;
+      try {
+        const parsed = destinationRaw ? JSON.parse(destinationRaw) : null;
+        if (Number.isFinite(Number(parsed?.latitude)) && Number.isFinite(Number(parsed?.longitude))) {
+          destination = { latitude: Number(parsed.latitude), longitude: Number(parsed.longitude) };
+        }
+      } catch { destination = null; }
       const evaluated = evaluateSmartStart(smartState, {
         latitude, longitude, timestamp: fixAt, speedKmh: Math.max(0, Number(speed || 0) * 3.6), accuracyM: accuracy ?? null,
-      }, { navigating: navigationFlag === 'true', now: Date.now() });
+      }, { navigating: navigationFlag === 'true', destination, now: Date.now() });
       await AsyncStorage.setItem(SMART_START_STATE_KEY, JSON.stringify(evaluated.state));
-      if (evaluated.action === 'start') {
+      if (evaluated.action === 'start' && smartStartEnabled === 'true') {
         await startDriveSession('freeDrive');
         const bufferedRoute = evaluated.state.buffer.map((point) => ({
           latitude: point.latitude, longitude: point.longitude, recordedAt: new Date(point.timestamp).toISOString(), speedKmh: point.speedKmh, accuracyM: point.accuracyM,
@@ -1287,8 +1304,16 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
           trigger: null,
         }).catch(() => {});
       } else if (evaluated.action === 'finish') {
-        await finalizeTripSession({ reason: 'auto_stop', mode: 'freeDrive' });
-        await AsyncStorage.removeItem(SMART_START_STATE_KEY);
+        await finalizeTripSession({
+          reason: 'auto_stop',
+          mode: navigationFlag === 'true' ? 'navigation' : 'freeDrive',
+        });
+        await AsyncStorage.multiSet([
+          [BG_IS_DRIVING_KEY, 'false'],
+          [BG_IS_NAVIGATING_KEY, 'false'],
+        ]);
+        await AsyncStorage.multiRemove([SMART_START_STATE_KEY, BG_NAV_DESTINATION_KEY]);
+        await BackgroundDriveController.stop('app').catch(() => {});
       }
     }
 

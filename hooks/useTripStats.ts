@@ -208,6 +208,22 @@ export function useTripStats() {
     const rounded = parseFloat(dist.toFixed(2));
     lastLiveKmValueRef.current = rounded;
     setLiveDistanceKm(rounded);
+    tripSessionIdRef.current = snapshot.tripSessionId;
+    nativeOwnsRef.current = false;
+    setTripActive(true);
+    // Persist the consolidated monotonic snapshot immediately. If the app is
+    // killed again before the next 0.5 km checkpoint, the resumed kilometres
+    // and geometry still survive the second restart.
+    void writeEmergencyTripSave({
+      ...snapshot,
+      distanceKm: dist,
+      trackedPoints: [...trackedPts.current],
+      speedSamples: [...speedSamples.current],
+      startTimeMs: startTimeRef.current,
+      estimatedSec: estSecRef.current,
+      floorKm: Math.max(Number(snapshot.floorKm) || 0, dist),
+      savedAt: Date.now(),
+    });
   }, []);
 
   const resetSegmentDiag = useCallback(() => {

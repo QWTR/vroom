@@ -18,6 +18,7 @@ describe('notification routing', () => {
     ['meet_participant_applied', { meetId: 16 }, '/Community/meets/applications?id=16'],
     ['meet_reminder', { meetId: 17 }, '/Community/meets/meet?id=17'],
     ['geo_drop_available', { dropId: 18, lat: 52.1, lng: 21.1 }, '/(tabs)/map?dropId=18&lat=52.1&lng=21.1'],
+    ['drop_claimed', { dropId: 18 }, '/gamification/drops'],
     ['daily_duel_available', {}, '/Community/duel/vote'],
     ['achievement', { achievementKey: 'first_drive' }, '/profile/achievements?achievementKey=first_drive'],
     ['bug_report_reply', { bugReportId: 19 }, '/profile/bug-report/19'],

@@ -46,8 +46,10 @@ try {
   });
 } catch {}
 
-type Screen    = 'login' | 'register' | 'forgot';
+type Screen    = 'login' | 'register' | 'forgot' | 'verify';
 type ResetStep = 'email' | 'code' | 'password';
+
+const isStrongPassword = (value: string) => value.length >= 10 && /\p{L}/u.test(value) && /\p{N}/u.test(value);
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -66,6 +68,7 @@ export default function LoginScreen() {
   const [resetStep,    setResetStep]    = useState<ResetStep>('email');
   const [forgotEmail,  setForgotEmail]  = useState('');
   const [resetCode,    setResetCode]    = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [newPassword,  setNewPassword]  = useState('');
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [loading,      setLoading]      = useState(false);
@@ -142,6 +145,13 @@ export default function LoginScreen() {
     switchScreen('login');
   };
 
+  const openEmailVerification = (address: string) => {
+    setEmail(address.trim().toLowerCase());
+    setVerificationCode('');
+    setScreen('verify');
+    animateSwitch();
+  };
+
   const saveAndNavigate = async (token: string, user: any, meta?: { needsUgcTerms?: boolean }) => {
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('token', token);
@@ -174,7 +184,10 @@ export default function LoginScreen() {
       const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, acceptUgcTerms: acceptedUgcTerms }) });
       const data = await res.json();
       if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
-      else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
+      else if (data.code === 'EMAIL_NOT_VERIFIED') {
+        await requestVerificationCode(email, false);
+        openEmailVerification(email);
+      } else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
     finally { setLoading(false); }
   };
@@ -182,7 +195,7 @@ export default function LoginScreen() {
   const handleRegister = async () => {
     if (!requireUgcTerms()) return;
     if (!email || !password || !username) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' });
-    if (password.length < 6)              return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło min. 6 znaków.' });
+    if (!isStrongPassword(password))      return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło: min. 10 znaków, litera i cyfra.' });
     if (password !== confirmPass)         return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
     setLoading(true);
     try {
@@ -203,25 +216,12 @@ export default function LoginScreen() {
         return;
       }
 
-      const loginRes = await fetch(`${API_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-          acceptUgcTerms: true,
-        }),
+      Toast.show({
+        type: 'success',
+        text1: '📧 SPRAWDŹ E-MAIL',
+        text2: data.message ?? 'Na podany adres e-mail został wysłany link potwierdzający.',
       });
-      const loginData = await loginRes.json();
-      if (loginRes.ok) {
-        Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone.' });
-        await setTutorialPending();
-        await saveAndNavigate(loginData.token, loginData.user, { needsUgcTerms: false });
-        return;
-      }
-
-      Toast.show({ type: 'success', text1: '🚗 KONTO UTWORZONE', text2: 'Zaloguj się e-mailem i hasłem.' });
-      switchScreen('login');
+      openEmailVerification(email);
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
     finally { setLoading(false); }
   };
@@ -250,6 +250,46 @@ export default function LoginScreen() {
       });
       if (e.code === statusCodes?.SIGN_IN_CANCELLED) return;
     } finally { setGLoading(false); }
+  };
+
+  const requestVerificationCode = async (address = email, showToast = true) => {
+    const res = await fetch(`${API_URL}/verify-email/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: address.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? 'Nie udało się wysłać kodu.');
+    if (showToast) {
+      Toast.show({
+        type: 'success',
+        text1: '📧 LINK WYSŁANY',
+        text2: data.message ?? 'Na podany adres e-mail został wysłany link potwierdzający.',
+      });
+    }
+  };
+
+  const handleConfirmEmail = async () => {
+    if (!/^\d{6}$/.test(verificationCode)) {
+      return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz 6-cyfrowy kod.' });
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/verify-email/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code: verificationCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? 'Nieprawidłowy kod.');
+      Toast.show({ type: 'success', text1: '✅ E-MAIL POTWIERDZONY', text2: 'Konto jest aktywne.' });
+      await setTutorialPending();
+      await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
+    } catch (error: any) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: error.message ?? 'Nie udało się potwierdzić e-maila.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleApple = async () => {
@@ -334,7 +374,7 @@ export default function LoginScreen() {
   };
 
   const handleResetPassword = async () => {
-    if (newPassword.length < 6) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Min. 6 znaków.' });
+    if (!isStrongPassword(newPassword)) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło: min. 10 znaków, litera i cyfra.' });
     setLoading(true);
     try {
       const res  = await fetch(`${API_URL}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode, newPassword }) });
@@ -443,6 +483,37 @@ export default function LoginScreen() {
     </View>
   );
 
+  if (screen === 'verify') {
+    return (
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'} style={s.root}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {renderHero('POTWIERDŹ E-MAIL', 'OCHRONA KONTA')}
+          <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+            <TouchableOpacity style={s.backRow} onPress={goToLogin}>
+              <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: RED }}>POWRÓT DO LOGOWANIA</Text>
+            </TouchableOpacity>
+            <Text style={s.sectionTitle}>SPRAWDŹ SKRZYNKĘ E-MAIL</Text>
+            <Text style={s.sectionSub}>Na <Text style={{ color: RED }}>{email}</Text> został wysłany link potwierdzający. Otwórz go, aby aktywować konto. Możesz też użyć kodu awaryjnego z wiadomości.</Text>
+            {renderField('KOD AWARYJNY', 'verified-user', verificationCode, setVerificationCode, {
+              placeholder: '000000',
+              keyboardType: 'number-pad',
+              maxLength: 6,
+            })}
+            <ActionButton label="AKTYWUJ KONTO" icon="verified" onPress={handleConfirmEmail} loading={loading} disabled={verificationCode.length !== 6} />
+            <TouchableOpacity
+              style={{ alignItems: 'center', padding: 16 }}
+              onPress={() => requestVerificationCode().catch((error) => Toast.show({ type: 'error', text1: 'BŁĄD', text2: error.message }))}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff50' }}>WYŚLIJ LINK PONOWNIE →</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
   // ── FORGOT ─────────────���────────────────────────────────
   if (screen === 'forgot') {
     return (
@@ -504,9 +575,9 @@ enabled={Platform.OS === 'ios'} style={s.root}>
               <>
                 <Text style={s.sectionTitle}>NOWE HASŁO</Text>
                 <Text style={s.sectionSub}>Ustaw nowe bezpieczne hasło.</Text>
-                {renderField('HASŁO', 'lock', newPassword, setNewPassword, { placeholder: 'Min. 6 znaków', secure: !showNewPass, showToggle: true, onToggle: () => setShowNewPass(v => !v) })}
+                {renderField('HASŁO', 'lock', newPassword, setNewPassword, { placeholder: 'Min. 10 znaków, litera i cyfra', secure: !showNewPass, showToggle: true, onToggle: () => setShowNewPass(v => !v) })}
                 {newPassword.length > 0 && <StrengthBar value={newPassword} />}
-                <ActionButton label="ZMIEŃ HASŁO" icon="lock-reset" onPress={handleResetPassword} loading={loading} disabled={newPassword.length < 6} />
+                <ActionButton label="ZMIEŃ HASŁO" icon="lock-reset" onPress={handleResetPassword} loading={loading} disabled={!isStrongPassword(newPassword)} />
               </>
             )}
 
@@ -531,7 +602,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
 
           {/* Toggle */}
           <View style={s.toggle}>
-            {(['login', 'register'] as Screen[]).map(sc => (
+            {(['login', 'register'] as const).map(sc => (
               <TouchableOpacity
                 key={sc}
                 style={[s.toggleBtn, screen === sc && s.toggleBtnActive]}
@@ -625,7 +696,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
               !acceptedUgcTerms ||
               (screen === 'login'
                 ? !email.trim() || !password
-                : !email.trim() || !password || !username.trim() || password.length < 6 || password !== confirmPass)
+                : !email.trim() || !password || !username.trim() || !isStrongPassword(password) || password !== confirmPass)
             }
           />
 

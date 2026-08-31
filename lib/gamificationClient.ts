@@ -53,6 +53,28 @@ export type GeoDropRewardPreview = {
   assetKind?: string | null;
 };
 
+export type GeoDropHistoryItem = {
+  id: number;
+  dropId: number;
+  claimedAt: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  type: string;
+  region?: { slug: string; name: string } | null;
+  reward: {
+    rewardType: string;
+    rewardAmount?: number | null;
+    rewardItemId?: string | null;
+    label: string;
+    previewUrl?: string | null;
+  };
+};
+
+export type GeoDropHistoryPage = {
+  items: GeoDropHistoryItem[];
+  total: number;
+  nextCursor: string | null;
+};
+
 export type AsphaltDistrict = {
   slug: string;
   name: string;
@@ -348,6 +370,20 @@ export async function fetchPendingGamificationRewards(): Promise<GamificationRew
     '/api/gamification/rewards/pending',
   );
   return data?.rewards ?? [];
+}
+
+export async function fetchGeoDropHistory(cursor?: string | null, limit = 20): Promise<GeoDropHistoryPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  const data = await apiRequest<Partial<GeoDropHistoryPage>>(
+    `/api/gamification/drops/history/mine?${params.toString()}`,
+    { timeoutMs: 10_000, priority: 'background' },
+  );
+  return {
+    items: data?.items ?? [],
+    total: Number(data?.total) || 0,
+    nextCursor: data?.nextCursor ? String(data.nextCursor) : null,
+  };
 }
 
 export async function ackGamificationReward(rewardId: number): Promise<void> {

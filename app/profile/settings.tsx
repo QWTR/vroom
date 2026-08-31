@@ -609,7 +609,7 @@ export default function SettingsScreen() {
   const toggleSmartStart = async (enabled: boolean) => {
     if (!enabled) {
       await updateSetting('smartStartEnabled', false);
-      Toast.show({ type: 'info', text1: 'Smart Start wyłączony' });
+      Toast.show({ type: 'info', text1: 'Smart Start & Stop wyłączony' });
       return;
     }
     if (!effectivePremium) {
@@ -617,8 +617,8 @@ export default function SettingsScreen() {
       return;
     }
     const accepted = await new Promise<boolean>((resolve) => Alert.alert(
-      'Włącz Smart Start?',
-      'VROOM będzie analizować ruch i dokładną lokalizację w tle, aby automatycznie wykrywać jazdę. Funkcja jest dobrowolna, domyślnie wyłączona i możesz ją wyłączyć w każdej chwili.',
+      'Włącz Smart Start & Stop?',
+      'VROOM będzie analizować ruch i dokładną lokalizację w tle, aby automatycznie rozpoczynać jazdę oraz kończyć ją po dotarciu do celu albo 10 minutach postoju. Funkcja jest dobrowolna, domyślnie wyłączona i możesz ją wyłączyć w każdej chwili.',
       [{ text: 'Anuluj', style: 'cancel', onPress: () => resolve(false) }, { text: 'Wyrażam zgodę', onPress: () => resolve(true) }],
       { cancelable: true, onDismiss: () => resolve(false) },
     ));
@@ -629,7 +629,7 @@ export default function SettingsScreen() {
       if (permission.status !== 'granted') return;
     }
     const saved = await updateSetting('smartStartEnabled', true);
-    Toast.show(saved ? { type: 'success', text1: 'Smart Start aktywny', text2: 'Jazda rozpocznie się dopiero po spełnieniu warunków ruchu.' } : { type: 'error', text1: 'Nie udało się włączyć Smart Start' });
+    Toast.show(saved ? { type: 'success', text1: 'Smart Start & Stop aktywny', text2: 'VROOM automatycznie wykryje początek i koniec jazdy.' } : { type: 'error', text1: 'Nie udało się włączyć Smart Start & Stop' });
   };
 
   const acceptBgDisclosure = async () => {
@@ -3121,7 +3121,7 @@ export default function SettingsScreen() {
 						<SettingsRow {...settingsRowProps}
 							icon='auto-awesome'
 							iconBg='#FFD447'
-							label='Smart Start'
+							label='Smart Start & Stop'
 							sublabel={settings.smartStartEnabled
 								? 'Aktywny · automatycznie wykrywa start i koniec jazdy'
 								: 'Dobrowolne wykrywanie jazdy · wymaga Premium i Lokalizacji: Zawsze'}

@@ -13,12 +13,14 @@ export type SmartStartState = {
   stationarySince: number | null;
   stationaryOrigin: SmartStartFix | null;
   lastReliableAt: number | null;
+  /** Consecutive reliable fixes inside the navigation destination zone. */
+  destinationFixes: number;
 };
 
 export type SmartStartAction = 'none' | 'start' | 'finish' | 'discard_candidate';
 
 export const initialSmartStartState = (): SmartStartState => ({
-  phase: 'idle', buffer: [], reliableMovingFixes: 0, stationarySince: null, stationaryOrigin: null, lastReliableAt: null,
+  phase: 'idle', buffer: [], reliableMovingFixes: 0, stationarySince: null, stationaryOrigin: null, lastReliableAt: null, destinationFixes: 0,
 });
 
 function distanceMeters(a: SmartStartFix, b: SmartStartFix): number {
@@ -32,7 +34,11 @@ function distanceMeters(a: SmartStartFix, b: SmartStartFix): number {
 export function evaluateSmartStart(
   previous: SmartStartState,
   fix: SmartStartFix,
-  options: { navigating: boolean; now?: number } = { navigating: false },
+  options: {
+    navigating: boolean;
+    now?: number;
+    destination?: { latitude: number; longitude: number } | null;
+  } = { navigating: false },
 ): { state: SmartStartState; action: SmartStartAction } {
   const now = options.now ?? fix.timestamp;
   const reliable = Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude)
@@ -56,6 +62,34 @@ export function evaluateSmartStart(
     }
     return { state: { ...previous, buffer, reliableMovingFixes: movingFixes, lastReliableAt: now }, action: 'none' };
   }
+
+  // Navigation has its own Smart Stop: two consecutive reliable positions in
+  // the destination zone finish the drive even when the foreground screen or
+  // maneuver list is not mounted. This prevents a missed arrival from adding
+  // hours of stationary time to a trip.
+  const destination = options.destination;
+  if (
+    options.navigating
+    && destination
+    && Number.isFinite(destination.latitude)
+    && Number.isFinite(destination.longitude)
+  ) {
+    const destinationDistanceM = distanceMeters(fix, {
+      ...fix,
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+    });
+    const destinationFixes = destinationDistanceM <= 70
+      ? (Number(previous.destinationFixes) || 0) + 1
+      : destinationDistanceM > 120
+        ? 0
+        : Number(previous.destinationFixes) || 0;
+    if (destinationFixes >= 2) {
+      return { state: initialSmartStartState(), action: 'finish' };
+    }
+    previous = { ...previous, destinationFixes };
+  }
+
   if (fix.speedKmh >= 3) {
     return { state: { ...previous, stationarySince: null, stationaryOrigin: null, lastReliableAt: now }, action: 'none' };
   }

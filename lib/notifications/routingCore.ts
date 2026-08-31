@@ -54,6 +54,7 @@ export function resolveNotificationUrl(data: NotificationData | null | undefined
   if (type === 'meet_participant_applied' && meetId) return `/Community/meets/applications${params({ id: meetId })}`;
   if (['meet_nearby_invite', 'meet_joined', 'meet_participant_approved', 'meet_participant_rejected', 'meet_reminder'].includes(type) && meetId) return `/Community/meets/meet${params({ id: meetId })}`;
   if (type === 'geo_drop_available' && numeric(data.dropId)) return `/(tabs)/map${params({ dropId: numeric(data.dropId), lat: data.lat, lng: data.lng })}`;
+  if (type === 'drop_claimed') return '/gamification/drops';
   if (['daily_duel_available', 'comeback_digest'].includes(type)) return '/Community/duel/vote';
   if (type === 'achievement') return `/profile/achievements${params({ achievementKey: data.achievementKey })}`;
   if (type === 'bug_report_reply' && numeric(data.bugReportId)) return `/profile/bug-report/${numeric(data.bugReportId)}`;

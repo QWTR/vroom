@@ -229,6 +229,29 @@ export default function NotificationsScreen() {
           </TouchableOpacity>
         ))}
       </View>
+      <TouchableOpacity
+        onPress={() => router.push('/gamification/drops' as any)}
+        style={{
+          marginHorizontal: 16,
+          marginBottom: 12,
+          minHeight: 52,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: theme.primaryBorder,
+          backgroundColor: theme.primaryBg,
+          paddingHorizontal: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 11,
+        }}
+      >
+        <MaterialIcons name="inventory-2" size={22} color={theme.primary} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '800' }}>MOJE ZRZUTY</Text>
+          <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 3 }}>Sprawdź zdobyte zrzuty i otrzymane nagrody</Text>
+        </View>
+        <MaterialIcons name="chevron-right" size={22} color={theme.primary} />
+      </TouchableOpacity>
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.primary} /></View>
       ) : (

@@ -1,5 +1,6 @@
 package com.lexuuw.vroom.app.auto
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -20,7 +21,13 @@ class AutoLocationForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        if (intent == null) {
+            Log.w(TAG, "Pomijam automatyczny restart usługi bez akcji")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
+        when (intent.action) {
             ACTION_RELEASE -> {
                 intent.getStringExtra(EXTRA_OWNER)?.let(owners::remove)
                 if (owners.isEmpty()) {
@@ -30,12 +37,28 @@ class AutoLocationForegroundService : Service() {
                     return START_NOT_STICKY
                 }
             }
-            else -> intent?.getStringExtra(EXTRA_OWNER)?.let(owners::add)
+            ACTION_START -> intent.getStringExtra(EXTRA_OWNER)?.let(owners::add)
+            else -> {
+                Log.w(TAG, "Pomijam nieznaną akcję usługi: ${intent.action}")
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        } catch (error: RuntimeException) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || error !is ForegroundServiceStartNotAllowedException) {
+                throw error
+            }
+            Log.w(TAG, "System nie zezwolił na uruchomienie lokalizacji z tła", error)
+            owners.clear()
+            AutoLocationTracker.stop()
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         AutoLocationTracker.start(applicationContext)
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {

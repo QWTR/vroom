@@ -33,6 +33,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
 import com.mapbox.bindgen.Value
 import com.mapbox.common.MapboxOptions
 import com.mapbox.geojson.Point
@@ -458,7 +459,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             onStart()
             onResume()
         }
-        attachLifecycleOwner(root, owner)
+        root.setViewTreeLifecycleOwner(owner)
 
         val nextMapView = MapView(
             nextPresentation.context,
@@ -1300,16 +1301,6 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             else -> 15.7
         }
         return Pair(center, zoom)
-    }
-
-    private fun attachLifecycleOwner(view: View, owner: LifecycleOwner) {
-        runCatching {
-            val clazz = Class.forName("androidx.lifecycle.ViewTreeLifecycleOwner")
-            val method = clazz.getMethod("set", View::class.java, LifecycleOwner::class.java)
-            method.invoke(null, view, owner)
-        }.onFailure {
-            Log.w("VroomMapSurfaceRenderer", "Brak właściciela cyklu życia widoku")
-        }
     }
 
     private fun releaseSurface() {
