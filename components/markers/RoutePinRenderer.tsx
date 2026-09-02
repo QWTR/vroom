@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import ViewShot from 'react-native-view-shot';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -34,10 +35,10 @@ export const RoutePinRenderer = ({ index, total, label, onCapture }: Props) => {
             borderWidth: 1.5, borderColor: color,
             minWidth: 60, alignItems: 'center',
           }}>
-            <Text style={{ color, fontSize: 8, fontWeight: '800', letterSpacing: 1 }}>
+            <Text style={{ color, fontSize: 12, fontWeight: '800', letterSpacing: 1 }}>
               {label.toUpperCase()}
             </Text>
-            <Text style={{ color: theme.textDim, fontSize: 6, marginTop: 1 }}>
+            <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 1 }}>
               DOTKNIJ ABY USUNĄĆ
             </Text>
           </View>

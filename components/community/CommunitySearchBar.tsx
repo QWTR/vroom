@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -34,7 +35,7 @@ export function CommunitySearchBar({
     }}>
       <MaterialIcons name="search" size={16} color={theme.primary} />
       <TextInput
-        style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: 'Orbitron' }}
+        style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: 'Manrope_600SemiBold' }}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}

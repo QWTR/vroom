@@ -1,8 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Modal, Pressable, RefreshControl,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Pressable, RefreshControl } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -249,16 +247,16 @@ export default function CarMaintenanceScreen() {
     borderRadius: 10,
     padding: 14,
     color: theme.text,
-    fontFamily: 'Orbitron' as const,
+    fontFamily: 'Manrope_600SemiBold' as const,
     fontSize: 13,
     borderWidth: 1,
     borderColor: theme.border2,
     marginBottom: 14,
   };
   const labelStyle = {
-    fontFamily: 'Orbitron' as const,
+    fontFamily: 'Manrope_600SemiBold' as const,
     color: theme.textDim,
-    fontSize: 11,
+    fontSize: 12,
     marginBottom: 8,
     letterSpacing: 1,
   };
@@ -285,12 +283,12 @@ export default function CarMaintenanceScreen() {
     >
       <View style={{ marginTop: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
         <View style={{ alignItems: 'center', flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, letterSpacing: 2 }}>DZIENNIK SERWISOWY</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, letterSpacing: 1 }}>DZIENNIK SERWISOWY</Text>
           {!!brand && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 4 }} numberOfLines={1}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 4 }} numberOfLines={1}>
               {brand}
             </Text>
           )}
@@ -307,24 +305,24 @@ export default function CarMaintenanceScreen() {
         <View style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <MaterialIcons name="fact-check" size={16} color={expiryColor(reviewDays, theme)} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>PRZEGLĄD</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>PRZEGLĄD</Text>
           </View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700' }}>
             {formatDate(summary?.technicalReviewExpiresAt)}
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: expiryColor(reviewDays, theme), marginTop: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: expiryColor(reviewDays, theme), marginTop: 4 }}>
             {reviewDays == null ? 'Brak daty' : reviewDays < 0 ? 'Po terminie' : `Za ${reviewDays} dni`}
           </Text>
         </View>
         <View style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <MaterialIcons name="verified-user" size={16} color={expiryColor(insuranceDays, theme)} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>OC</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>OC</Text>
           </View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700' }}>
             {formatDate(summary?.insuranceExpiresAt)}
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: expiryColor(insuranceDays, theme), marginTop: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: expiryColor(insuranceDays, theme), marginTop: 4 }}>
             {insuranceDays == null ? 'Brak daty' : insuranceDays < 0 ? 'Po terminie' : `Za ${insuranceDays} dni`}
           </Text>
         </View>
@@ -334,7 +332,7 @@ export default function CarMaintenanceScreen() {
       {entries.length === 0 ? (
         <View style={{ alignItems: 'center', paddingVertical: 40, gap: 10 }}>
           <MaterialIcons name="build-circle" size={42} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, textAlign: 'center' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center' }}>
             Brak wpisów. Dodaj serwis, przegląd lub polisę OC.
           </Text>
         </View>
@@ -357,10 +355,10 @@ export default function CarMaintenanceScreen() {
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary, marginBottom: 4 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, marginBottom: 4 }}>
                     {categoryLabel(entry.category).toUpperCase()}
                   </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700' }}>{entry.title}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700' }}>{entry.title}</Text>
                   {!!entry.description && (
                     <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 6, lineHeight: 18 }}>{entry.description}</Text>
                   )}
@@ -370,19 +368,19 @@ export default function CarMaintenanceScreen() {
                 </TouchableOpacity>
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                   Wykonano: {formatDate(entry.performedAt)}
                 </Text>
                 {entry.expiresAt && (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: expiryColor(expDays, theme) }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: expiryColor(expDays, theme) }}>
                     Ważne do: {formatDate(entry.expiresAt)}
                   </Text>
                 )}
                 {entry.mileage != null && (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{entry.mileage} km</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{entry.mileage} km</Text>
                 )}
                 {entry.cost != null && (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{entry.cost.toFixed(0)} zł</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{entry.cost.toFixed(0)} zł</Text>
                 )}
               </View>
             </TouchableOpacity>
@@ -398,7 +396,7 @@ export default function CarMaintenanceScreen() {
             style={{ maxHeight: '88%', backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
             contentContainerStyle={{ padding: 20, paddingBottom: 32 }}
           >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 16, textAlign: 'center' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, marginBottom: 16, textAlign: 'center' }}>
               {editEntry ? 'EDYTUJ WPIS' : 'NOWY WPIS'}
             </Text>
 
@@ -428,7 +426,7 @@ export default function CarMaintenanceScreen() {
                   }}
                 >
                   <MaterialIcons name={c.icon as any} size={14} color={category === c.id ? theme.primary : theme.textDim} />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: category === c.id ? theme.primary : theme.textDim }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: category === c.id ? theme.primary : theme.textDim }}>
                     {c.label}
                   </Text>
                 </TouchableOpacity>
@@ -463,7 +461,7 @@ export default function CarMaintenanceScreen() {
               placeholderTextColor={theme.textDim}
             />
             {categoryUsesAutoExpiry(category) && performedAt.trim() && parseInputDate(performedAt) && (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, marginTop: -6, marginBottom: 14, lineHeight: 16 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: -6, marginBottom: 14, lineHeight: 16 }}>
                 Ważne do: {formatDate(computeExpiryIso(category, parseInputDate(performedAt)!))} (automatycznie +{MAINTENANCE_AUTO_EXPIRY_YEARS} rok)
               </Text>
             )}
@@ -485,7 +483,7 @@ export default function CarMaintenanceScreen() {
               style={{ backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: saving ? 0.6 : 1 }}
             >
               {saving ? <ActivityIndicator color="#fff" /> : (
-                <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>
               )}
             </TouchableOpacity>
           </ScrollView>

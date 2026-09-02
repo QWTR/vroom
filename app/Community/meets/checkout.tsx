@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initStripe, useStripe } from '@stripe/stripe-react-native';
@@ -203,18 +195,18 @@ export default function MeetTicketCheckoutScreen() {
           <MaterialIcons name="arrow-back" size={22} color={theme.text} />
           <Text style={{ color: theme.text }}>Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 22 }}>Kup bilet w VROOM</Text>
+        <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 22 }}>Kup bilet w VROOM</Text>
         <Text style={{ color: theme.textDim, lineHeight: 20 }}>
           Podaj adres rozliczeniowy. Stripe Tax obliczy finalny podatek przed otwarciem bezpiecznej płatności.
         </Text>
 
         <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 8 }}>
           <Text style={{ color: theme.textDim }}>Cena przed podatkiem</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18 }}>{money(quote?.subtotalAmount, quote?.currency)}</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 18 }}>{money(quote?.subtotalAmount, quote?.currency)}</Text>
           {quote?.totalAmount != null && (
             <>
               <Text style={{ color: theme.textDim }}>Podatek: {money(quote.taxAmount, quote.currency)}</Text>
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 20 }}>Do zapłaty: {money(quote.totalAmount, quote.currency)}</Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 20 }}>Do zapłaty: {money(quote.totalAmount, quote.currency)}</Text>
             </>
           )}
         </View>
@@ -232,9 +224,9 @@ export default function MeetTicketCheckoutScreen() {
         >
           {paying
             ? <ActivityIndicator color="#fff" />
-            : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontWeight: '700' }}>{quote?.totalAmount != null ? `Zapłać ${money(quote.totalAmount, quote.currency)}` : 'Oblicz podatek i zapłać'}</Text>}
+            : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontWeight: '700' }}>{quote?.totalAmount != null ? `Zapłać ${money(quote.totalAmount, quote.currency)}` : 'Oblicz podatek i zapłać'}</Text>}
         </TouchableOpacity>
-        {orderId && <Text style={{ color: theme.textDim, textAlign: 'center', fontSize: 11 }}>Zamówienie {orderId}</Text>}
+        {orderId && <Text style={{ color: theme.textDim, textAlign: 'center', fontSize: 12 }}>Zamówienie {orderId}</Text>}
       </ScrollView>
     </KeyboardAvoidingView>
   );

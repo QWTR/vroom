@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TextInput, TouchableOpacity,
-  FlatList,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
@@ -92,11 +90,11 @@ export const SpotListModal = ({ visible, onClose, spots, maxDistance, onSelectSp
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{item.name}</Text>
-                  <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 2 }}>{item.category} · {getDistance(item).toFixed(1)} km</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>{item.category} · {getDistance(item).toFixed(1)} km</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginRight: 4 }}>
                   <MaterialIcons name="favorite" size={11} color={theme.primaryBorder2} />
-                  <Text style={{ color: theme.textDim, fontSize: 11 }}>{item.likesCount}</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12 }}>{item.likesCount}</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={20} color={theme.textFaint} />
               </TouchableOpacity>

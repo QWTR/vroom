@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  SafeAreaView,
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ActivityIndicator,
-  StatusBar,
-} from 'react-native';
+import { SafeAreaView, View, Image, TouchableOpacity, ActivityIndicator, StatusBar } from 'react-native';
+import { AppText as Text } from '../../../../components/ui/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -126,9 +119,9 @@ export default function VroomkiSoundScreen() {
             </View>
           )}
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14 }} numberOfLines={2}>{sound?.title}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 14 }} numberOfLines={2}>{sound?.title}</Text>
             <Text style={{ color: theme.textDim, marginTop: 4 }} numberOfLines={1}>{sound?.artist}</Text>
-            <Text style={{ color: theme.textDim, marginTop: 6, fontSize: 11 }}>
+            <Text style={{ color: theme.textDim, marginTop: 6, fontSize: 12 }}>
               {sound?.usageCount ?? 0} Vroomek z tym dźwiękiem
             </Text>
           </View>
@@ -144,7 +137,7 @@ export default function VroomkiSoundScreen() {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 12, fontWeight: '800' }}>UŻYJ TEGO DŹWIĘKU</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '800' }}>UŻYJ TEGO DŹWIĘKU</Text>
         </TouchableOpacity>
       </View>
 

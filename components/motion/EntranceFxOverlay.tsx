@@ -1,12 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import {
-  Animated,
-  Easing,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Haptics from 'expo-haptics';
@@ -247,9 +241,9 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     color: '#ffffff88',
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    letterSpacing: 4,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
+    letterSpacing: 1,
     marginBottom: 16,
   },
   vsRow: {
@@ -279,7 +273,7 @@ const styles = StyleSheet.create({
   },
   vsText: {
     color: WHITE,
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 28,
     fontWeight: '900',
     fontStyle: 'italic',
@@ -288,18 +282,18 @@ const styles = StyleSheet.create({
   },
   title: {
     color: WHITE,
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 26,
     fontWeight: '900',
-    letterSpacing: 4,
+    letterSpacing: 1,
     textAlign: 'center',
     textShadowRadius: 18,
   },
   subtitle: {
     color: '#ffffff88',
-    fontFamily: 'Orbitron',
-    fontSize: 9,
-    letterSpacing: 2,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
+    letterSpacing: 1,
     marginTop: 10,
     textAlign: 'center',
   },
@@ -308,8 +302,8 @@ const styles = StyleSheet.create({
     bottom: 48,
     alignSelf: 'center',
     color: '#ffffff55',
-    fontFamily: 'Orbitron',
-    fontSize: 8,
-    letterSpacing: 2,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
+    letterSpacing: 1,
   },
 });

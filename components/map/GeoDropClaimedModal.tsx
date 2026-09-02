@@ -1,14 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Easing,
-  Image,
-  Modal,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Animated, Dimensions, Easing, Image, Modal, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { GamificationReward, GeoDropRewardPreview } from '../../lib/gamificationClient';
@@ -104,12 +96,12 @@ function RewardCard({ item, rarityColor, winner }: { item: GeoDropRewardPreview 
       <Text
         numberOfLines={2}
         style={{
-          fontFamily: 'Orbitron',
+          fontFamily: 'Manrope_600SemiBold',
           color: '#fff',
-          fontSize: 10,
+          fontSize: 12,
           textAlign: 'center',
           fontWeight: '900',
-          lineHeight: 15,
+          lineHeight: 16,
         }}
       >
         {rewardLabel(item)}
@@ -127,6 +119,7 @@ export function GeoDropClaimedModal({ visible, reward, onClose }: Props) {
   const [done, setDone] = useState(false);
 
   const nitroAmount = Number(reward?.payload?.nitroAmount ?? 0);
+  const balanceAfter = Number(reward?.payload?.balanceAfter);
   const rarityKey = String(reward?.payload?.rarity ?? 'common').toLowerCase();
   const rarity = RARITY_META[rarityKey] ?? RARITY_META.common;
   const wonReward = asRewardPreview(reward?.payload?.wonReward) ?? (
@@ -260,13 +253,13 @@ export function GeoDropClaimedModal({ visible, reward, onClose }: Props) {
           }}
         >
           <View style={{ alignItems: 'center', paddingHorizontal: 22 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: rarity.color, fontSize: 11, letterSpacing: 4, fontWeight: '900' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: rarity.color, fontSize: 12, letterSpacing: 1, fontWeight: '900' }}>
               {rarity.label} DROP
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 28, letterSpacing: 2, fontWeight: '900', marginTop: 12, textAlign: 'center' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 28, letterSpacing: 1, fontWeight: '900', marginTop: 12, textAlign: 'center' }}>
               {stage === 'ready' ? 'ZRZUT ZDOBYTY' : 'OTWIERANIE ZRZUTU'}
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', color: 'rgba(255,255,255,0.56)', fontSize: 10, marginTop: 10, textAlign: 'center', lineHeight: 16 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: 'rgba(255,255,255,0.56)', fontSize: 12, marginTop: 10, textAlign: 'center', lineHeight: 16 }}>
               {stage === 'ready'
                 ? 'Dotarles do strefy. Odbierz paczke i odpal losowanie.'
                 : 'Losowanie z aktywnej puli tej kategorii'}
@@ -295,10 +288,10 @@ export function GeoDropClaimedModal({ visible, reward, onClose }: Props) {
               >
                 <MaterialCommunityIcons name="package-variant-closed" size={86} color={rarity.color} />
               </Animated.View>
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 15, fontWeight: '900', textAlign: 'center', marginTop: 28, letterSpacing: 1.5 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 15, fontWeight: '900', textAlign: 'center', marginTop: 28, letterSpacing: 1 }}>
                 PACZKA JEST GOTOWA DO ODBIORU
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', color: 'rgba(255,255,255,0.52)', fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 17 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: 'rgba(255,255,255,0.52)', fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 17 }}>
                 Kliknij odbior, a system wylosuje nagrode z puli {rarity.label}.
               </Text>
             </View>
@@ -352,15 +345,20 @@ export function GeoDropClaimedModal({ visible, reward, onClose }: Props) {
                 size={42}
                 color={stage === 'done' || stage === 'ready' ? rarity.color : 'rgba(255,255,255,0.45)'}
               />
-              <Text style={{ fontFamily: 'Orbitron', color: stage === 'done' || stage === 'ready' ? rarity.color : 'rgba(255,255,255,0.55)', fontSize: 10, letterSpacing: 3, marginTop: 14 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: stage === 'done' || stage === 'ready' ? rarity.color : 'rgba(255,255,255,0.55)', fontSize: 12, letterSpacing: 1, marginTop: 14 }}>
                 {stage === 'ready' ? 'ODBIOR' : stage === 'done' ? 'WYGRANA' : 'LOSOWANIE'}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 21, fontWeight: '900', textAlign: 'center', marginTop: 10 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 21, fontWeight: '900', textAlign: 'center', marginTop: 10 }}>
                 {stage === 'ready' ? 'Odbierz zrzut' : stage === 'done' ? title : 'Trwa otwieranie...'}
               </Text>
               {!!reward.body && stage === 'done' ? (
-                <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 11, textAlign: 'center', marginTop: 8 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: t.textDim, fontSize: 12, textAlign: 'center', marginTop: 8 }}>
                   {reward.body}
+                </Text>
+              ) : null}
+              {stage === 'done' && Number.isFinite(balanceAfter) ? (
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: 'rgba(255,255,255,0.72)', fontSize: 12, textAlign: 'center', marginTop: 10 }}>
+                  SALDO PO ODBIORZE: {Math.max(0, Math.trunc(balanceAfter))} NITRO
                 </Text>
               ) : null}
               <TouchableOpacity
@@ -377,7 +375,7 @@ export function GeoDropClaimedModal({ visible, reward, onClose }: Props) {
                 onPress={stage === 'ready' ? startOpening : onClose}
                 activeOpacity={0.86}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: stage !== 'opening' && rarityKey === 'common' ? '#111' : '#fff', fontWeight: '900', letterSpacing: 1.2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: stage !== 'opening' && rarityKey === 'common' ? '#111' : '#fff', fontWeight: '900', letterSpacing: 1 }}>
                   {stage === 'ready' ? 'ODBIERZ ZRZUT' : stage === 'done' ? 'ODEBRANE' : 'LOSOWANIE...'}
                 </Text>
               </TouchableOpacity>

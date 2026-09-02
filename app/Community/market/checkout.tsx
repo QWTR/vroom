@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -196,7 +188,7 @@ export default function MarketCheckoutScreen() {
           <Text style={{ color: theme.text }}>Wróć</Text>
         </TouchableOpacity>
 
-        <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 22, fontWeight: '800' }}>Kup na Giełdzie</Text>
+        <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '800' }}>Kup na Giełdzie</Text>
         <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }}>{title}</Text>
         <Text style={{ color: theme.textDim, fontSize: 12, lineHeight: 17 }}>
           Płatność jest blokowana w escrow. Po odbiorze potwierdź w aplikacji — wtedy sprzedawca dostanie środki.
@@ -205,20 +197,20 @@ export default function MarketCheckoutScreen() {
         <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 8 }}>
           <Text style={{ color: theme.textDim }}>Cena przedmiotu: {money(quote?.itemAmount, quote?.currency)}</Text>
           <Text style={{ color: theme.textDim }}>Prowizja VROOM: {money(quote?.platformFeeAmount, quote?.currency)}</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16 }}>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16 }}>
             Przed podatkiem: {money(quote?.subtotalAmount, quote?.currency)}
           </Text>
           {quote?.totalAmount != null && (
             <>
               <Text style={{ color: theme.textDim }}>Podatek: {money(quote.taxAmount, quote.currency)}</Text>
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 20 }}>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 20 }}>
                 Do zapłaty: {money(quote.totalAmount, quote.currency)}
               </Text>
             </>
           )}
         </View>
 
-        <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, marginTop: 4 }}>Adres rozliczeniowy</Text>
+        <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4 }}>Adres rozliczeniowy</Text>
         <TextInput
           placeholder="Ulica i numer"
           placeholderTextColor={theme.textDim}
@@ -267,7 +259,7 @@ export default function MarketCheckoutScreen() {
           {paying
             ? <ActivityIndicator color="#fff" />
             : (
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontWeight: '700' }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontWeight: '700' }}>
                 {quote?.totalAmount != null ? `Zapłać ${money(quote.totalAmount, quote.currency)}` : 'Oblicz podatek i zapłać'}
               </Text>
             )}

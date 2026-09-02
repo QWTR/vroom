@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
@@ -37,8 +38,8 @@ export const SpotMarker = memo(({ spot, onPress }: SpotMarkerProps) => {
             <Text
               numberOfLines={1}
               style={{
-                fontFamily: 'Orbitron',
-                fontSize: 9,
+                fontFamily: 'Manrope_600SemiBold',
+                fontSize: 12,
                 color: '#fff',
                 fontWeight: '700',
                 letterSpacing: 0.5,

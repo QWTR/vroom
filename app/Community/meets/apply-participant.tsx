@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -85,7 +84,7 @@ export default function ApplyParticipantScreen() {
                 onPress={() => router.push('/profile' as any)}
                 style={{ backgroundColor: theme.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 14 }}
               >
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>PRZEJDŹ DO PROFILU</Text>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>PRZEJDŹ DO PROFILU</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -111,9 +110,9 @@ export default function ApplyParticipantScreen() {
                     }
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>{carLabel(car)}</Text>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700' }}>{carLabel(car)}</Text>
                     {car.isMain && (
-                      <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, marginTop: 4 }}>GŁÓWNE AUTO</Text>
+                      <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4 }}>GŁÓWNE AUTO</Text>
                     )}
                   </View>
                   {selected && <MaterialIcons name="check-circle" size={24} color={theme.primary} />}
@@ -136,7 +135,7 @@ export default function ApplyParticipantScreen() {
           >
             {submitting
               ? <ActivityIndicator color="#fff" />
-              : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>WYŚLIJ ZGŁOSZENIE</Text>
+              : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WYŚLIJ ZGŁOSZENIE</Text>
             }
           </TouchableOpacity>
         </View>

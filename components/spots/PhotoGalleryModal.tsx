@@ -1,9 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  ScrollView, Dimensions, StatusBar, Platform,
-  type NativeSyntheticEvent, type NativeScrollEvent,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ScrollView, Dimensions, StatusBar, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { MaterialIcons } from '@expo/vector-icons';
 

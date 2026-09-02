@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Switch,
-} from 'react-native';
+import { View, TouchableOpacity, Image, ActivityIndicator, Switch } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
@@ -63,10 +61,10 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
   return (
     <ModalKeyboardSheet visible={visible} onClose={onClose} sheetStyle={{ padding: 20, paddingHorizontal: 20 }}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 18 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, marginBottom: 18 }}>
               NOWY KLUB
             </Text>
-            <Text style={{ color: theme.textDim, fontSize: 11, lineHeight: 16, marginTop: -10, marginBottom: 16 }}>
+            <Text style={{ color: theme.textDim, fontSize: 12, lineHeight: 16, marginTop: -10, marginBottom: 16 }}>
               Nadaj klubowi tożsamość. Kanały, role i członków ustawisz od razu po utworzeniu.
             </Text>
 
@@ -83,7 +81,7 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
                 ) : (
                   <>
                     <MaterialCommunityIcons name="shield-crown-outline" size={26} color="#e33835" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', marginTop: 2 }}>LOGO</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', marginTop: 2 }}>LOGO</Text>
                   </>
                 )}
               </View>
@@ -120,8 +118,8 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
             }}>
               <MaterialCommunityIcons name="view-list-outline" size={19} color={theme.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>GOTOWY START</Text>
-                <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 3, lineHeight: 14 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>GOTOWY START</Text>
+                <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 3, lineHeight: 16 }}>
                   Dodamy kategorię Ogólne oraz kanały #powitania i #czat-ogolny.
                 </Text>
               </View>
@@ -138,8 +136,8 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
             >
               <MaterialIcons name={priv ? 'lock' : 'lock-open'} size={17} color={priv ? '#e33835' : theme.textDim} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>PRYWATNY</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 1 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>PRYWATNY</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 1 }}>
                   Tylko zaproszeni mogą dołączyć
                 </Text>
               </View>
@@ -158,7 +156,7 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
               ) : (
                 <>
                   <MaterialCommunityIcons name="shield-crown" size={15} color="#fff" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>UTWÓRZ KLUB</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>UTWÓRZ KLUB</Text>
                 </>
               )}
             </TouchableOpacity>

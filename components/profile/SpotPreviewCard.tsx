@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  TouchableOpacity, Image, View, Text, Modal,
-  TouchableWithoutFeedback,
-} from 'react-native';
+import { TouchableOpacity, Image, View, Modal, TouchableWithoutFeedback } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -79,13 +77,13 @@ export default function SpotPreviewCard({ spot, isOwner = false, onPress, onDele
           </View>
         )}
         <View style={{ padding: 12 }}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 2 }} numberOfLines={1}>{spot.name}</Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 10, letterSpacing: 0.5, marginBottom: 6 }}>{spot.category}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, marginBottom: 2 }} numberOfLines={1}>{spot.name}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, letterSpacing: 0.5, marginBottom: 6 }}>{spot.category}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <MaterialIcons name="favorite" size={12} color={spot.isLiked ? theme.primary : theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginLeft: 3 }}>{spot.likesCount}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginLeft: 3 }}>{spot.likesCount}</Text>
             <MaterialIcons name="chat-bubble" size={12} color={theme.textDim} style={{ marginLeft: 8 }} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginLeft: 3 }}>{spot.commentsCount}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginLeft: 3 }}>{spot.commentsCount}</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -110,18 +108,18 @@ export default function SpotPreviewCard({ spot, isOwner = false, onPress, onDele
                 borderColor: theme.border,
                 ...GLASS_SHADOW,
               }}>
-                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, marginBottom: 16, textAlign: 'center' }} numberOfLines={1}>{spot.name}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginBottom: 16, textAlign: 'center' }} numberOfLines={1}>{spot.name}</Text>
                 <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }} onPress={handleEdit}>
                   <MaterialIcons name="edit" size={20} color={theme.text} />
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14 }}>Edytuj spot</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 14 }}>Edytuj spot</Text>
                 </TouchableOpacity>
                 <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
                 <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }} onPress={handleDelete}>
                   <MaterialIcons name="delete-outline" size={20} color={theme.primary} />
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 14 }}>Usuń spot</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 14 }}>Usuń spot</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={{ marginTop: 8, paddingVertical: 14, alignItems: 'center', backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border }} onPress={() => setMenuOpen(false)}>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 13 }}>Anuluj</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 13 }}>Anuluj</Text>
                 </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>

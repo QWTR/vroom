@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -76,6 +75,6 @@ const ss = StyleSheet.create({
     width: 48, height: 48, borderRadius: 15, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  headerSub: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1, marginTop: 2 },
+  headerTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  headerSub: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginTop: 2 },
 });

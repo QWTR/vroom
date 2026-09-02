@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type { ProfileGradientSpec, ProfileHeroMotion, ProfileVisitEntranceAnim } from '../../constants/profilePremiumExtras';
@@ -45,7 +46,7 @@ export default function ProfileAnimationSettingsPreview({
 
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 1.2 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, letterSpacing: 1 }}>
         PODGLĄD ANIMACJI
       </Text>
       <View
@@ -89,7 +90,7 @@ export default function ProfileAnimationSettingsPreview({
           >
             <MaterialCommunityIcons name="account" size={28} color={accent} />
           </View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, marginTop: 8, letterSpacing: 2 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain, marginTop: 8, letterSpacing: 1 }}>
             TWÓJ PROFIL
           </Text>
         </View>
@@ -115,7 +116,7 @@ export default function ProfileAnimationSettingsPreview({
           opacity: canReplayVisit ? 1 : 0.45,
         }}
       >
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: canReplayVisit ? accent : textDim, letterSpacing: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: canReplayVisit ? accent : textDim, letterSpacing: 1 }}>
           ODTWÓRZ WEJŚCIE
         </Text>
       </TouchableOpacity>

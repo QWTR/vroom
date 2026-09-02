@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
+import { View, TouchableOpacity, Alert } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Feather }       from '@expo/vector-icons';
 import { RouteMiniMap }  from './RouteMiniMap';
@@ -36,7 +37,7 @@ export default function RouteCard({ route, isOwner, onDelete, onNavigate, onShar
         </View>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{route.name}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{route.name}</Text>
             <View style={{
               flexDirection: 'row', alignItems: 'center', gap: 3,
               paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8, borderWidth: 1,
@@ -44,13 +45,13 @@ export default function RouteCard({ route, isOwner, onDelete, onNavigate, onShar
               borderColor:     route.isPublic ? '#4de92630' : theme.border2,
             }}>
               <MaterialIcons name={route.isPublic ? 'public' : 'lock'} size={9} color={route.isPublic ? '#4de926' : theme.textDim} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 0.5, color: route.isPublic ? '#4de926' : theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5, color: route.isPublic ? '#4de926' : theme.textDim }}>
                 {route.isPublic ? 'PUB' : 'PRV'}
               </Text>
             </View>
           </View>
           {!!route.description && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 6 }} numberOfLines={1}>{route.description}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginBottom: 6 }} numberOfLines={1}>{route.description}</Text>
           )}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
             {[
@@ -60,11 +61,11 @@ export default function RouteCard({ route, isOwner, onDelete, onNavigate, onShar
             ].map(s => (
               <View key={s.icon} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                 <MaterialIcons name={s.icon as any} size={11} color={s.color} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{s.val}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{s.val}</Text>
               </View>
             ))}
           </View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint }}>{date}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textFaint }}>{date}</Text>
         </View>
       </View>
 
@@ -73,23 +74,23 @@ export default function RouteCard({ route, isOwner, onDelete, onNavigate, onShar
         {onLeaderboard && (
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 10, backgroundColor: '#FFD70012', borderWidth: 1, borderColor: '#FFD70030' }} onPress={() => onLeaderboard(route)} activeOpacity={0.8}>
             <MaterialIcons name="leaderboard" size={13} color="#FFD700" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.primary, borderRadius: 10, paddingVertical: 9 }} onPress={() => onNavigate(route)} activeOpacity={0.8}>
           <MaterialIcons name="navigation" size={13} color="#fff" />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>NAWIGUJ</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>NAWIGUJ</Text>
         </TouchableOpacity>
         {onShare && (
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: '#00bfff12', borderWidth: 1, borderColor: '#00bfff30' }} onPress={() => onShare(route)} activeOpacity={0.8}>
             <Feather name="send" size={13} color="#00bfff" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff' }}>WYŚLIJ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff' }}>WYŚLIJ</Text>
           </TouchableOpacity>
         )}
         {isOwner && (
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }} onPress={handleDelete} disabled={deleting} activeOpacity={0.8}>
             <MaterialIcons name="delete-outline" size={14} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary }}>USUŃ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary }}>USUŃ</Text>
           </TouchableOpacity>
         )}
       </View>

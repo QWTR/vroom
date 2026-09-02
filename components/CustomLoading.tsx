@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing, Text } from 'react-native';
+import { View, Animated, Easing } from 'react-native';
+import { AppText as Text } from './ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -33,7 +34,7 @@ export default function CustomLoading() {
         <MaterialIcons name="speed" size={80} color={theme.primary} />
       </Animated.View>
 
-      <Animated.Text style={{ fontFamily: 'Orbitron', color: theme.text, marginTop: 30, fontSize: 12, letterSpacing: 2, opacity: fadeAnim }}>
+      <Animated.Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, marginTop: 30, fontSize: 12, letterSpacing: 1, opacity: fadeAnim }}>
         INICJACJA SYSTEMÓW...
       </Animated.Text>
 

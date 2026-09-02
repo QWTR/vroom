@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity } from 'react-native';
+import { Modal, View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import ColorPicker from 'react-native-wheel-color-picker';
@@ -62,10 +63,10 @@ export function ColorWheelPickerSheet({ visible, title, color, onClose, onConfir
               borderColor: theme.border3,
               marginRight: 12,
             }} />
-            <Text style={{ flex: 1, fontFamily: 'Orbitron', fontSize: 11, color: theme.text, letterSpacing: 0.5 }} numberOfLines={2}>
+            <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, letterSpacing: 0.5 }} numberOfLines={2}>
               {title}
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
               {normalizePickerHex(temp)}
             </Text>
           </View>
@@ -94,7 +95,7 @@ export function ColorWheelPickerSheet({ visible, title, color, onClose, onConfir
               }}
               onPress={onClose}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim }}>ANULUJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>ANULUJ</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={{
@@ -110,7 +111,7 @@ export function ColorWheelPickerSheet({ visible, title, color, onClose, onConfir
               onPress={apply}
             >
               <MaterialIcons name="check" size={18} color="#fff" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
                 WYBIERZ
               </Text>
             </TouchableOpacity>
@@ -158,8 +159,8 @@ export function ColorPickTriggerRow({ label, value, onOpen, swatchBorder, rowBg,
         borderColor: swatchBorder,
       }} />
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, fontWeight: '600' }}>{label}</Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim, marginTop: 3 }}>{safe}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 3 }}>{safe}</Text>
       </View>
       <MaterialIcons name="colorize" size={22} color={textDim} />
     </TouchableOpacity>

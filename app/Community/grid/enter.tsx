@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, Image,
-  ActivityIndicator, TextInput, StatusBar,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Image, ActivityIndicator, StatusBar } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -130,7 +128,7 @@ export default function EnterGridScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Wybór auta */}
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 12 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 12 }}>
           WYBIERZ AUTO Z GARAŻU
         </Text>
 
@@ -140,14 +138,14 @@ export default function EnterGridScreen() {
             alignItems: 'center', marginBottom: 24, borderWidth: 1, borderColor: theme.border2,
           }}>
             <MaterialCommunityIcons name="car-off" size={44} color={theme.border3} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginTop: 12, marginBottom: 16 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 12, marginBottom: 16 }}>
               Brak aut w garażu
             </Text>
             <TouchableOpacity
               style={{ backgroundColor: theme.gold, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }}
               onPress={() => router.push('/profile/add-car' as any)}
             >
-              <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 9, fontWeight: '700' }}>DODAJ AUTO</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 12, fontWeight: '700' }}>DODAJ AUTO</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -178,14 +176,14 @@ export default function EnterGridScreen() {
                       </View>
                     )}
                     <View style={{ padding: 8 }}>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, fontWeight: '700' }} numberOfLines={1}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                         {car.brand}
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 7, marginTop: 2 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
                         {car.specs}
                       </Text>
                       {car.isMain && (
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 7, marginTop: 3 }}>★ GŁÓWNE</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.gold, fontSize: 12, marginTop: 3 }}>★ GŁÓWNE</Text>
                       )}
                     </View>
                   </TouchableOpacity>
@@ -198,7 +196,7 @@ export default function EnterGridScreen() {
         {/* Zdjęcia wybranego auta */}
         {selectedCar && (selectedCar.photos?.length ?? 0) > 0 && (
           <>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 10 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 10 }}>
               ZDJĘCIA Z GARAŻU
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
@@ -212,7 +210,7 @@ export default function EnterGridScreen() {
         )}
 
         {/* Dodatkowe zdjęcia */}
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 10 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 10 }}>
           DODATKOWE ZDJĘCIA <Text style={{ color: theme.textFaint }}>(OPCJONALNIE, MAX 4)</Text>
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
@@ -243,12 +241,12 @@ export default function EnterGridScreen() {
         </View>
 
         {/* Opis */}
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 8 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>
           OPIS <Text style={{ color: theme.textFaint }}>(OPCJONALNIE)</Text>
         </Text>
         <View style={{ backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, marginBottom: 24 }}>
           <TextInput
-            style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, padding: 14, minHeight: 70 }}
+            style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, padding: 14, minHeight: 70 }}
             placeholder="Opisz swój build..."
             placeholderTextColor={theme.textFaint}
             value={description}
@@ -259,7 +257,7 @@ export default function EnterGridScreen() {
 
         {/* Zasady */}
         <View style={{ backgroundColor: theme.gold + '10', borderRadius: 12, borderWidth: 1, borderColor: theme.gold + '30', padding: 14, marginBottom: 28 }}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 8, fontWeight: '700', marginBottom: 8 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.gold, fontSize: 12, fontWeight: '700', marginBottom: 8 }}>
             ZASADY THE GRID
           </Text>
           {[
@@ -270,7 +268,7 @@ export default function EnterGridScreen() {
           ].map((rule, i) => (
             <View key={i} style={{ flexDirection: 'row', gap: 8, marginBottom: 5 }}>
               <Text style={{ color: theme.gold }}>›</Text>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, flex: 1, lineHeight: 14 }}>{rule}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, flex: 1, lineHeight: 16 }}>{rule}</Text>
             </View>
           ))}
         </View>
@@ -290,7 +288,7 @@ export default function EnterGridScreen() {
             ? <ActivityIndicator color="#000" />
             : <>
                 <MaterialCommunityIcons name="flag-checkered" size={18} color="#000" />
-                <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 13, fontWeight: '900' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 13, fontWeight: '900' }}>
                   WCHODZĘ NA GRID!
                 </Text>
               </>

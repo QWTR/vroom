@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  ScrollView, Image, TextInput,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -125,7 +122,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }} numberOfLines={1}>{spot.name}</Text>
-                  <Text style={{ color, fontSize: 11, fontWeight: '600', marginTop: 2 }}>{spot.category}</Text>
+                  <Text style={{ color, fontSize: 12, fontWeight: '600', marginTop: 2 }}>{spot.category}</Text>
                 </View>
               </View>
               <TouchableOpacity onPress={onClose}>
@@ -161,7 +158,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                   </ScrollView>
                   <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12, marginTop: 4 }} onPress={() => { setGalleryIndex(0); setGalleryVisible(true); }} activeOpacity={0.8}>
                     <MaterialIcons name="photo-library" size={14} color={theme.textDim} />
-                    <Text style={{ color: theme.textDim, fontSize: 11 }}>{spot.photos.length} {spot.photos.length === 1 ? 'zdjęcie' : 'zdjęcia'} · dotknij aby powiększyć</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12 }}>{spot.photos.length} {spot.photos.length === 1 ? 'zdjęcie' : 'zdjęcia'} · dotknij aby powiększyć</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -183,11 +180,11 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                   }
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.textDim, fontSize: 8, letterSpacing: 1, marginBottom: 2 }}>TWÓRCA SPOTU</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 2 }}>TWÓRCA SPOTU</Text>
                   <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{authorName}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                  <Text style={{ color: theme.textDim, fontSize: 10 }}>{new Date(spot.createdAt).toLocaleDateString('pl-PL')}</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12 }}>{new Date(spot.createdAt).toLocaleDateString('pl-PL')}</Text>
                 </View>
                 {!isOwn && authorObj?.id && <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textFaint} style={{ marginLeft: 6 }} />}
               </TouchableOpacity>
@@ -232,7 +229,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
               </View>
 
               {/* Komentarze */}
-              <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 12 }}>KOMENTARZE</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 12 }}>KOMENTARZE</Text>
 
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 16 }}>
                 <TextInput
@@ -264,7 +261,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
                         <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>{c.user.username}</Text>
-                        <Text style={{ color: theme.textDim, fontSize: 10 }}>{new Date(c.createdAt).toLocaleDateString('pl-PL')}</Text>
+                        <Text style={{ color: theme.textDim, fontSize: 12 }}>{new Date(c.createdAt).toLocaleDateString('pl-PL')}</Text>
                       </View>
                       <Text style={{ color: theme.textMuted, fontSize: 13, lineHeight: 18 }}>{c.text}</Text>
                     </View>

@@ -1,5 +1,6 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from './ui/AppText';
 import { resetCriticalAppCache, resetVroomkiVideoCache } from '../lib/criticalStorageReset';
 
 type Props = {
@@ -105,7 +106,7 @@ const styles = StyleSheet.create({
   },
   detail: {
     color: '#6b7280',
-    fontSize: 11,
+    fontSize: 12,
     textAlign: 'center',
     marginBottom: 20,
   },

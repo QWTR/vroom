@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  StatusBar, FlatList, Alert, Platform, Dimensions,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, StatusBar, FlatList, Alert, Platform, Dimensions } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -213,9 +211,9 @@ export default function ListingDetailScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
         <MaterialCommunityIcons name="tag-off-outline" size={52} color={theme.border3} />
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14 }}>Ogłoszenie nie istnieje</Text>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 14 }}>Ogłoszenie nie istnieje</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 12 }}>
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>WRÓĆ</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WRÓĆ</Text>
         </TouchableOpacity>
       </View>
     );
@@ -297,25 +295,25 @@ export default function ListingDetailScreen() {
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={{ backgroundColor: theme.primaryBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: theme.primaryBorder }}>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{listing.category.toUpperCase()}</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{listing.category.toUpperCase()}</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <MaterialCommunityIcons name="eye-outline" size={12} color={theme.textDim} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                   {listing.viewsCount ?? listing.views ?? 0} wyświetleń
                 </Text>
               </View>
             </View>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', lineHeight: 26 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '900', lineHeight: 26 }}>
               {listing.title}
             </Text>
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 24, fontWeight: '900' }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 24, fontWeight: '900' }}>
               {formatPrice(listing.price)}
             </Text>
             {!!listing.location && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                 <MaterialCommunityIcons name="map-marker" size={16} color={theme.primary} />
-                <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 11 }}>
+                <Text style={{ color: theme.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                   {listing.location}
                 </Text>
               </View>
@@ -326,7 +324,7 @@ export default function ListingDetailScreen() {
           {specRows.length > 0 && (
             <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>
               <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>SPECYFIKACJA</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>SPECYFIKACJA</Text>
               </View>
               {specRows.map((row, i) => (
                 <View key={row.label} style={{
@@ -334,8 +332,8 @@ export default function ListingDetailScreen() {
                   borderBottomWidth: i < specRows.length - 1 ? 1 : 0, borderBottomColor: theme.border,
                 }}>
                   <MaterialCommunityIcons name={row.icon as any} size={16} color={theme.primary} />
-                  <Text style={{ flex: 1, color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, marginLeft: 10 }}>{row.label}</Text>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{row.value}</Text>
+                  <Text style={{ flex: 1, color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginLeft: 10 }}>{row.label}</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{row.value}</Text>
                 </View>
               ))}
             </View>
@@ -344,7 +342,7 @@ export default function ListingDetailScreen() {
           {/* Description */}
           {!!listing.description && (
             <View style={{ gap: 10 }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>OPIS</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>OPIS</Text>
               <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22 }}>{listing.description}</Text>
             </View>
           )}
@@ -361,13 +359,13 @@ export default function ListingDetailScreen() {
             <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {listing.seller.avatarUrl
                 ? <Image source={{ uri: listing.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-                : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '900' }}>{listing.seller.username.charAt(0).toUpperCase()}</Text>
+                : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '900' }}>{listing.seller.username.charAt(0).toUpperCase()}</Text>
               }
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>SPRZEDAJĄCY</Text>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>@{listing.seller.username}</Text>
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, marginTop: 4 }}>Zobacz profil</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>SPRZEDAJĄCY</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>@{listing.seller.username}</Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4 }}>Zobacz profil</Text>
             </View>
             <Feather name="chevron-right" size={20} color={theme.textDim} />
           </TouchableOpacity>
@@ -381,7 +379,7 @@ export default function ListingDetailScreen() {
                   onPress={() => router.push({ pathname: '/Community/market/add', params: { editId: String(listing.id) } } as any)}
                 >
                   <Feather name="edit-2" size={16} color={theme.primary} />
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>EDYTUJ</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>EDYTUJ</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: '#e3383520', borderWidth: 1.5, borderColor: '#e3383540', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
@@ -392,7 +390,7 @@ export default function ListingDetailScreen() {
                     ? <ActivityIndicator size="small" color="#e33835" />
                     : <>
                         <Feather name="trash-2" size={16} color="#e33835" />
-                        <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>USUŃ</Text>
+                        <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>USUŃ</Text>
                       </>
                   }
                 </TouchableOpacity>
@@ -400,13 +398,13 @@ export default function ListingDetailScreen() {
 
               <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
                     WIADOMOŚCI ({inquiries.length})
                   </Text>
                   {loadingInquiries && <ActivityIndicator size="small" color={theme.primary} />}
                 </View>
                 {inquiries.length === 0 && !loadingInquiries ? (
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                     Brak wiadomości od zainteresowanych.
                   </Text>
                 ) : (
@@ -429,7 +427,7 @@ export default function ListingDetailScreen() {
                         >
                           {conv.buyer.avatarUrl
                             ? <Image source={{ uri: conv.buyer.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-                            : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{conv.buyer.username.charAt(0).toUpperCase()}</Text>
+                            : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{conv.buyer.username.charAt(0).toUpperCase()}</Text>
                           }
                         </TouchableOpacity>
                         <TouchableOpacity
@@ -440,7 +438,7 @@ export default function ListingDetailScreen() {
                             params: { convId: String(conv.id) },
                           } as any)}
                         >
-                          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                             @{conv.buyer.username}
                           </Text>
                           <Text style={{ color: theme.textDim, fontSize: 12 }} numberOfLines={1}>{preview}</Text>
@@ -460,7 +458,7 @@ export default function ListingDetailScreen() {
               </View>
 
               <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, gap: 10 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
                   {listing.isPromoted ? 'PROMOWANIE AKTYWNE' : 'PROMUJ OGŁOSZENIE'}
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -469,7 +467,7 @@ export default function ListingDetailScreen() {
                     onPress={() => handlePromote('week')}
                     disabled={promoting}
                   >
-                    <Text style={{ color: '#268bff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                    <Text style={{ color: '#268bff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                       {promoting ? '...' : '7 DNI'}
                     </Text>
                   </TouchableOpacity>
@@ -478,7 +476,7 @@ export default function ListingDetailScreen() {
                     onPress={() => handlePromote('month')}
                     disabled={promoting}
                   >
-                    <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                    <Text style={{ color: '#FFD700', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                       {promoting ? '...' : '30 DNI'}
                     </Text>
                   </TouchableOpacity>
@@ -496,7 +494,7 @@ export default function ListingDetailScreen() {
                   padding: 12,
                 }}
                 >
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                     {listing.status === 'reserved' ? 'ZAREZERWOWANE — TRWA ZAKUP / ESCROW'
                       : listing.status === 'sold' ? 'SPRZEDANE'
                         : 'NIEDOSTĘPNE'}
@@ -513,7 +511,7 @@ export default function ListingDetailScreen() {
                   onPress={() => router.push({ pathname: '/Community/market/checkout', params: { id: String(listing.id) } } as any)}
                 >
                   <MaterialCommunityIcons name="cart-outline" size={20} color="#fff" />
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
                     KUP TERAZ
                   </Text>
                 </TouchableOpacity>
@@ -531,7 +529,7 @@ export default function ListingDetailScreen() {
                   ? <ActivityIndicator color={theme.primary} />
                   : <>
                       <MaterialCommunityIcons name="message-text-outline" size={18} color={theme.text} />
-                      <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
+                      <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
                         NAPISZ DO SPRZEDAJĄCEGO
                       </Text>
                     </>

@@ -1,13 +1,7 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import React, { memo } from 'react';
-import {
-  ActivityIndicator,
-  Platform,
-  Text,
-  TouchableOpacity,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, Platform, TouchableOpacity, View, type ViewStyle } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import {
   DriveSpeedTile,
   HudQuickReportButton,
@@ -134,7 +128,7 @@ export const MapScreenHud = memo(function MapScreenHud({
           }}
         >
           <ActivityIndicator size="small" color={theme.primary} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.mapOverlayText, letterSpacing: 0.5 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.mapOverlayText, letterSpacing: 0.5 }}>
             SZUKAM GPS…
           </Text>
         </View>
@@ -155,10 +149,10 @@ export const MapScreenHud = memo(function MapScreenHud({
         }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary }} />
           <View>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, letterSpacing: 2 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
               {timerRouteName.toUpperCase()}
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.mapOverlayText, fontWeight: '700', letterSpacing: 2 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: theme.mapOverlayText, fontWeight: '700', letterSpacing: 1 }}>
               {formatElapsed(elapsedSec)}
             </Text>
           </View>

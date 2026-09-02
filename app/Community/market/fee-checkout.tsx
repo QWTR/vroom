@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -295,7 +287,7 @@ export default function MarketFeeCheckoutScreen() {
           <Text style={{ color: theme.text }}>Wróć</Text>
         </TouchableOpacity>
 
-        <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 22 }}>{headline}</Text>
+        <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 22 }}>{headline}</Text>
         <Text style={{ color: theme.textDim, lineHeight: 20 }}>
           {isPromote
             ? 'Podaj adres rozliczeniowy. Stripe Tax obliczy finalny podatek przed otwarciem bezpiecznej płatności.'
@@ -304,20 +296,20 @@ export default function MarketFeeCheckoutScreen() {
 
         {!isPromote && unusedSlotId ? (
           <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 13 }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 13 }}>
               Masz już opłacony niewykorzystany slot
             </Text>
           </View>
         ) : (
           <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 8 }}>
             <Text style={{ color: theme.textDim }}>Cena przed podatkiem</Text>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 18 }}>
               {money(quote?.amount, quote?.currency)}
             </Text>
             {quote?.totalAmount != null && (
               <>
                 <Text style={{ color: theme.textDim }}>Podatek: {money(quote.taxAmount, quote.currency)}</Text>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 20 }}>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 20 }}>
                   Do zapłaty: {money(quote.totalAmount, quote.currency)}
                 </Text>
               </>
@@ -344,7 +336,7 @@ export default function MarketFeeCheckoutScreen() {
           {paying
             ? <ActivityIndicator color="#fff" />
             : (
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontWeight: '700' }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontWeight: '700' }}>
                 {unusedSlotId
                   ? 'Użyj opłaconego slotu'
                   : quote?.totalAmount != null
@@ -354,7 +346,7 @@ export default function MarketFeeCheckoutScreen() {
             )}
         </TouchableOpacity>
         {paymentId != null && (
-          <Text style={{ color: theme.textDim, textAlign: 'center', fontSize: 11 }}>Płatność #{paymentId}</Text>
+          <Text style={{ color: theme.textDim, textAlign: 'center', fontSize: 12 }}>Płatność #{paymentId}</Text>
         )}
       </ScrollView>
     </KeyboardAvoidingView>

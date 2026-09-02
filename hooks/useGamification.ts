@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from 'react-native-toast-message';
 import type { NavMode } from '../lib/navigationV3/types';
+import { emitNitroWalletUpdate } from '../lib/nitroWalletEvents';
+import { queryClient } from '../lib/query/client';
 import {
   ackGamificationReward,
   claimGeoDrop,
@@ -173,7 +175,7 @@ export function useGamification() {
 
   const presentDropClaimSuccess = useCallback((
     dropId: number,
-    result: { nitroGranted?: number; rarity?: string; wonReward?: unknown; rewardPool?: unknown; rollSeed?: string | null },
+    result: { nitroGranted?: number; rarity?: string; wonReward?: unknown; rewardPool?: unknown; rollSeed?: string | null; wallet?: { nitroBalance: number } },
   ) => {
     const wonReward = result.wonReward && typeof result.wonReward === 'object' ? result.wonReward as Record<string, unknown> : null;
     const reward: GamificationReward = {
@@ -191,9 +193,14 @@ export function useGamification() {
         wonReward: result.wonReward ?? null,
         rewardPool: Array.isArray(result.rewardPool) ? result.rewardPool : [],
         rollSeed: result.rollSeed ?? null,
+        balanceAfter: result.wallet?.nitroBalance ?? null,
       },
       createdAt: new Date().toISOString(),
     };
+    if (result.wallet) {
+      emitNitroWalletUpdate(result.wallet);
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
+    }
     const hadNavigationTarget = dropNavigationTargetIdRef.current === dropId;
     purgeDrop(dropId);
     claimingDropIdsRef.current.delete(dropId);
@@ -213,6 +220,11 @@ export function useGamification() {
     if (shownRewardIdsRef.current.has(reward.id)) return;
 
     if (isDropClaimReward(reward)) {
+      const balanceAfter = Number(reward.payload?.balanceAfter);
+      if (Number.isFinite(balanceAfter)) {
+        emitNitroWalletUpdate({ nitroBalance: balanceAfter });
+        void queryClient.invalidateQueries({ queryKey: ['profile'] });
+      }
       const dropId = Number(reward.payload?.dropId);
       if (claimedDropRewardRef.current) {
         shownRewardIdsRef.current.add(reward.id);
@@ -321,12 +333,32 @@ export function useGamification() {
           wonReward: result.wonReward,
           rewardPool: result.rewardPool,
           rollSeed: result.rollSeed,
+          wallet: result.wallet,
         });
         return;
       }
 
       claimingDropIdsRef.current.delete(dropId);
-      if (result.error === 'DROP_ALREADY_CLAIMED' || result.error === 'DROP_NOT_AVAILABLE') {
+      if (result.error === 'DROP_REWARD_REQUIRES_REVIEW') {
+        const hadNavigationTarget = dropNavigationTargetIdRef.current === dropId;
+        purgeDrop(dropId);
+        Toast.show({
+          type: 'error',
+          text1: 'NAGRODA WYMAGA KONTROLI',
+          text2: 'Zrzut jest zapisany w historii. Saldo nie zostanie zmienione drugi raz automatycznie.',
+          visibilityTime: 6500,
+        } as any);
+        if (hadNavigationTarget) {
+          const reviewReward: GamificationReward = {
+            id: -dropId,
+            type: 'drop_reward_review',
+            title: 'Nagroda wymaga kontroli',
+            payload: { dropId },
+            createdAt: new Date().toISOString(),
+          };
+          queueMicrotask(() => dropClaimHandlerRef.current?.(dropId, reviewReward, { hadNavigationTarget: true }));
+        }
+      } else if (result.error === 'DROP_ALREADY_CLAIMED' || result.error === 'DROP_NOT_AVAILABLE') {
         purgeDrop(dropId);
         const pending = await fetchPendingGamificationRewards();
         const serverReward = pending.find((item) =>

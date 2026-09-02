@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, TouchableOpacity, Image, ActivityIndicator, Linking } from 'react-native';
-import { Text } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Audio } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -269,7 +269,7 @@ export function SpotifyProfileTrackRow({
           }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
             <MaterialIcons name="volume-up" size={18} color={accent} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, flex: 1 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, flex: 1 }}>
               Gra muzyka profilu
             </Text>
           </View>
@@ -286,7 +286,7 @@ export function SpotifyProfileTrackRow({
               backgroundColor: 'rgba(0,0,0,0.35)',
             }}>
             <MaterialIcons name="volume-off" size={16} color="#fff" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff' }}>WYCISZ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff' }}>WYCISZ</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -341,14 +341,14 @@ export function SpotifyProfileTrackRow({
           </View>
         </TouchableOpacity>
         <TouchableOpacity onPress={togglePreview} activeOpacity={0.85} style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: accent, letterSpacing: 1.5, marginBottom: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent, letterSpacing: 1, marginBottom: 4 }}>
             {displayLabel}
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
             {track.trackName}
           </Text>
           {!!track.artistName && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1, marginTop: 3 }} numberOfLines={1}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginTop: 3 }} numberOfLines={1}>
               {track.artistName}
             </Text>
           )}
@@ -363,7 +363,7 @@ export function SpotifyProfileTrackRow({
             />
           </View>
           {!hasPreview && !loading && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1, marginTop: 5, opacity: 0.85 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginTop: 5, opacity: 0.85 }}>
               {openHint}
             </Text>
           )}

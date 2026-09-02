@@ -1,24 +1,12 @@
 import React, { useEffect } from 'react';
-import {
-  Animated,
-  Dimensions,
-  FlatList,
-  Linking,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Animated, FlatList, Linking, StyleSheet, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { usePartnerBanners } from '../../hooks/usePartnerBanners';
 import { withAlpha } from '../../constants/theme';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = Math.min(SCREEN_WIDTH - 64, 304);
-const SNAP_INTERVAL = CARD_WIDTH + 12;
-const BANNER_HEIGHT = 156;
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 interface Props {
   theme: any;
@@ -28,6 +16,12 @@ interface Props {
 
 export function PartnerBannersSection({ theme, isDark, fadeAnim }: Props) {
   const { banners, fetchBanners } = usePartnerBanners();
+  const { textScale } = useReadability();
+  const { width, fontScale } = useWindowDimensions();
+  const effectiveScale = Math.min(2, textScale * fontScale);
+  const expandedLayout = effectiveScale >= 1.2 || width < 370;
+  const cardWidth = Math.min(width - 64, expandedLayout ? 330 : 304);
+  const bannerHeight = Math.round(156 + Math.max(0, effectiveScale - 1) * 100);
 
   useEffect(() => {
     fetchBanners();
@@ -37,7 +31,7 @@ export function PartnerBannersSection({ theme, isDark, fadeAnim }: Props) {
 
   return (
     <Animated.View style={[styles.section, { opacity: fadeAnim }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, expandedLayout && styles.headerExpanded]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.eyebrow, { color: theme.primary }]}>PARTNERZY VROOM</Text>
           <Text style={[styles.subtitle, { color: theme.textDim }]}>Marki i miejsca warte sprawdzenia</Text>
@@ -53,7 +47,7 @@ export function PartnerBannersSection({ theme, isDark, fadeAnim }: Props) {
         keyExtractor={(item) => String(item.id)}
         horizontal
         showsHorizontalScrollIndicator={false}
-        snapToInterval={SNAP_INTERVAL}
+        snapToInterval={cardWidth + 12}
         decelerationRate="fast"
         snapToAlignment="start"
         disableIntervalMomentum
@@ -67,6 +61,8 @@ export function PartnerBannersSection({ theme, isDark, fadeAnim }: Props) {
             style={[
               styles.card,
               {
+                width: cardWidth,
+                minHeight: bannerHeight,
                 backgroundColor: theme.surface,
                 borderColor: isDark ? theme.primaryBorder : theme.border2,
               },
@@ -102,16 +98,17 @@ export function PartnerBannersSection({ theme, isDark, fadeAnim }: Props) {
 const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   header: { paddingHorizontal: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
-  eyebrow: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 2 },
-  subtitle: { fontSize: 10, marginTop: 4 },
+  headerExpanded: { flexWrap: 'wrap', alignItems: 'flex-start' },
+  eyebrow: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  subtitle: { fontSize: 12, marginTop: 4 },
   verified: { minHeight: 28, borderRadius: 14, borderWidth: 1, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  verifiedText: { fontFamily: 'Orbitron', fontSize: 5.5, fontWeight: '900', letterSpacing: 0.4 },
+  verifiedText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.4 },
   list: { paddingHorizontal: 20, gap: 12 },
-  card: { width: CARD_WIDTH, height: BANNER_HEIGHT, borderRadius: 23, overflow: 'hidden', borderWidth: 1 },
+  card: { borderRadius: 23, overflow: 'hidden', borderWidth: 1 },
   partnerPill: { position: 'absolute', left: 12, top: 12, minHeight: 26, borderRadius: 13, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.72)' },
-  partnerPillText: { color: '#fff', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '900', letterSpacing: 0.7 },
+  partnerPillText: { color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
   copy: { position: 'absolute', left: 15, right: 15, bottom: 13 },
   title: { color: '#fff', fontSize: 15, lineHeight: 19, fontWeight: '900' },
   visitRow: { marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  visitText: { color: 'rgba(255,255,255,0.78)', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '900', letterSpacing: 0.7 },
+  visitText: { color: 'rgba(255,255,255,0.78)', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
 });

@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator,
-  FlatList, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Image, ActivityIndicator, FlatList, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -112,7 +110,7 @@ function CarPhotoCarousel({ photos, cardWidth, theme }: { photos: string[]; card
       )}
       {photos.length > 1 && (
         <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#000000aa', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
             {active + 1}/{photos.length}
           </Text>
         </View>
@@ -220,22 +218,22 @@ export default function MeetApplicationsScreen() {
             <View style={{ width: 44, height: 44, borderRadius: 22, overflow: 'hidden', backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center' }}>
               {app.user.avatarUrl
                 ? <Image source={{ uri: app.user.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>{app.user.username.charAt(0).toUpperCase()}</Text>
+                : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>{app.user.username.charAt(0).toUpperCase()}</Text>
               }
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>@{app.user.username}</Text>
-              <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>Zgłoszono: {formatDt(app.participantAppliedAt)}</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700' }}>@{app.user.username}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>Zgłoszono: {formatDt(app.participantAppliedAt)}</Text>
             </View>
             <View style={{ backgroundColor: st.color + '20', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: st.color + '50' }}>
-              <Text style={{ color: st.color, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{st.label}</Text>
+              <Text style={{ color: st.color, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{st.label}</Text>
             </View>
           </View>
 
           {car && (
             <View style={{ gap: 8 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>AUTO</Text>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 15, fontWeight: '700' }}>{car.brand}</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>AUTO</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '700' }}>{car.brand}</Text>
               <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 20 }}>{car.specs}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {!!car.year && (
@@ -272,7 +270,7 @@ export default function MeetApplicationsScreen() {
               }}
             >
               <MaterialCommunityIcons name="instagram" size={20} color="#fff" />
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>
                 DODAJ NA STORY!
               </Text>
             </TouchableOpacity>
@@ -285,7 +283,7 @@ export default function MeetApplicationsScreen() {
                 disabled={acting === app.userId}
                 style={{ flex: 1, backgroundColor: '#e3383515', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#e3383540' }}
               >
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ODRZUĆ</Text>
+                <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ODRZUĆ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => review(app.userId, 'approved')}
@@ -294,7 +292,7 @@ export default function MeetApplicationsScreen() {
               >
                 {acting === app.userId
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ZATWIERDŹ</Text>
+                  : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZATWIERDŹ</Text>
                 }
               </TouchableOpacity>
             </View>
@@ -308,11 +306,11 @@ export default function MeetApplicationsScreen() {
     <>
       {freeQuota > 0 && (
         <View style={{ marginBottom: 12, backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border }}>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE VROOM — UCZESTNICY Z AUTEM</Text>
-          <Text style={{ color: freeRemaining > 0 ? '#4de926' : theme.textDim, fontFamily: 'Orbitron', fontSize: 20, fontWeight: '700', marginTop: 4 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>FREE VROOM — UCZESTNICY Z AUTEM</Text>
+          <Text style={{ color: freeRemaining > 0 ? '#4de926' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '700', marginTop: 4 }}>
             {freeRemaining} / {freeQuota}
           </Text>
-          <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>Free przydzielane przy skanie QR na miejscu</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>Free przydzielane przy skanie QR na miejscu</Text>
         </View>
       )}
 
@@ -328,7 +326,7 @@ export default function MeetApplicationsScreen() {
               backgroundColor: filter === f.key ? theme.primaryBg : theme.surface,
             }}
           >
-            <Text style={{ color: filter === f.key ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+            <Text style={{ color: filter === f.key ? theme.primary : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               {f.label}
             </Text>
           </TouchableOpacity>
@@ -336,7 +334,7 @@ export default function MeetApplicationsScreen() {
       </ScrollView>
 
       {total > 0 && (
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 12 }}>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 12 }}>
           ŁĄCZNIE {total} ZGŁOSZEŃ · STRONA {page}/{totalPages}
         </Text>
       )}
@@ -356,7 +354,7 @@ export default function MeetApplicationsScreen() {
       >
         <MaterialIcons name="chevron-left" size={24} color={theme.text} />
       </TouchableOpacity>
-      <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', minWidth: 80, textAlign: 'center' }}>
+      <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', minWidth: 80, textAlign: 'center' }}>
         {page} / {totalPages}
       </Text>
       <TouchableOpacity
@@ -404,7 +402,7 @@ function Tag({ icon, label, theme, accent }: { icon: string; label: string; them
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}>
       <MaterialIcons name={icon as any} size={12} color={accent || theme.textDim} />
-      <Text style={{ fontFamily: 'Orbitron', color: accent || theme.textDim, fontSize: 9, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: accent || theme.textDim, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </View>
   );
 }

@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity,
-  Pressable, Platform, Alert,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Platform, Alert } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { SpeedCamera } from '../../hooks/useSpeedCamera';
@@ -110,15 +108,15 @@ export function SpeedCameraDetailModal({
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, fontWeight: '700' }}>
                 {isBump ? 'PRÓG ZWALNIAJĄCY' : `FOTORADAR ${meta.label}`}
               </Text>
               {isSystem ? (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#268bff', marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#268bff', marginTop: 2 }}>
                   Zweryfikowany punkt (OSM)
                 </Text>
               ) : (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                   dodany przez @{camera.addedBy?.username ?? 'użytkownik'}
                 </Text>
               )}
@@ -136,12 +134,12 @@ export function SpeedCameraDetailModal({
                 <MaterialCommunityIcons name="speedometer-slow" size={28} color="#4de926" />
               ) : camera.maxspeed !== null ? (
                 <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', borderWidth: 4, borderColor: '#cc0000', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: camera.maxspeed >= 100 ? 11 : 14, color: '#111', fontWeight: '900' }}>{camera.maxspeed}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: camera.maxspeed >= 100 ? 11 : 14, color: '#111', fontWeight: '900' }}>{camera.maxspeed}</Text>
                 </View>
               ) : (
                 <MaterialIcons name="speed" size={28} color={theme.textDim} />
               )}
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                 {isBump ? 'PRÓG' : camera.maxspeed ? `${camera.maxspeed} km/h` : 'NIEZNANY LIMIT'}
               </Text>
             </View>
@@ -149,16 +147,16 @@ export function SpeedCameraDetailModal({
             {/* Odległość */}
             <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <MaterialIcons name="near-me" size={28} color="#268bff" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#268bff', fontWeight: '700' }}>{dist}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>ODLEGŁOŚĆ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: '#268bff', fontWeight: '700' }}>{dist}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>ODLEGŁOŚĆ</Text>
             </View>
 
             {/* Potwierdzenia — ukryte dla punktów systemowych */}
             {!isSystem && (
               <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <MaterialIcons name="verified" size={28} color="#4de926" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#4de926', fontWeight: '700' }}>{count}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>POTWIERDZEŃ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: '#4de926', fontWeight: '700' }}>{count}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>POTWIERDZEŃ</Text>
               </View>
             )}
           </View>
@@ -172,7 +170,7 @@ export function SpeedCameraDetailModal({
               borderWidth: 1,
               borderColor: '#268bff35',
             }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#268bff', lineHeight: 14 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#268bff', lineHeight: 16 }}>
                 Oficjalny punkt z map OpenStreetMap. Nie można go edytować ani głosować na niego.
               </Text>
             </View>
@@ -187,7 +185,7 @@ export function SpeedCameraDetailModal({
               activeOpacity={0.85}
             >
               <MaterialIcons name={confirmed ? 'check-circle' : 'check-circle-outline'} size={20} color="#4de926" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#4de926', fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>
                 {confirming ? 'WYSYŁAM...' : confirmed ? 'POTWIERDZONO' : 'POTWIERDŹ'}
               </Text>
             </TouchableOpacity>
@@ -202,7 +200,7 @@ export function SpeedCameraDetailModal({
               activeOpacity={0.85}
             >
               <MaterialIcons name="delete-outline" size={20} color="#e33835" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#e33835', fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>
                 {deleting ? 'USUWAM...' : 'USUŃ ZGŁOSZENIE'}
               </Text>
             </TouchableOpacity>

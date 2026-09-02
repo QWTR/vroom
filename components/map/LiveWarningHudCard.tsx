@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { memo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import { formatWarningDistance, type UpcomingWarning } from '../../lib/warnings/warningAhead';
 import { WARNING_CATALOG, warningSubtypeLabel } from '../../lib/warnings/warningCatalog';
@@ -77,8 +78,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   copy: { flex: 1, minWidth: 0 },
-  title: { fontSize: 11, fontWeight: '800' },
-  distance: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', marginTop: 1 },
+  title: { fontSize: 12, fontWeight: '800' },
+  distance: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', marginTop: 1 },
   count: { minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
-  countText: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  countText: { color: '#fff', fontSize: 12, fontWeight: '900' },
 });

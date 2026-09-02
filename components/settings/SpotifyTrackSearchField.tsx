@@ -1,15 +1,6 @@
 import React, { memo, useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Platform,
-} from 'react-native';
+import { View, TouchableOpacity, Image, ActivityIndicator, ScrollView, StyleSheet, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -211,7 +202,7 @@ export const SpotifyTrackSearchField = memo(function SpotifyTrackSearchField({
 
 const styles = StyleSheet.create({
   wrap: { gap: 10 },
-  hint: { fontFamily: 'Orbitron', fontSize: 8, lineHeight: 14 },
+  hint: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, lineHeight: 16 },
   inputShell: {
     minHeight: 46,
     borderRadius: 10,
@@ -220,8 +211,8 @@ const styles = StyleSheet.create({
     paddingRight: 40,
   },
   input: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 10,
   },
@@ -234,7 +225,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: 28,
   },
-  empty: { fontFamily: 'Orbitron', fontSize: 8 },
+  empty: { fontFamily: 'Manrope_600SemiBold', fontSize: 12 },
   listOuter: {
     maxHeight: 240,
     borderRadius: 10,
@@ -265,8 +256,8 @@ const styles = StyleSheet.create({
   thumb: { width: 40, height: 40 },
   thumbPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1 },
-  trackTitle: { fontFamily: 'Orbitron', fontSize: 9, fontWeight: '600' },
-  artist: { fontFamily: 'Orbitron', fontSize: 8, marginTop: 3 },
-  previewOk: { fontFamily: 'Orbitron', fontSize: 7, color: '#1DB954', marginTop: 4 },
-  previewNo: { fontFamily: 'Orbitron', fontSize: 7, marginTop: 4, opacity: 0.85 },
+  trackTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '600' },
+  artist: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 3 },
+  previewOk: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#1DB954', marginTop: 4 },
+  previewNo: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4, opacity: 0.85 },
 });

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -98,7 +97,7 @@ export default function VehicleOrdersListScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  title: { fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' },
   card: { borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 10 },
   cardTitle: { fontWeight: '700', fontSize: 15 },
 });

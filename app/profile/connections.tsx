@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
@@ -153,14 +146,14 @@ export default function ConnectionsScreen() {
           <TouchableOpacity onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border }}>
             <MaterialIcons name="arrow-back" size={22} color={theme.text} />
           </TouchableOpacity>
-          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontWeight: '800', fontSize: 15, letterSpacing: 1.5 }}>{title}</Text>
+          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontWeight: '800', fontSize: 15, letterSpacing: 1 }}>{title}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
           {(['followers', 'following'] as Tab[]).map((key) => {
             const active = tab === key;
             return (
               <TouchableOpacity key={key} onPress={() => setTab(key)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: active ? `${theme.primary}22` : theme.surface, borderWidth: 1, borderColor: active ? theme.primary : theme.border }}>
-                <Text style={{ color: active ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{key === 'followers' ? 'OBSERWUJĄCY' : 'OBSERWOWANI'}</Text>
+                <Text style={{ color: active ? theme.primary : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{key === 'followers' ? 'OBSERWUJĄCY' : 'OBSERWOWANI'}</Text>
               </TouchableOpacity>
             );
           })}
@@ -188,10 +181,10 @@ export default function ConnectionsScreen() {
               {item.avatarUrl ? <Image source={{ uri: item.avatarUrl }} style={{ width: 48, height: 48, borderRadius: 16 }} contentFit="cover" /> : <View style={{ width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.border }}><MaterialIcons name="person" size={24} color={theme.textDim} /></View>}
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={{ color: theme.text, fontWeight: '800', fontSize: 15 }}>{item.username}</Text>
-                {!!item.location && <Text numberOfLines={1} style={{ color: theme.textDim, fontSize: 11, marginTop: 3 }}>{item.location}</Text>}
+                {!!item.location && <Text numberOfLines={1} style={{ color: theme.textDim, fontSize: 12, marginTop: 3 }}>{item.location}</Text>}
               </View>
               {item.canFollow && <TouchableOpacity onPress={(event) => { event.stopPropagation(); void toggleFollow(item); }} disabled={changingId === item.id} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: item.isFollowing ? theme.border : `${theme.primary}22`, borderWidth: 1, borderColor: item.isFollowing ? theme.border : theme.primary }}>
-                <Text style={{ color: item.isFollowing ? theme.textDim : theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{item.isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}</Text>
+                <Text style={{ color: item.isFollowing ? theme.textDim : theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}</Text>
               </TouchableOpacity>}
             </TouchableOpacity>
           )}

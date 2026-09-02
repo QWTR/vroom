@@ -1,5 +1,6 @@
 import React, { type ReactNode } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { ChatHeaderStatus } from './types';
@@ -155,7 +156,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' },
+  avatarText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' },
   onlineDot: {
     position: 'absolute',
     bottom: 0,
@@ -166,9 +167,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   titleBlock: { flex: 1, gap: 3 },
-  title: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statusText: { fontFamily: 'Orbitron', fontSize: 8 },
+  statusText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12 },
   capsule: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  capsuleText: { fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, fontWeight: '700' },
+  capsuleText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   dot: { width: 6, height: 6, borderRadius: 3 },
   iconBtn: {
     width: 36,

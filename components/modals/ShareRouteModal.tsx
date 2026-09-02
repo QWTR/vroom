@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  FlatList, ActivityIndicator, Image,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, FlatList, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -126,7 +124,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border }}>
             <MaterialCommunityIcons name="map-marker-path" size={18} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>WYŚLIJ TRASĘ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, flex: 1 }}>WYŚLIJ TRASĘ</Text>
             <TouchableOpacity onPress={handleClose} style={{ padding: 4 }}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
             </TouchableOpacity>
@@ -139,8 +137,8 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                 <RouteMiniMap points={route.points} width={80} height={50} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{route.name}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 3 }}>{route.distance.toFixed(1)} km · {route.points.length} pkt</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{route.name}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 3 }}>{route.distance.toFixed(1)} km · {route.points.length} pkt</Text>
               </View>
             </View>
           )}
@@ -158,7 +156,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                   ? <MaterialIcons name="chat" size={13} color={tab === t ? '#fff' : theme.textDim} />
                   : <MaterialCommunityIcons name="map-marker-path" size={13} color={tab === t ? '#fff' : theme.textDim} />
                 }
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: tab === t ? '#fff' : theme.textDim, fontWeight: '700' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: tab === t ? '#fff' : theme.textDim, fontWeight: '700' }}>
                   {t === 'chat' ? 'CZAT' : 'TRASY'}
                 </Text>
               </TouchableOpacity>
@@ -176,7 +174,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                 style={{ maxHeight: 340 }}
                 contentContainerStyle={{ paddingBottom: 20 }}
                 showsVerticalScrollIndicator={false}
-                ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
+                ListEmptyComponent={<Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
                 renderItem={({ item: conv }) => {
                   const other  = conv.participants?.find((p: any) => p.id !== myId);
                   const name   = conv.isGroup ? conv.name : other?.username ?? '?';
@@ -187,12 +185,12 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                       {avatar
                         ? <Image source={{ uri: avatar }} style={{ width: 42, height: 42, borderRadius: 21 }} />
                         : <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center' }}>
-                            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
+                            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
                           </View>
                       }
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '600' }} numberOfLines={1}>{name}</Text>
-                        {conv.isGroup && <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>{conv.participants?.length} uczestników</Text>}
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '600' }} numberOfLines={1}>{name}</Text>
+                        {conv.isGroup && <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>{conv.participants?.length} uczestników</Text>}
                       </View>
                       <TouchableOpacity
                         style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
@@ -206,8 +204,8 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                         {sending === conv.id
                           ? <ActivityIndicator size={14} color="#fff" />
                           : isSent
-                          ? <><MaterialIcons name="check" size={13} color="#4de926" /><Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#4de926', fontWeight: '700' }}>WYSŁANO</Text></>
-                          : <><Feather name="send" size={13} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text></>
+                          ? <><MaterialIcons name="check" size={13} color="#4de926" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>WYSŁANO</Text></>
+                          : <><Feather name="send" size={13} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text></>
                         }
                       </TouchableOpacity>
                     </View>
@@ -225,18 +223,18 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                   <View style={{ width: 72, height: 72, borderRadius: 22, backgroundColor: '#4de92615', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#4de92630' }}>
                     <MaterialIcons name="check-circle" size={40} color="#4de926" />
                   </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 2 }}>UDOSTĘPNIONO!</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, textAlign: 'center', lineHeight: 16 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>UDOSTĘPNIONO!</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center', lineHeight: 16 }}>
                     Trasa jest widoczna w zakładce{' '}
                     <Text style={{ color: theme.primary }}>Społeczność → Trasy</Text>
                   </Text>
                   <TouchableOpacity style={{ backgroundColor: '#4de926', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12, marginTop: 8 }} onPress={handleClose}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#000', fontWeight: '700' }}>GOTOWE</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#000', fontWeight: '700' }}>GOTOWE</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
                 <>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, lineHeight: 16, marginBottom: 20 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, lineHeight: 16, marginBottom: 20 }}>
                     Trasa pojawi się tylko w zakładce{' '}
                     <Text style={{ color: theme.primary }}>Społeczność → Trasy</Text>.
                     {' '}Bez posta w Dyskusjach.
@@ -247,7 +245,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                   >
                     {postingComm
                       ? <ActivityIndicator size={14} color="#fff" />
-                      : <><MaterialCommunityIcons name="map-marker-path" size={15} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>DODAJ DO TRAS</Text></>
+                      : <><MaterialCommunityIcons name="map-marker-path" size={15} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>DODAJ DO TRAS</Text></>
                     }
                   </TouchableOpacity>
                 </>

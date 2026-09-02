@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity,
-  Pressable, Platform, ScrollView,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Platform, ScrollView } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -85,10 +83,10 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
                 <MaterialCommunityIcons name="camera-plus-outline" size={20} color="#e33835" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700' }}>
                   ZGŁOŚ PRZESZKODĘ
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                   GPS lub punkt na mapie (celownik)
                 </Text>
               </View>
@@ -99,7 +97,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
 
             {/* Typ */}
             <Text style={{
-              fontFamily: 'Orbitron', fontSize: 9,
+              fontFamily: 'Manrope_600SemiBold', fontSize: 12,
               color: theme.textDim, letterSpacing: 1, marginBottom: 8,
             }}>
               TYP
@@ -139,14 +137,14 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{
-                      fontFamily: 'Orbitron', fontSize: 9,
+                      fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                       color:      selectedType === ct.value ? ct.color : theme.text,
                       fontWeight: '700',
                     }}>
                       {ct.label}
                     </Text>
                     <Text style={{
-                      fontFamily: 'Orbitron', fontSize: 7,
+                      fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                       color: theme.textDim, marginTop: 2,
                     }}>
                       {ct.desc}
@@ -160,7 +158,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
             {!isBump && (
               <>
                 <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 9,
+                  fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                   color: theme.textDim, letterSpacing: 1, marginBottom: 8,
                 }}>
                   LIMIT PRĘDKOŚCI (opcjonalnie)
@@ -183,7 +181,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
                     }}
                   >
                     <Text style={{
-                      fontFamily: 'Orbitron', fontSize: 10,
+                      fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                       color: selectedSpeed === null ? theme.text : theme.textDim,
                     }}>?</Text>
                   </TouchableOpacity>
@@ -204,7 +202,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
                       }}
                     >
                       <Text style={{
-                        fontFamily: 'Orbitron',
+                        fontFamily: 'Manrope_600SemiBold',
                         fontSize:   s >= 100 ? 9 : 11,
                         color:      selectedSpeed === s ? '#111' : theme.textDim,
                         fontWeight: '900',
@@ -245,7 +243,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
               >
                 <MaterialCommunityIcons name="crosshairs-gps" size={20} color={theme.text} />
                 <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 11,
+                  fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                   color: theme.text, fontWeight: '700', letterSpacing: 0.5,
                 }}>
                   WSKAŻ NA MAPIE
@@ -273,7 +271,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }
                 color="#fff"
               />
               <Text style={{
-                fontFamily: 'Orbitron', fontSize: 12,
+                fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                 color: '#fff', fontWeight: '700', letterSpacing: 1,
               }}>
                 {isBump ? 'DODAJ PRÓG (TU JESTEM)' : 'DODAJ TU (GPS)'}

@@ -1,14 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  RefreshControl,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, FlatList, RefreshControl, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -174,13 +166,13 @@ export default function MarketOrdersScreen() {
             </View>
           )}
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={2}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={2}>
               {item.listing.title}
             </Text>
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 13 }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 13 }}>
               {money(isBuyer ? item.totalAmount : item.sellerNetAmount)}
             </Text>
-            <Text style={{ color: theme.textDim, fontSize: 11 }}>
+            <Text style={{ color: theme.textDim, fontSize: 12 }}>
               {STATUS_LABEL[item.status] || item.status}
               {' · '}
               {isBuyer ? `@${item.seller.username}` : `@${item.buyer.username}`}
@@ -197,13 +189,13 @@ export default function MarketOrdersScreen() {
             >
               {busyId === item.id
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ODEBRAŁEM</Text>}
+                : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ODEBRAŁEM</Text>}
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { setDisputeFor(item.id); setDisputeReason(''); }}
               style={{ paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: theme.border, justifyContent: 'center' }}
             >
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>SPÓR</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>SPÓR</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -234,7 +226,7 @@ export default function MarketOrdersScreen() {
               alignItems: 'center',
             }}
           >
-            <Text style={{ color: tab === key ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+            <Text style={{ color: tab === key ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               {key === 'bought' ? 'KUPIŁEM' : 'SPRZEDAŁEM'}
             </Text>
           </TouchableOpacity>
@@ -251,7 +243,7 @@ export default function MarketOrdersScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} tintColor={theme.primary} />}
           ListEmptyComponent={(
-            <Text style={{ color: theme.textDim, textAlign: 'center', marginTop: 40, fontFamily: 'Orbitron', fontSize: 11 }}>
+            <Text style={{ color: theme.textDim, textAlign: 'center', marginTop: 40, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
               Brak zamówień
             </Text>
           )}
@@ -264,7 +256,7 @@ export default function MarketOrdersScreen() {
           backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10,
         }}
         >
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>Powód sporu</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Powód sporu</Text>
           <TextInput
             value={disputeReason}
             onChangeText={setDisputeReason}
@@ -275,13 +267,13 @@ export default function MarketOrdersScreen() {
           />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity onPress={() => setDisputeFor(null)} style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>Anuluj</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Anuluj</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={submitDispute}
               style={{ flex: 1, backgroundColor: theme.primary, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
             >
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>Wyślij</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>Wyślij</Text>
             </TouchableOpacity>
           </View>
         </View>

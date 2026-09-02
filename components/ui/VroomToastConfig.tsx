@@ -27,13 +27,13 @@ function makeTextStyles(textMain: string, textSecondary: string) {
   const text1Style: TextStyle = {
     color: textMain,
     fontSize: 13,
-    fontFamily: 'OrbitronBold',
+    fontFamily: 'Manrope_700Bold',
     flexShrink: 1,
   };
   const text2Style: TextStyle = {
     color: textSecondary,
-    fontSize: 11,
-    fontFamily: 'Orbitron',
+    fontSize: 12,
+    fontFamily: 'Manrope_600SemiBold',
     flexShrink: 1,
     marginTop: 2,
   };

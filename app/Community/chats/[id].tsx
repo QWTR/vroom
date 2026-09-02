@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import {
   View, FlatList, TouchableOpacity, Image, StatusBar, Platform, Modal, Pressable, Dimensions,
 } from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -447,13 +447,13 @@ export default function ChatScreen() {
     return (
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginRight: 6, marginBottom: 8 }}>
         <TouchableOpacity onPress={() => retrySocialOperation(requestId)}>
-          <Text style={{ color: theme.primary, fontSize: 10 }}>SPRÓBUJ PONOWNIE</Text>
+          <Text style={{ color: theme.primary, fontSize: 12 }}>SPRÓBUJ PONOWNIE</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => {
           void removeSocialOperation(requestId);
           setMessages(prev => prev.filter(item => item.clientRequestId !== requestId));
         }}>
-          <Text style={{ color: theme.textDim, fontSize: 10 }}>USUŃ</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12 }}>USUŃ</Text>
         </TouchableOpacity>
       </View>
     );
@@ -546,7 +546,7 @@ export default function ChatScreen() {
                       backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder,
                       alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }}>
+                      <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>
                         {convName?.slice(0, 2).toUpperCase() ?? '??'}
                       </Text>
                     </View>
@@ -561,11 +561,11 @@ export default function ChatScreen() {
                   )}
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                     {convName}
                   </Text>
                   {typingText ? (
-                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' }}>
+                    <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontStyle: 'italic' }}>
                       {typingText}
                     </Text>
                   ) : (
@@ -575,7 +575,7 @@ export default function ChatScreen() {
                       backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border,
                     }}>
                       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: convOnline ? theme.online : theme.textDim }} />
-                      <Text style={{ color: convOnline ? theme.online : theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, fontWeight: '700' }}>
+                      <Text style={{ color: convOnline ? theme.online : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '700' }}>
                         {convOnline ? 'ONLINE' : 'OFFLINE'}
                       </Text>
                     </View>

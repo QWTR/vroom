@@ -1,9 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import {
-  View, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator, Switch, Modal, Image, Share,
-  KeyboardAvoidingView, Keyboard, Platform, Linking, Alert, Text,
-} from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Switch, Modal, Image, Share, KeyboardAvoidingView, Keyboard, Platform, Linking, Alert } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ResizeMode, Video } from 'expo-av';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -21,6 +18,7 @@ import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useSettings }  from '../../hooks/useSettings';
 import { useTheme }     from '../../contexts/ThemeContext';
+import { useReadability } from '../../contexts/ReadabilityContext';
 import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { useProfile } from '../../hooks/useProfile';
 import { useEquippedMapVehicle } from '../../hooks/useEquippedMapVehicle';
@@ -114,6 +112,12 @@ const SETTINGS_TABS = [
   { key: 'app', label: 'Aplikacja', icon: 'apps' },
   { key: 'session', label: 'Sesja', icon: 'logout' },
 ] as const;
+const TEXT_SIZE_OPTIONS = [
+  { key: 'small' as const, label: 'Mały', sample: 'Aa−' },
+  { key: 'standard' as const, label: 'Standardowy', sample: 'Aa' },
+  { key: 'large' as const, label: 'Duży', sample: 'Aa+' },
+  { key: 'veryLarge' as const, label: 'Bardzo duży', sample: 'Aa++' },
+];
 type SettingsTabKey = typeof SETTINGS_TABS[number]['key'];
 
 const MARKER_STYLES = [
@@ -147,6 +151,7 @@ export default function SettingsScreen() {
   const openBugHandledRef = React.useRef(false);
   const discordResultHandledRef = React.useRef(false);
   const { theme, isDark, mode, presetId, setMode, setPreset, availablePresets } = useTheme();
+  const { textSize, setTextSize } = useReadability();
   const { profile, fetchProfile } = useProfile();
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
@@ -176,17 +181,17 @@ export default function SettingsScreen() {
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = theme.bgAlt;
   const cardBg    = theme.surface;
-  const cardBorder= theme.border2;
+  const cardBorder= theme.controlBorder;
   const rowAlt    = theme.surface2;
-  const divider   = theme.border;
+  const divider   = theme.border2;
   const textMain  = theme.text;
-  const textDim   = theme.textDim;
+  const textDim   = theme.textMuted;
   const textMuted = theme.textMuted;
   const overlayBg = theme.overlay;
   const inputBg   = theme.surface3;
-  const inputBorder= theme.border2;
+  const inputBorder= theme.controlBorder;
   const cancelBg  = theme.surface2;
-  const cancelBorder= theme.border2;
+  const cancelBorder= theme.controlBorder;
   const scanLine  = isDark ? '#ffffff03' : '#00000003';
   const heroGrad  = isDark
     ? ['#1a0404', '#0e0202', bg] as const
@@ -1089,7 +1094,7 @@ export default function SettingsScreen() {
         >
           <MaterialIcons name='arrow-back' size={20} color={textMain} />
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain, letterSpacing: 2 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain, letterSpacing: 1 }}>
           USTAWIENIA
         </Text>
         <View style={{ width: 38 }} />
@@ -1232,11 +1237,11 @@ export default function SettingsScreen() {
             </View>
             <Text
               style={{
-                fontFamily: 'Orbitron',
-                fontSize: 11,
+                fontFamily: 'Manrope_600SemiBold',
+                fontSize: 12,
                 color: textMain,
                 fontWeight: '900',
-                letterSpacing: 3,
+                letterSpacing: 1,
               }}>
               VROOM
             </Text>
@@ -1245,17 +1250,17 @@ export default function SettingsScreen() {
 					<View style={{ position: "absolute", bottom: 36, left: 20 }}>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
-								fontSize: 9,
+								fontFamily: "Manrope_600SemiBold",
+								fontSize: 12,
 								color: RED,
-								letterSpacing: 4,
+								letterSpacing: 1,
 								marginBottom: 4,
 							}}>
 							PANEL UŻYTKOWNIKA
 						</Text>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
+								fontFamily: "Manrope_600SemiBold",
 								fontSize: 28,
 								color: textMain,
 								fontWeight: "900",
@@ -1303,7 +1308,7 @@ export default function SettingsScreen() {
 									}}
 								>
 									<MaterialIcons name={tab.icon as any} size={15} color={active ? RED : textDim} />
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? RED : textDim }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? RED : textDim }}>
 										{tab.label}
 									</Text>
 								</TouchableOpacity>
@@ -1322,6 +1327,53 @@ export default function SettingsScreen() {
 					{activeSettingsTab === 'appearance' && (<>
 					{/* WYGLĄD */}
 					<SettingsSectionLabel isDark={isDark} title='WYGLĄD' />
+					<SettingsCard {...settingsCardProps}>
+						<View style={{ paddingHorizontal: 16, paddingVertical: 16, gap: 14 }}>
+							<View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+								<View style={{ width: 44, height: 44, borderRadius: 13, backgroundColor: theme.primaryBg, borderWidth: 1.5, borderColor: theme.primaryBorder2, alignItems: 'center', justifyContent: 'center' }}>
+									<MaterialIcons name="text-fields" size={23} color={theme.primaryText} />
+								</View>
+								<View style={{ flex: 1 }}>
+									<Text variant="body" style={{ color: textMain, fontWeight: '700' }}>Czytelność tekstu</Text>
+									<Text variant="bodySmall" style={{ color: textDim, marginTop: 3 }}>VROOM respektuje również rozmiar ustawiony w telefonie.</Text>
+								</View>
+							</View>
+							<View accessibilityRole="radiogroup" style={{ gap: 9 }}>
+								{TEXT_SIZE_OPTIONS.map(option => {
+									const active = textSize === option.key;
+									return (
+										<TouchableOpacity
+											key={option.key}
+											accessibilityRole="radio"
+											accessibilityState={{ checked: active }}
+											onPress={() => { void setTextSize(option.key); }}
+											style={{
+												minHeight: 56,
+												borderRadius: 14,
+												borderWidth: 1.5,
+												borderColor: active ? theme.focusRing : inputBorder,
+												backgroundColor: active ? theme.primaryBg : rowAlt,
+												paddingHorizontal: 14,
+												paddingVertical: 11,
+												flexDirection: 'row',
+												alignItems: 'center',
+												gap: 12,
+											}}
+										>
+											<Text variant={option.key === 'veryLarge' ? 'h2' : option.key === 'large' ? 'h3' : option.key === 'small' ? 'bodySmall' : 'body'} style={{ minWidth: 54, color: active ? theme.primaryText : textMain, fontWeight: '700' }}>{option.sample}</Text>
+											<Text variant="label" style={{ flex: 1, color: active ? theme.primaryText : textMain }}>{option.label}</Text>
+											<MaterialIcons name={active ? 'radio-button-checked' : 'radio-button-unchecked'} size={24} color={active ? theme.primaryText : textDim} />
+										</TouchableOpacity>
+									);
+								})}
+							</View>
+							<View style={{ borderRadius: 14, backgroundColor: rowAlt, borderWidth: 1, borderColor: inputBorder, padding: 14 }}>
+								<Text variant="h3" style={{ color: textMain }}>Tak wygląda czytelny nagłówek</Text>
+								<Text variant="body" style={{ color: textDim, marginTop: 6 }}>Przykładowy tekst jest większy, ma wyraźny kontrast i wygodny odstęp między wierszami.</Text>
+							</View>
+						</View>
+					</SettingsCard>
+					<View style={{ height: 12 }} />
 					<SettingsCard {...settingsCardProps}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
 							<View
@@ -1347,7 +1399,7 @@ export default function SettingsScreen() {
 								<View>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
+											fontFamily: "Manrope_600SemiBold",
 											fontSize: 12,
 											color: textMain,
 											fontWeight: "600",
@@ -1356,8 +1408,8 @@ export default function SettingsScreen() {
 									</Text>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 9,
+											fontFamily: "Manrope_600SemiBold",
+											fontSize: 12,
 											color: textDim,
 											marginTop: 3,
 										}}>
@@ -1402,8 +1454,8 @@ export default function SettingsScreen() {
 										/>
 										<Text
 											style={{
-												fontFamily: "Orbitron",
-												fontSize: 8,
+												fontFamily: "Manrope_600SemiBold",
+												fontSize: 12,
 												color: mode === opt.key ? opt.color : textDim,
 												letterSpacing: 0.5,
 											}}>
@@ -1415,7 +1467,7 @@ export default function SettingsScreen() {
 							<View style={{ marginTop: 16, gap: 12 }}>
 								{(['dark', 'light'] as const).map(category => (
 									<View key={category} style={{ gap: 8 }}>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 2 }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, letterSpacing: 1 }}>
 											{category === 'dark' ? 'GOTOWE CIEMNE' : 'GOTOWE JASNE'}
 										</Text>
 										<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -1452,10 +1504,10 @@ export default function SettingsScreen() {
 																<View key={`${preset.id}-${i}`} style={{ flex: 1, height: 20, borderRadius: 7, backgroundColor: c, borderWidth: 1, borderColor: inputBorder }} />
 															))}
 														</View>
-														<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? RED : textMain }}>
+														<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? RED : textMain }}>
 															{preset.label}
 														</Text>
-														<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: effectivePremium ? textDim : theme.gold }}>
+														<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: effectivePremium ? textDim : theme.gold }}>
 															{effectivePremium ? (active ? 'AKTYWNY' : 'PRESET') : 'PREMIUM'}
 														</Text>
 													</TouchableOpacity>
@@ -1512,7 +1564,7 @@ export default function SettingsScreen() {
 									<View style={{ flex: 1 }}>
 										<Text
 											style={{
-												fontFamily: "Orbitron",
+												fontFamily: "Manrope_600SemiBold",
 												fontSize: 12,
 												color: textMain,
 												fontWeight: "600",
@@ -1521,8 +1573,8 @@ export default function SettingsScreen() {
 										</Text>
 										<Text
 											style={{
-												fontFamily: "Orbitron",
-												fontSize: 9,
+												fontFamily: "Manrope_600SemiBold",
+												fontSize: 12,
 												color: textDim,
 												marginTop: 3,
 											}}>
@@ -1562,8 +1614,8 @@ export default function SettingsScreen() {
 									}}>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
+											fontFamily: "Manrope_600SemiBold",
+											fontSize: 12,
 											color: textMain,
 										}}>
 										Kolor nicku
@@ -1603,8 +1655,8 @@ export default function SettingsScreen() {
 									}}>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
+											fontFamily: "Manrope_600SemiBold",
+											fontSize: 12,
 											color: textMain,
 										}}>
 										Motyw profilu
@@ -1631,8 +1683,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: "Orbitron",
-														fontSize: 8,
+														fontFamily: "Manrope_600SemiBold",
+														fontSize: 12,
 														color:
 															settings.profileThemePreset === p ? RED : textDim,
 													}}>
@@ -1658,8 +1710,8 @@ export default function SettingsScreen() {
 									}}>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
+											fontFamily: "Manrope_600SemiBold",
+											fontSize: 12,
 											color: textMain,
 										}}>
 										Ramka avatara
@@ -1686,8 +1738,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: "Orbitron",
-														fontSize: 8,
+														fontFamily: "Manrope_600SemiBold",
+														fontSize: 12,
 														color:
 															settings.avatarFramePreset === p ? RED : textDim,
 													}}>
@@ -1706,10 +1758,10 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Baner profilu
 									</Text>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim }}>
 										Wybierz zdjęcie — otworzy się edytor z podglądem jak na profilu.
 									</Text>
 									{profile?.bannerUrl ? (
@@ -1732,12 +1784,12 @@ export default function SettingsScreen() {
 												justifyContent: 'center',
 											}}>
 											<MaterialCommunityIcons name="image-outline" size={28} color={textDim} />
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 6 }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 6 }}>
 												Brak banera
 											</Text>
 										</View>
 									)}
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Punkt kadrowania (Focus)
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -1757,8 +1809,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: 'Orbitron',
-														fontSize: 8,
+														fontFamily: 'Manrope_600SemiBold',
+														fontSize: 12,
 														color: (premiumExtras.bannerFocusPoint ?? 'center') === key ? RED : textDim,
 													}}>
 													{label}
@@ -1781,7 +1833,7 @@ export default function SettingsScreen() {
 											{bannerUploadBusy ? (
 												<ActivityIndicator color="#fff" size="small" />
 											) : (
-												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+												<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
 													{profile?.bannerUrl ? 'ZMIEN BANER' : 'WGRAJ BANER'}
 												</Text>
 											)}
@@ -1813,10 +1865,10 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Konkurs profilu — własny motyw (gradient tła)
 									</Text>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim }}>
 										Ustaw motyw profilu na CUSTOM powyżej. Dwa kolory + Zapisz — gradient banera + kolory kart/tła z Twoich barw (bez banera).
 									</Text>
 									<View style={{ gap: 8 }}>
@@ -1864,7 +1916,7 @@ export default function SettingsScreen() {
 												paddingVertical: 12,
 												alignItems: 'center',
 											}}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
 												ZAPISZ GRADIENT TŁA
 											</Text>
 										</TouchableOpacity>
@@ -1879,7 +1931,7 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Nagłówki sekcji / „zakładki” (kolor)
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -1903,8 +1955,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: 'Orbitron',
-														fontSize: 8,
+														fontFamily: 'Manrope_600SemiBold',
+														fontSize: 12,
 														color: premiumExtras.sectionAccentMode === m ? RED : textDim,
 													}}>
 													{m.toUpperCase()}
@@ -1958,7 +2010,7 @@ export default function SettingsScreen() {
 													paddingVertical: 12,
 													alignItems: 'center',
 												}}>
-												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ GRADIENT</Text>
+												<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ GRADIENT</Text>
 											</TouchableOpacity>
 										</View>
 									)}
@@ -1993,7 +2045,7 @@ export default function SettingsScreen() {
 													paddingVertical: 12,
 													alignItems: 'center',
 												}}>
-												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ KOLOR</Text>
+												<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ KOLOR</Text>
 											</TouchableOpacity>
 										</View>
 									)}
@@ -2007,7 +2059,7 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Obramowanie avatara (gradient)
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -2031,8 +2083,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: 'Orbitron',
-														fontSize: 8,
+														fontFamily: 'Manrope_600SemiBold',
+														fontSize: 12,
 														color: premiumExtras.avatarRingAnim === a ? RED : textDim,
 													}}>
 													{a.toUpperCase()}
@@ -2106,10 +2158,10 @@ export default function SettingsScreen() {
 												paddingVertical: 12,
 												alignItems: 'center',
 											}}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ PIERŚCIEŃ</Text>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ PIERŚCIEŃ</Text>
 										</TouchableOpacity>
 									</View>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim }}>
 										Bez zapisu używany jest gradient ramki „Motyw avatara”. Minimum dwa kolory po zapisie.
 									</Text>
 								</View>
@@ -2143,7 +2195,7 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Animacja gdy ktoś wchodzi na profil
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -2167,8 +2219,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: 'Orbitron',
-														fontSize: 7,
+														fontFamily: 'Manrope_600SemiBold',
+														fontSize: 12,
 														color: premiumExtras.visitEntranceAnim === a ? RED : textDim,
 													}}>
 													{VISIT_ENTRANCE_LABELS[a]}
@@ -2178,7 +2230,7 @@ export default function SettingsScreen() {
 									</View>
 									{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'entrance_effect').length > 0 && (
 										<View style={{ gap: 8 }}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 1 }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, letterSpacing: 1 }}>
 												ANIMACJE Z PANELU ADMINA
 											</Text>
 											<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -2201,7 +2253,7 @@ export default function SettingsScreen() {
 																borderColor: active ? RED : inputBorder,
 																backgroundColor: active ? RED + '22' : rowAlt,
 															}}>
-															<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: active ? RED : textDim }}>
+															<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? RED : textDim }}>
 																{a.name.toUpperCase()}
 															</Text>
 														</TouchableOpacity>
@@ -2220,7 +2272,7 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 8 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 										Animacja tła profilu (ty)
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -2244,8 +2296,8 @@ export default function SettingsScreen() {
 												}}>
 												<Text
 													style={{
-														fontFamily: 'Orbitron',
-														fontSize: 8,
+														fontFamily: 'Manrope_600SemiBold',
+														fontSize: 12,
 														color: premiumExtras.heroMotion === a ? RED : textDim,
 													}}>
 													{HERO_MOTION_LABELS[a]}
@@ -2255,7 +2307,7 @@ export default function SettingsScreen() {
 									</View>
 									{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'profile_background_animation').length > 0 && (
 										<View style={{ gap: 8 }}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 1 }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, letterSpacing: 1 }}>
 												TŁA Z PANELU ADMINA
 											</Text>
 											<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
@@ -2278,7 +2330,7 @@ export default function SettingsScreen() {
 																borderColor: active ? RED : inputBorder,
 																backgroundColor: active ? RED + '22' : rowAlt,
 															}}>
-															<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: active ? RED : textDim }}>
+															<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? RED : textDim }}>
 																{a.name.toUpperCase()}
 															</Text>
 														</TouchableOpacity>
@@ -2295,7 +2347,7 @@ export default function SettingsScreen() {
 					<View style={{ marginTop: 10 }}>
 						<SettingsCard {...settingsCardProps}>
 							<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-								<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+								<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 									Muzyka w profilu
 								</Text>
 								<ProfileMusicSearchField
@@ -2308,7 +2360,7 @@ export default function SettingsScreen() {
 									inputBorder={inputBorder}
 									rowAlt={rowAlt}
 								/>
-								<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 4 }}>
+								<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 4 }}>
 									Alternatywnie Spotify: Udostępnij → Kopiuj link utworu.
 								</Text>
 								<TextInput
@@ -2327,8 +2379,8 @@ export default function SettingsScreen() {
 										color: textMain,
 										paddingHorizontal: 12,
 										paddingVertical: 11,
-										fontFamily: 'Orbitron',
-										fontSize: 9,
+										fontFamily: 'Manrope_600SemiBold',
+										fontSize: 12,
 									}}
 								/>
 								{!!settings.spotifyProfileTrack && (
@@ -2354,7 +2406,7 @@ export default function SettingsScreen() {
 											borderColor: '#1DB95455',
 										}}>
 										<MaterialIcons name="content-cut" size={18} color="#1DB954" />
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#1DB954', fontWeight: '700' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#1DB954', fontWeight: '700' }}>
 											PRZYTNij UTWÓR
 											{(settings.spotifyProfileTrack.previewStartMs ?? 0) > 0
 												? ` · od ${Math.round((settings.spotifyProfileTrack.previewStartMs ?? 0) / 1000)}s`
@@ -2372,10 +2424,10 @@ export default function SettingsScreen() {
 											paddingVertical: 6,
 										}}>
 										<View style={{ flex: 1 }}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, fontWeight: '600' }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain, fontWeight: '600' }}>
 												Autoodtwarzanie dla gości
 											</Text>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim, marginTop: 4, lineHeight: 12 }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 4, lineHeight: 16 }}>
 												Na publicznym profilu podgląd zacznie grać sam po wejściu gościa. Odtwarzanie wymaga{' '}
 												<Text style={{ color: '#1DB954' }}>podglądu audio</Text> u tego utworu — bez niego przełącznik zapisze się, ale nic nie zagra.
 											</Text>
@@ -2400,7 +2452,7 @@ export default function SettingsScreen() {
 											alignItems: 'center',
 											opacity: spotifySaving ? 0.75 : 1,
 										}}>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
 											{spotifySaving ? 'ZAPIS...' : 'USTAW Z LINKU'}
 										</Text>
 									</TouchableOpacity>
@@ -2416,7 +2468,7 @@ export default function SettingsScreen() {
 											alignItems: 'center',
 											justifyContent: 'center',
 										}}>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff3b30', fontWeight: '700' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff3b30', fontWeight: '700' }}>
 											WYCZYŚĆ
 										</Text>
 									</TouchableOpacity>
@@ -2452,7 +2504,7 @@ export default function SettingsScreen() {
 									<View>
 										<Text
 											style={{
-												fontFamily: "Orbitron",
+												fontFamily: "Manrope_600SemiBold",
 												fontSize: 12,
 												color: textMain,
 												fontWeight: "600",
@@ -2461,8 +2513,8 @@ export default function SettingsScreen() {
 										</Text>
 										<Text
 											style={{
-												fontFamily: "Orbitron",
-												fontSize: 9,
+												fontFamily: "Manrope_600SemiBold",
+												fontSize: 12,
 												color: textDim,
 												marginTop: 3,
 											}}>
@@ -2512,8 +2564,8 @@ export default function SettingsScreen() {
 											/>
 											<Text
 												style={{
-													fontFamily: "Orbitron",
-													fontSize: 8,
+													fontFamily: "Manrope_600SemiBold",
+													fontSize: 12,
 													color:
 														settings.locationMarkerStyle === opt.key
 															? RED
@@ -2547,10 +2599,10 @@ export default function SettingsScreen() {
 										<MaterialIcons name='home' size={18} color='#4de926' />
 									</View>
 									<View style={{ flex: 1 }}>
-										<Text style={{ fontFamily: "Orbitron", fontSize: 12, color: textMain, fontWeight: "600" }}>
+										<Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: textMain, fontWeight: "600" }}>
 											Adres Dom
 										</Text>
-										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: textDim, marginTop: 3 }}>
+										<Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: textDim, marginTop: 3 }}>
 											{settings.homeLatitude != null && settings.homeLongitude != null
 												? `${settings.homeLabel || 'Dom'} · ${settings.homeLatitude.toFixed(5)}, ${settings.homeLongitude.toFixed(5)}`
 												: 'Nie ustawiono'}
@@ -2569,7 +2621,7 @@ export default function SettingsScreen() {
 											paddingVertical: 11,
 											alignItems: "center",
 										}}>
-										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: "#4de926", fontWeight: "700" }}>
+										<Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: "#4de926", fontWeight: "700" }}>
 											USTAW Z GPS
 										</Text>
 									</TouchableOpacity>
@@ -2584,7 +2636,7 @@ export default function SettingsScreen() {
 											alignItems: "center",
 											justifyContent: "center",
 										}}>
-										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: textDim, fontWeight: "700" }}>
+										<Text style={{ fontFamily: "Manrope_600SemiBold", fontSize: 12, color: textDim, fontWeight: "700" }}>
 											WYCZYŚĆ
 										</Text>
 									</TouchableOpacity>
@@ -2642,16 +2694,16 @@ export default function SettingsScreen() {
 									)}
 								</View>
 								<View style={{ flex: 1 }}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: textMain, fontWeight: '700' }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain, fontWeight: '700' }}>
 										{profile?.discord?.displayName ?? 'Discord'}
 									</Text>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: profile?.discord ? '#23A55A' : textDim, marginTop: 4 }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: profile?.discord ? '#23A55A' : textDim, marginTop: 4 }}>
 										{profile?.discord ? `POŁĄCZONO · @${profile.discord.username}` : 'POKAŻ DISCORDA NA PROFILU VROOM'}
 									</Text>
 								</View>
 								{discordBusy && <ActivityIndicator size='small' color={DISCORD_BLURPLE} />}
 							</View>
-							<Text style={{ fontSize: 11, lineHeight: 17, color: textDim, marginTop: 12 }}>
+							<Text style={{ fontSize: 12, lineHeight: 17, color: textDim, marginTop: 12 }}>
 								VROOM pobierze tylko nazwę i avatar z Discorda. Nie zapisujemy tokenu dostępu ani listy serwerów.
 							</Text>
 							<TouchableOpacity
@@ -2659,7 +2711,7 @@ export default function SettingsScreen() {
 								disabled={discordBusy}
 								style={{ marginTop: 13, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: profile?.discord ? DISCORD_BLURPLE + '18' : DISCORD_BLURPLE, borderWidth: 1, borderColor: DISCORD_BLURPLE + (profile?.discord ? '55' : 'FF'), opacity: discordBusy ? 0.65 : 1 }}
 							>
-								<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: profile?.discord ? DISCORD_BLURPLE : '#fff', fontWeight: '800', letterSpacing: 0.8 }}>
+								<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: profile?.discord ? DISCORD_BLURPLE : '#fff', fontWeight: '800', letterSpacing: 0.8 }}>
 									{profile?.discord ? 'ODŁĄCZ DISCORDA' : 'POŁĄCZ Z DISCORDEM'}
 								</Text>
 							</TouchableOpacity>
@@ -2669,7 +2721,7 @@ export default function SettingsScreen() {
 					<SettingsSectionLabel isDark={isDark} title='POLECENIA / REF LINK' />
 					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
-							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+							<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 								Twój kod polecający
 							</Text>
 							{refLoading ? (
@@ -2693,16 +2745,16 @@ export default function SettingsScreen() {
 											color: textMain,
 											paddingHorizontal: 12,
 											paddingVertical: 11,
-											fontFamily: 'Orbitron',
-											fontSize: 10,
+											fontFamily: 'Manrope_600SemiBold',
+											fontSize: 12,
 											letterSpacing: 1,
 										}}
 									/>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim }}>
 										Użyć kodu: {refUsedCount} razy
 									</Text>
 									{!!refLink && (
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim }}>
 											Link: {refLink}
 										</Text>
 									)}
@@ -2718,7 +2770,7 @@ export default function SettingsScreen() {
 												alignItems: 'center',
 												opacity: refSaving || !refCodeInput || refCodeInput === refCodeCurrent ? 0.6 : 1,
 											}}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
 												{refSaving ? 'ZAPIS...' : 'ZAPISZ KOD'}
 											</Text>
 										</TouchableOpacity>
@@ -2735,7 +2787,7 @@ export default function SettingsScreen() {
 												justifyContent: 'center',
 												opacity: refLink ? 1 : 0.5,
 											}}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '700' }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>
 												UDOSTĘPNIJ
 											</Text>
 										</TouchableOpacity>
@@ -2752,7 +2804,7 @@ export default function SettingsScreen() {
 											justifyContent: 'center',
 										}}
 									>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, fontWeight: '800', letterSpacing: 0.8 }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED, fontWeight: '800', letterSpacing: 0.8 }}>
 											OTWÓRZ PROGRAM I LISTĘ ZAPROSZONYCH
 										</Text>
 									</TouchableOpacity>
@@ -2764,7 +2816,7 @@ export default function SettingsScreen() {
 					<SettingsSectionLabel isDark={isDark} title='MATERIALY PROMOCYJNE' />
 					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 12 }}>
-							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+							<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textMain }}>
 								Baner z kodem VROOM
 							</Text>
 							<View style={{ flexDirection: 'row', gap: 8 }}>
@@ -2783,10 +2835,10 @@ export default function SettingsScreen() {
 												paddingVertical: 10,
 												alignItems: 'center',
 											}}>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: selected ? RED : textMain, fontWeight: '800' }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: selected ? RED : textMain, fontWeight: '800' }}>
 												{item.label}
 											</Text>
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim, marginTop: 3 }}>
+											<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 3 }}>
 												{item.hint}
 											</Text>
 										</TouchableOpacity>
@@ -2806,7 +2858,7 @@ export default function SettingsScreen() {
 										paddingVertical: 10,
 										alignItems: 'center',
 									}}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: promoPreviewMode === 'mp4' ? '#4de926' : textDim, fontWeight: '800' }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: promoPreviewMode === 'mp4' ? '#4de926' : textDim, fontWeight: '800' }}>
 										PODGLAD MP4
 									</Text>
 								</TouchableOpacity>
@@ -2821,7 +2873,7 @@ export default function SettingsScreen() {
 										paddingVertical: 10,
 										alignItems: 'center',
 									}}>
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: promoPreviewMode === 'png' ? RED : textDim, fontWeight: '800' }}>
+									<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: promoPreviewMode === 'png' ? RED : textDim, fontWeight: '800' }}>
 										PODGLAD PNG
 									</Text>
 								</TouchableOpacity>
@@ -2854,7 +2906,7 @@ export default function SettingsScreen() {
 								) : (
 									<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
 										<MaterialCommunityIcons name={promoPreviewMode === 'mp4' ? 'movie-open-play-outline' : 'image-refresh-outline'} size={26} color={textDim} />
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 8, textAlign: 'center' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: textDim, marginTop: 8, textAlign: 'center' }}>
 											Podglad pojawi sie po odswiezeniu kodu
 										</Text>
 									</View>
@@ -2876,7 +2928,7 @@ export default function SettingsScreen() {
 									{promoBusy === 'png' ? (
 										<ActivityIndicator size={14} color="#fff" />
 									) : (
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '800' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '800' }}>
 											POBIERZ PNG
 										</Text>
 									)}
@@ -2897,7 +2949,7 @@ export default function SettingsScreen() {
 									{promoBusy === 'mp4' ? (
 										<ActivityIndicator size={14} color="#4de926" />
 									) : (
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '800' }}>
+										<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '800' }}>
 											POBIERZ MP4
 										</Text>
 									)}
@@ -3269,10 +3321,10 @@ export default function SettingsScreen() {
 							/>
 							<Text
 								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
+									fontFamily: "Manrope_600SemiBold",
+									fontSize: 12,
 									color: textDim,
-									letterSpacing: 2,
+									letterSpacing: 1,
 								}}>
 								VROOM OS V1.0.29
 							</Text>
@@ -3287,8 +3339,8 @@ export default function SettingsScreen() {
 						</View>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
-								fontSize: 7,
+								fontFamily: "Manrope_600SemiBold",
+								fontSize: 12,
 								color: textDim,
 								letterSpacing: 1,
 							}}>
@@ -3340,12 +3392,12 @@ export default function SettingsScreen() {
 						</View>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
+								fontFamily: "Manrope_600SemiBold",
 								color: textMain,
 								fontSize: 16,
 								textAlign: "center",
 								marginBottom: 10,
-								letterSpacing: 2,
+								letterSpacing: 1,
 								fontWeight: "900",
 							}}>
 							WYLOGUJ SIĘ
@@ -3374,9 +3426,9 @@ export default function SettingsScreen() {
 								onPress={() => setLogoutModal(false)}>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
+										fontFamily: "Manrope_600SemiBold",
 										color: textMuted,
-										fontSize: 11,
+										fontSize: 12,
 									}}>
 									ANULUJ
 								</Text>
@@ -3392,9 +3444,9 @@ export default function SettingsScreen() {
 								onPress={handleLogout}>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
+										fontFamily: "Manrope_600SemiBold",
 										color: "#fff",
-										fontSize: 11,
+										fontSize: 12,
 										fontWeight: "900",
 									}}>
 									WYLOGUJ
@@ -3449,12 +3501,12 @@ export default function SettingsScreen() {
 						</View>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
+								fontFamily: "Manrope_600SemiBold",
 								color: RED,
 								fontSize: 16,
 								textAlign: "center",
 								marginBottom: 10,
-								letterSpacing: 2,
+								letterSpacing: 1,
 								fontWeight: "900",
 							}}>
 							USUŃ KONTO
@@ -3485,13 +3537,13 @@ export default function SettingsScreen() {
 								borderRadius: 12,
 								padding: 14,
 								color: RED,
-								fontFamily: "Orbitron",
+								fontFamily: "Manrope_600SemiBold",
 								fontSize: 16,
 								borderWidth: 1,
 								borderColor: RED + "30",
 								textAlign: "center",
 								marginBottom: 18,
-								letterSpacing: 4,
+								letterSpacing: 1,
 							}}
 							value={deleteConfirm}
 							onChangeText={setDeleteConfirm}
@@ -3518,9 +3570,9 @@ export default function SettingsScreen() {
 								disabled={deleteLoading}>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
+										fontFamily: "Manrope_600SemiBold",
 										color: textMuted,
-										fontSize: 11,
+										fontSize: 12,
 									}}>
 									ANULUJ
 								</Text>
@@ -3541,9 +3593,9 @@ export default function SettingsScreen() {
 								) : (
 									<Text
 										style={{
-											fontFamily: "Orbitron",
+											fontFamily: "Manrope_600SemiBold",
 											color: "#fff",
-											fontSize: 11,
+											fontSize: 12,
 											fontWeight: "900",
 										}}>
 										USUŃ KONTO
@@ -3611,12 +3663,12 @@ export default function SettingsScreen() {
 							</View>
 							<Text
 								style={{
-									fontFamily: "Orbitron",
+									fontFamily: "Manrope_600SemiBold",
 									color: textMain,
 									fontSize: 16,
 									textAlign: "center",
 									marginBottom: 10,
-									letterSpacing: 2,
+									letterSpacing: 1,
 									fontWeight: "900",
 								}}>
 								ZGŁOŚ BŁĄD
@@ -3634,10 +3686,10 @@ export default function SettingsScreen() {
 
 							<Text
 								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
+									fontFamily: "Manrope_600SemiBold",
+									fontSize: 12,
 									color: textDim,
-									letterSpacing: 2,
+									letterSpacing: 1,
 									marginBottom: 10,
 								}}>
 								KATEGORIA *
@@ -3674,8 +3726,8 @@ export default function SettingsScreen() {
 										)}
 										<Text
 											style={{
-												fontFamily: "Orbitron",
-												fontSize: 11,
+												fontFamily: "Manrope_600SemiBold",
+												fontSize: 12,
 												color: bugCategory === cat.key ? cat.color : textMuted,
 											}}>
 											{cat.label}
@@ -3686,10 +3738,10 @@ export default function SettingsScreen() {
 
 							<Text
 								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
+									fontFamily: "Manrope_600SemiBold",
+									fontSize: 12,
 									color: textDim,
-									letterSpacing: 2,
+									letterSpacing: 1,
 									marginBottom: 10,
 								}}>
 								OPIS BŁĘDU *
@@ -3717,8 +3769,8 @@ export default function SettingsScreen() {
 							/>
 							<Text
 								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
+									fontFamily: "Manrope_600SemiBold",
+									fontSize: 12,
 									color: bugDescription.length < 10 ? RED + "90" : textDim,
 									textAlign: "right",
 									marginBottom: 18,
@@ -3728,10 +3780,10 @@ export default function SettingsScreen() {
 
 							<Text
 								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
+									fontFamily: "Manrope_600SemiBold",
+									fontSize: 12,
 									color: textDim,
-									letterSpacing: 2,
+									letterSpacing: 1,
 									marginBottom: 10,
 								}}>
 								ZDJĘCIA (opcjonalne, max 3)
@@ -3809,9 +3861,9 @@ export default function SettingsScreen() {
 									disabled={bugLoading}>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
+											fontFamily: "Manrope_600SemiBold",
 											color: textMuted,
-											fontSize: 11,
+											fontSize: 12,
 										}}>
 										ANULUJ
 									</Text>
@@ -3835,9 +3887,9 @@ export default function SettingsScreen() {
 									) : (
 										<Text
 											style={{
-												fontFamily: "Orbitron",
+												fontFamily: "Manrope_600SemiBold",
 												color: "#fff",
-												fontSize: 11,
+												fontSize: 12,
 												fontWeight: "900",
 											}}>
 											WYŚLIJ
@@ -3887,10 +3939,10 @@ export default function SettingsScreen() {
 						maxHeight: '70%',
 					}}>
 						<View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
-							<Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', color: textMain }}>
+							<Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '900', color: textMain }}>
 								SKÓRKA KURSORA
 							</Text>
-							<Text style={{ color: textMuted, fontSize: 11, marginTop: 4 }}>
+							<Text style={{ color: textMuted, fontSize: 12, marginTop: 4 }}>
 								Wyświetlana na mapie podczas jazdy
 							</Text>
 						</View>
@@ -3937,7 +3989,7 @@ export default function SettingsScreen() {
 										}} />
 										<View style={{ flex: 1 }}>
 											<Text style={{ color: textMain, fontWeight: '700' }}>{skin.name}</Text>
-											<Text style={{ color: textMuted, fontSize: 10 }}>
+											<Text style={{ color: textMuted, fontSize: 12 }}>
 												{locked
 													? (skin.requiresPremium ? 'Premium' : 'Zablokowane')
 													: (selected ? 'Aktywna' : 'Dostępna')}

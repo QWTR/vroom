@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity, ScrollView,
-  Image, ActivityIndicator, Alert,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets }   from 'react-native-safe-area-context';
@@ -155,7 +153,7 @@ export default function ClubDetailModal({
 
                 {/* Nazwa */}
                 <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 18,
+                  fontFamily: 'Manrope_600SemiBold', fontSize: 18,
                   color: theme.text, fontWeight: '900',
                   textAlign: 'center',
                 }}>
@@ -171,7 +169,7 @@ export default function ClubDetailModal({
                     borderWidth: 1, borderColor: theme.border2,
                   }}>
                     <MaterialCommunityIcons name="account-group" size={12} color={theme.textDim} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                       {club.memberCount} członków
                     </Text>
                   </View>
@@ -184,7 +182,7 @@ export default function ClubDetailModal({
                       borderWidth: 1, borderColor: theme.border2,
                     }}>
                       <MaterialIcons name="lock" size={11} color={theme.textDim} />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>PRYWATNY</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>PRYWATNY</Text>
                     </View>
                   )}
 
@@ -196,7 +194,7 @@ export default function ClubDetailModal({
                       borderWidth: 1, borderColor: '#e3383540',
                     }}>
                       <MaterialCommunityIcons name="shield-crown" size={11} color="#e33835" />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>OWNER</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>OWNER</Text>
                     </View>
                   )}
 
@@ -208,7 +206,7 @@ export default function ClubDetailModal({
                       borderWidth: 1, borderColor: '#4de92630',
                     }}>
                       <MaterialIcons name="check-circle" size={11} color="#4de926" />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#4de926', fontWeight: '700' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>
                         {myRanks.length ? myRanks.map(rank => rank.name).join(' · ').toUpperCase() : 'CZŁONEK'}
                       </Text>
                     </View>
@@ -218,8 +216,8 @@ export default function ClubDetailModal({
                 {/* Opis */}
                 {!!club.description && (
                   <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 9,
-                    color: theme.textDim, lineHeight: 15,
+                    fontFamily: 'Manrope_600SemiBold', fontSize: 12,
+                    color: theme.textDim, lineHeight: 16,
                     textAlign: 'center', paddingHorizontal: 10,
                   }}>
                     {club.description}
@@ -227,7 +225,7 @@ export default function ClubDetailModal({
                 )}
 
                 {/* Owner info */}
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textFaint }}>
                   założony przez @{ownerUsername}
                 </Text>
               </View>
@@ -248,7 +246,7 @@ export default function ClubDetailModal({
                     activeOpacity={0.85}
                   >
                     <MaterialCommunityIcons name="chat" size={18} color="#fff" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>
                       CZAT KLUBU
                     </Text>
                   </TouchableOpacity>
@@ -268,7 +266,7 @@ export default function ClubDetailModal({
                       activeOpacity={0.85}
                     >
                       <MaterialCommunityIcons name="shield-star" size={16} color="#FFD700" />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '700' }}>RANGI</Text>
                     </TouchableOpacity>
                   )}
 
@@ -284,7 +282,7 @@ export default function ClubDetailModal({
                       activeOpacity={0.85}
                     >
                       <MaterialIcons name="person-add" size={16} color="#4de926" />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#4de926', fontWeight: '700' }}>ZAPROŚ</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>ZAPROŚ</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -301,7 +299,7 @@ export default function ClubDetailModal({
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="edit" size={16} color={theme.primary} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700' }}>EDYTUJ KLUB</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700' }}>EDYTUJ KLUB</Text>
                   </TouchableOpacity>
                 )}
 
@@ -318,7 +316,7 @@ export default function ClubDetailModal({
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="delete" size={16} color="#e33835" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#e33835' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#e33835' }}>
                       USUŃ KLUB
                     </Text>
                   </TouchableOpacity>
@@ -339,7 +337,7 @@ export default function ClubDetailModal({
                     ) : (
                       <>
                         <MaterialIcons name="exit-to-app" size={16} color={theme.text} />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: theme.text }}>
                           OPUŚĆ KLUB
                         </Text>
                       </>
@@ -355,10 +353,10 @@ export default function ClubDetailModal({
                   }}>
                     <MaterialIcons name="lock" size={18} color={theme.textDim} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, fontWeight: '700' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, fontWeight: '700' }}>
                         KLUB PRYWATNY
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint, marginTop: 2 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textFaint, marginTop: 2 }}>
                         Dołączenie wymaga zaproszenia od członka
                       </Text>
                     </View>
@@ -381,7 +379,7 @@ export default function ClubDetailModal({
                     ) : (
                       <>
                         <MaterialIcons name="add" size={16} color="#fff" />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#fff' }}>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#fff' }}>
                           DOŁĄCZ DO KLUBU
                         </Text>
                       </>
@@ -398,7 +396,7 @@ export default function ClubDetailModal({
                     marginBottom: 12, gap: 8,
                   }}>
                     <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                       CZŁONKOWIE · {members.length}
                     </Text>
                     <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
@@ -430,7 +428,7 @@ export default function ClubDetailModal({
                       <View style={{ flex: 1, gap: 3 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <Text style={{
-                            fontFamily: 'Orbitron', fontSize: 11,
+                            fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                             color: isMe ? '#e33835' : theme.text,
                             fontWeight: '700',
                           }}>
@@ -442,7 +440,7 @@ export default function ClubDetailModal({
                               paddingHorizontal: 5, paddingVertical: 1,
                               borderWidth: 1, borderColor: '#e3383540',
                             }}>
-                              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', fontWeight: '700' }}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>
                                 OWNER
                               </Text>
                             </View>
@@ -454,7 +452,7 @@ export default function ClubDetailModal({
                               paddingHorizontal: 5, paddingVertical: 1,
                               borderWidth: 1, borderColor: '#ff922b30',
                             }}>
-                              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', fontWeight: '700' }}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff922b', fontWeight: '700' }}>
                                 MUTED
                               </Text>
                             </View>
@@ -549,8 +547,8 @@ export default function ClubDetailModal({
             <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setRankMember(null)} />
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, padding: 20, paddingBottom: 34 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ROLE · {rankMember.username}</Text>
-              <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4, marginBottom: 12 }}>Możesz przypisać kilka ról jednocześnie.</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ROLE · {rankMember.username}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4, marginBottom: 12 }}>Możesz przypisać kilka ról jednocześnie.</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
                 {safeRanks.map(rank => {
                   const selected = selectedRankIds.includes(rank.id);
@@ -560,7 +558,7 @@ export default function ClubDetailModal({
                       onPress={() => setSelectedRankIds(prev => selected ? prev.filter(id => id !== rank.id) : [...prev, rank.id])}
                       style={{ borderWidth: 1, borderColor: rank.color, backgroundColor: selected ? `${rank.color}30` : 'transparent', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 }}
                     >
-                      <Text style={{ color: rank.color, fontSize: 11 }}>{selected ? '✓ ' : ''}{rank.name}</Text>
+                      <Text style={{ color: rank.color, fontSize: 12 }}>{selected ? '✓ ' : ''}{rank.name}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -570,7 +568,7 @@ export default function ClubDetailModal({
                 disabled={assigning === rankMember.userId}
                 style={{ backgroundColor: '#e33835', borderRadius: 11, paddingVertical: 12, alignItems: 'center', marginTop: 16 }}
               >
-                {assigning === rankMember.userId ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ZAPISZ ROLE</Text>}
+                {assigning === rankMember.userId ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZAPISZ ROLE</Text>}
               </TouchableOpacity>
             </View>
           </View>

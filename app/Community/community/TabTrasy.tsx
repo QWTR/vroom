@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, FlatList, RefreshControl } from 'react-native';
+import { View, TouchableOpacity, FlatList, RefreshControl } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
@@ -42,8 +43,8 @@ const RouteCard = React.memo(({
           <Avatar user={route.author} size={38} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <PremiumName user={route.author} style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>{time}</Text>
+          <PremiumName user={route.author} style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} />
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>{time}</Text>
         </View>
         <TouchableOpacity
           style={{
@@ -55,7 +56,7 @@ const RouteCard = React.memo(({
           onPress={() => onShare(route)}
         >
           <MaterialIcons name="send" size={13} color="#00bfff" />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>WYŚLIJ</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff', fontWeight: '700' }}>WYŚLIJ</Text>
         </TouchableOpacity>
       </View>
 
@@ -69,11 +70,11 @@ const RouteCard = React.memo(({
           <RouteMiniMap points={points} width={100} height={70} />
         </View>
         <View style={{ flex: 1, justifyContent: 'center' }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
             {route.name}
           </Text>
           {!!route.description && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 6, lineHeight: 13 }} numberOfLines={2}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginBottom: 6, lineHeight: 16 }} numberOfLines={2}>
               {route.description}
             </Text>
           )}
@@ -86,7 +87,7 @@ const RouteCard = React.memo(({
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
             <MaterialIcons name="leaderboard" size={9} color="#FFD70060" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD70060' }}>DOTKNIJ → RANKING</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD70060' }}>DOTKNIJ → RANKING</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -105,7 +106,7 @@ const RouteCard = React.memo(({
             name={route.isLiked ? 'heart' : 'heart-outline'}
             size={18} color={route.isLiked ? '#e33835' : theme.textDim}
           />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: route.isLiked ? '#e33835' : theme.textDim }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: route.isLiked ? '#e33835' : theme.textDim }}>
             {route.likesCount}
           </Text>
         </TouchableOpacity>
@@ -120,7 +121,7 @@ const RouteCard = React.memo(({
           onPress={() => onLeaderboard(route)}
         >
           <MaterialIcons name="leaderboard" size={13} color="#FFD700" />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -132,7 +133,7 @@ const RouteCard = React.memo(({
           onPress={() => onNavigate(route)}
         >
           <MaterialIcons name="navigation" size={14} color="#fff" />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>NAWIGUJ</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>NAWIGUJ</Text>
         </TouchableOpacity>
       </View>
     </View>

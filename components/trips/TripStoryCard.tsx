@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
   Circle,
@@ -9,6 +10,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import type { DriveTelemetryPoint } from '../../lib/driveTelemetry';
+import { formatSpeedKmh } from '../../lib/tripStatFormatters';
 
 export type TripStoryData = {
   points: DriveTelemetryPoint[];
@@ -83,7 +85,7 @@ function StoryStat({ label, value, accent }: { label: string; value: string; acc
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.statValue, accent ? { color: accent } : null]}>{value}</Text>
+      <Text numberOfLines={1} style={[styles.statValue, accent ? { color: accent } : null]}>{value}</Text>
     </View>
   );
 }
@@ -119,7 +121,7 @@ export function TripStoryCard({ data }: { data: TripStoryData }) {
       <View style={styles.heroCopy}>
         <Text style={styles.heroLabel}>DZISIEJSZA TRASA</Text>
         <View style={styles.distanceRow}>
-          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.distance}>{data.distanceKm.toFixed(1)}</Text>
+          <Text numberOfLines={1} style={styles.distance}>{data.distanceKm.toFixed(1)}</Text>
           <View style={styles.distanceUnitWrap}>
             <Text style={styles.distanceUnit}>KM</Text>
             <Text style={styles.duration}>{formatDuration(data.elapsedSec)}</Text>
@@ -160,9 +162,9 @@ export function TripStoryCard({ data }: { data: TripStoryData }) {
 
       <View style={styles.statsPanel}>
         <View style={styles.statsRow}>
-          <StoryStat label="ŚREDNIA" value={`${Math.round(data.avgSpeedKmh)} KM/H`} accent="#29c7ff" />
+          <StoryStat label="ŚREDNIA" value={`${formatSpeedKmh(data.avgSpeedKmh)} KM/H`} accent="#29c7ff" />
           <View style={styles.statDivider} />
-          <StoryStat label="MAKSYMALNA" value={`${Math.round(data.maxSpeedKmh)} KM/H`} accent="#ff4b4b" />
+          <StoryStat label="MAKSYMALNA" value={`${formatSpeedKmh(data.maxSpeedKmh)} KM/H`} accent="#ff4b4b" />
         </View>
         <View style={styles.statsDivider} />
         <View style={styles.statsRow}>
@@ -195,43 +197,43 @@ const styles = StyleSheet.create({
   gridLineH: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#ffffff12' },
   gridLineV: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: '#ffffff0c' },
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  brand: { color: '#ffffff', fontFamily: 'OrbitronBold', fontSize: 23, letterSpacing: 4 },
-  kicker: { color: '#29c7ff', fontWeight: '900', fontSize: 7, letterSpacing: 3.3, marginTop: 4 },
+  brand: { color: '#ffffff', fontFamily: 'Manrope_700Bold', fontSize: 23, letterSpacing: 1 },
+  kicker: { color: '#29c7ff', fontWeight: '900', fontSize: 12, letterSpacing: 1, marginTop: 4 },
   completedPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 999, borderWidth: 1, borderColor: '#ffffff22', backgroundColor: '#ffffff0c', paddingHorizontal: 9, paddingVertical: 6 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#18e07b' },
-  completedText: { color: '#ffffffb8', fontWeight: '900', fontSize: 6, letterSpacing: 1.1 },
+  completedText: { color: '#ffffffb8', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
   heroCopy: { marginTop: '9%' },
-  heroLabel: { color: '#ffffff75', fontWeight: '900', fontSize: 8, letterSpacing: 2.4 },
+  heroLabel: { color: '#ffffff75', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
   distanceRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: -2 },
-  distance: { color: '#fff', fontWeight: '900', fontSize: 72, lineHeight: 80, letterSpacing: -4, maxWidth: '72%' },
+  distance: { color: '#fff', fontWeight: '900', fontSize: 72, lineHeight: 80, letterSpacing: -0.2, maxWidth: '72%' },
   distanceUnitWrap: { marginLeft: 10, paddingBottom: 11 },
-  distanceUnit: { color: '#ffd447', fontFamily: 'OrbitronBold', fontSize: 15, letterSpacing: 2 },
-  duration: { color: '#ffffff9c', fontWeight: '800', fontSize: 8, marginTop: 3 },
+  distanceUnit: { color: '#ffd447', fontFamily: 'Manrope_700Bold', fontSize: 15, letterSpacing: 1 },
+  duration: { color: '#ffffff9c', fontWeight: '800', fontSize: 12, marginTop: 3 },
   routeStage: { height: '43%', marginTop: '1%', borderRadius: 25, borderWidth: 1, borderColor: '#ffffff12', backgroundColor: '#030607b8', overflow: 'hidden' },
   routeSvg: { position: 'absolute', left: 0, top: 13, right: 0, bottom: 0 },
   routeBadge: { position: 'absolute', zIndex: 2, top: 14, left: 14, backgroundColor: '#ffffff0c', borderRadius: 7, paddingHorizontal: 8, paddingVertical: 5 },
-  routeBadgeText: { color: '#ffffff6b', fontWeight: '900', fontSize: 6, letterSpacing: 1.4 },
+  routeBadgeText: { color: '#ffffff6b', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
   emptyRoute: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyRouteLine: { width: '45%', height: 4, borderRadius: 2, backgroundColor: '#ffd44740', transform: [{ rotate: '-25deg' }] },
-  emptyRouteText: { color: '#ffffff55', fontFamily: 'OrbitronBold', fontSize: 10, letterSpacing: 2, marginTop: 22 },
+  emptyRouteText: { color: '#ffffff55', fontFamily: 'Manrope_700Bold', fontSize: 12, letterSpacing: 1, marginTop: 22 },
   routeLegend: { position: 'absolute', right: 12, bottom: 11, flexDirection: 'row', alignItems: 'center', borderRadius: 999, backgroundColor: '#020303e8', paddingHorizontal: 8, paddingVertical: 5 },
   routeLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendDot: { width: 5, height: 5, borderRadius: 3 },
-  legendText: { color: '#ffffff8c', fontWeight: '900', fontSize: 5.5, letterSpacing: 0.8 },
+  legendText: { color: '#ffffff8c', fontWeight: '900', fontSize: 12, letterSpacing: 0.8 },
   legendRule: { width: 16, height: 1, backgroundColor: '#ffffff24', marginHorizontal: 6 },
   statsPanel: { marginTop: '5%', borderRadius: 20, borderWidth: 1, borderColor: '#ffffff17', backgroundColor: '#ffffff0a', paddingHorizontal: '5%', paddingVertical: '4%' },
   statsRow: { flexDirection: 'row', alignItems: 'center' },
   statsDivider: { height: 1, backgroundColor: '#ffffff12', marginVertical: '3.3%' },
   statDivider: { width: 1, height: '70%', backgroundColor: '#ffffff15', marginHorizontal: '4%' },
   stat: { flex: 1 },
-  statLabel: { color: '#ffffff61', fontSize: 6.5, fontWeight: '900', letterSpacing: 1.3 },
+  statLabel: { color: '#ffffff61', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
   statValue: { color: '#fff', fontSize: 15, fontWeight: '900', marginTop: 4 },
   footer: { flex: 1, justifyContent: 'flex-end' },
   eventStrip: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: '3%' },
-  eventValue: { color: '#fff', fontSize: 8, fontWeight: '900' },
-  eventLabel: { color: '#ffffff5e', fontSize: 5.5, fontWeight: '800', letterSpacing: 0.4 },
+  eventValue: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  eventLabel: { color: '#ffffff5e', fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   eventDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#ffd447', marginHorizontal: 8 },
   footerBrand: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '3%' },
-  footerCopy: { color: '#ffffff52', fontWeight: '900', fontSize: 5.5, letterSpacing: 1.7 },
-  footerVroom: { color: '#ffd447', fontFamily: 'OrbitronBold', fontSize: 11, letterSpacing: 2.2 },
+  footerCopy: { color: '#ffffff52', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
+  footerVroom: { color: '#ffd447', fontFamily: 'Manrope_700Bold', fontSize: 12, letterSpacing: 1 },
 });

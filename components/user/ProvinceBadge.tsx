@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { getProvinceLabel } from '../../constants/provinces';
 
 type Props = {
@@ -32,7 +33,7 @@ export function ProvinceBadge({ province, compact, theme }: Props) {
     >
       <Text
         style={{
-          fontFamily: 'Orbitron',
+          fontFamily: 'Manrope_600SemiBold',
           fontSize: compact ? 7 : 8,
           color: '#7cb342',
           fontWeight: '700',

@@ -1,8 +1,6 @@
 import React, { useCallback } from 'react';
-import {
-  FlatList, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform,
-  type FlatListProps,
-} from 'react-native';
+import { FlatList, View, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, type FlatListProps } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { ChatMessageBubble } from './ChatMessageBubble';
@@ -152,7 +150,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderWidth: 1,
   },
-  loadMoreText: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 },
+  loadMoreText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
   startMarker: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -160,5 +158,5 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   markerLine: { flex: 1, height: 1 },
-  markerText: { fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2 },
+  markerText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
 });

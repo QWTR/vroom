@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -28,10 +29,10 @@ export function CommunitySectionLabel({ label, icon, iconLib = 'feather' }: Prop
           : <Feather name={icon as any} size={13} color={theme.primary} />
       ) : null}
       <Text style={{
-        fontSize: 11,
+        fontSize: 12,
         color: 'rgba(255,255,255,0.55)',
         fontWeight: '900',
-        letterSpacing: 2,
+        letterSpacing: 1,
         textTransform: 'uppercase',
       }}>
         {label}

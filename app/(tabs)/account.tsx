@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -261,7 +262,7 @@ export default function ProfileScreen() {
             onPress={() => void fetchProfile()}
             style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.primary + '50' }}
           >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary }}>ODŚWIEŻ PROFIL</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary }}>ODŚWIEŻ PROFIL</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -307,11 +308,11 @@ export default function ProfileScreen() {
         bannerUploading={bannerLoading}
         carLimitBanner={showCarLimit ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff50' }}>
               Limit free: 3 auta •{' '}
             </Text>
             <TouchableOpacity onPress={() => router.push('/premium' as any)}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>
                 Upgrade
               </Text>
             </TouchableOpacity>

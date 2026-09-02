@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { View, Image, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Feather } from '@expo/vector-icons';
 import { API_URL } from '../../constants/config';
 
@@ -54,7 +55,7 @@ export function LinkPreviewCard({ url, isMe, theme }: Props) {
       style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}
     >
       <Feather name="link" size={11} color={isMe ? '#ffffff80' : theme.primary} />
-      <Text numberOfLines={1} style={{ color: isMe ? '#ffffff80' : theme.primary, fontSize: 11, textDecorationLine: 'underline', flex: 1 }}>
+      <Text numberOfLines={1} style={{ color: isMe ? '#ffffff80' : theme.primary, fontSize: 12, textDecorationLine: 'underline', flex: 1 }}>
         {url}
       </Text>
     </TouchableOpacity>
@@ -71,17 +72,17 @@ export function LinkPreviewCard({ url, isMe, theme }: Props) {
       )}
       <View style={{ padding: 10, gap: 3 }}>
         {!!data?.siteName && (
-          <Text style={{ color: isMe ? '#ffffff60' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
+          <Text style={{ color: isMe ? '#ffffff60' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
             {data.siteName.toUpperCase()}
           </Text>
         )}
         {!!data?.title && (
-          <Text numberOfLines={2} style={{ color: isMe ? '#fff' : theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+          <Text numberOfLines={2} style={{ color: isMe ? '#fff' : theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
             {data.title}
           </Text>
         )}
         {!!data?.description && (
-          <Text numberOfLines={2} style={{ color: isMe ? '#ffffff90' : theme.textDim, fontSize: 11, lineHeight: 15 }}>
+          <Text numberOfLines={2} style={{ color: isMe ? '#ffffff90' : theme.textDim, fontSize: 12, lineHeight: 16 }}>
             {data.description}
           </Text>
         )}

@@ -1,19 +1,15 @@
 import { DarkTheme, DefaultTheme as NavLightTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { useFonts }   from 'expo-font';
+import { Manrope_400Regular } from '@expo-google-fonts/manrope/400Regular';
+import { Manrope_500Medium } from '@expo-google-fonts/manrope/500Medium';
+import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
+import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
+import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope/800ExtraBold';
 import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import {
-  View, StyleSheet, Animated, Easing,
-  Text,
-  Image,
-  Dimensions,
-  AppState,
-  Linking,
-  Platform,
-  DeviceEventEmitter,
-  type AppStateStatus,
-} from 'react-native';
+import { View, StyleSheet, Animated, Easing, Image, Dimensions, AppState, Linking, Platform, DeviceEventEmitter, type AppStateStatus } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import * as SplashScreen    from 'expo-splash-screen';
 import { LinearGradient }   from 'expo-linear-gradient';
 import AsyncStorage         from '@react-native-async-storage/async-storage';
@@ -24,6 +20,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import { ReadabilityProvider } from '../contexts/ReadabilityContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider } from '../contexts/PremiumContext';
 import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
@@ -203,6 +200,7 @@ export default function RootLayout() {
   const application = (
       <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <ReadabilityProvider>
         <VroomQueryProvider>
         <ThemeProvider>
           <PerformanceProvider>
@@ -222,6 +220,7 @@ export default function RootLayout() {
           </PerformanceProvider>
         </ThemeProvider>
         </VroomQueryProvider>
+        </ReadabilityProvider>
       </SafeAreaProvider>
       </GestureHandlerRootView>
   );
@@ -329,8 +328,11 @@ function RootLayoutInner() {
   }), [pathname, router]);
 
   const [loaded, error] = useFonts({
-    Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
-    OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
   });
 
   // Anim values
@@ -1077,17 +1079,17 @@ const s = StyleSheet.create({
   },
 
   title: {
-    fontFamily: 'OrbitronBold',
+    fontFamily: 'Manrope_700Bold',
     fontSize: 50,
     color: '#ffffff',
-    letterSpacing: 14,
+    letterSpacing: 1,
     marginBottom: 4,
   },
   subtitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.45)',
-    letterSpacing: 6,
+    letterSpacing: 1,
   },
   titleAccent: {
     width: 120,
@@ -1118,10 +1120,10 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
   hudLabel: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(227, 56, 53, 0.8)',
-    letterSpacing: 4,
+    letterSpacing: 1,
   },
 
   statusRow: {
@@ -1139,10 +1141,10 @@ const s = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   statusTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 7,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.5)',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   statusTxtDone: {
     color: '#ffffff',
@@ -1194,15 +1196,15 @@ const s = StyleSheet.create({
     gap: 6,
   },
   secureTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(227, 56, 53, 0.8)',
-    letterSpacing: 4,
+    letterSpacing: 1,
   },
   versionTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 7,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.25)',
-    letterSpacing: 3,
+    letterSpacing: 1,
   },
 });

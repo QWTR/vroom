@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -21,8 +22,8 @@ export default function StatBox({ icon, label, value }: Props) {
         <MaterialIcons name={icon as any} size={20} color={theme.primary} />
       </View>
       <View>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 15 }}>{value}</Text>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{label}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 15 }}>{value}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>{label}</Text>
       </View>
     </View>
   );

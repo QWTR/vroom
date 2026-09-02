@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, TextInput, FlatList,
-  ActivityIndicator, StatusBar, Platform, Alert, KeyboardAvoidingView,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, FlatList, ActivityIndicator, StatusBar, Platform, Alert, KeyboardAvoidingView } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -309,7 +307,7 @@ export default function AddListingScreen() {
       >
         {!isEdit && paidSlotId ? (
           <View style={{ backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.primary, padding: 12 }}>
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11 }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
               Opłacony slot aktywny — możesz dodać ogłoszenie ponad limit
             </Text>
           </View>
@@ -331,7 +329,7 @@ export default function AddListingScreen() {
                   onPress={pickPhoto}
                 >
                   <Feather name="plus" size={24} color={theme.textDim} />
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>DODAJ</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>DODAJ</Text>
                 </TouchableOpacity>
               ) : null
             }
@@ -342,7 +340,7 @@ export default function AddListingScreen() {
                 </View>
                 {i === 0 && (
                   <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: theme.primary, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }}>
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>GŁÓWNE</Text>
+                    <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>GŁÓWNE</Text>
                   </View>
                 )}
                 <TouchableOpacity
@@ -354,7 +352,7 @@ export default function AddListingScreen() {
               </View>
             )}
           />
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginTop: 6 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 6 }}>
             Min. 1, max. {MAX_PHOTOS} zdjęć • Pierwsze zdjęcie to miniatura
           </Text>
         </FormSection>
@@ -373,7 +371,7 @@ export default function AddListingScreen() {
                 style={{ paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, backgroundColor: category === cat ? theme.primary : theme.surface2, borderWidth: 1, borderColor: category === cat ? theme.primary : theme.border }}
                 onPress={() => setCategory(cat)}
               >
-                <Text style={{ color: category === cat ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{cat.toUpperCase()}</Text>
+                <Text style={{ color: category === cat ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{cat.toUpperCase()}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -421,7 +419,7 @@ export default function AddListingScreen() {
                 style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: drive === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: drive === opt ? theme.primary : theme.border }}
                 onPress={() => setDrive(drive === opt ? '' : opt)}
               >
-                <Text style={{ color: drive === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt}</Text>
+                <Text style={{ color: drive === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{opt}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -436,7 +434,7 @@ export default function AddListingScreen() {
                 style={{ flex: 1, paddingVertical: 9, borderRadius: 20, alignItems: 'center', backgroundColor: transmission === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: transmission === opt ? theme.primary : theme.border }}
                 onPress={() => setTransmission(transmission === opt ? '' : opt)}
               >
-                <Text style={{ color: transmission === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
+                <Text style={{ color: transmission === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -456,7 +454,7 @@ export default function AddListingScreen() {
                 style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: fuel === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: fuel === opt ? theme.primary : theme.border }}
                 onPress={() => setFuel(fuel === opt ? '' : opt)}
               >
-                <Text style={{ color: fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
+                <Text style={{ color: fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -478,7 +476,7 @@ export default function AddListingScreen() {
               ? <ActivityIndicator size="small" color={theme.primary} />
               : <MaterialCommunityIcons name="crosshairs-gps" size={16} color={theme.primary} />
             }
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               UŻYJ MOJEJ LOKALIZACJI
             </Text>
           </TouchableOpacity>
@@ -489,7 +487,7 @@ export default function AddListingScreen() {
         <FormSection label="OPIS">
           <TextInput
             style={{
-              color: theme.text, fontFamily: 'Orbitron', fontSize: 12,
+              color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12,
               backgroundColor: theme.surface2, borderRadius: 12, borderWidth: 1,
               borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 12,
               minHeight: 100, textAlignVertical: 'top',
@@ -527,7 +525,7 @@ export default function AddListingScreen() {
             ? <ActivityIndicator color="#fff" />
             : <>
                 <MaterialCommunityIcons name="check-circle-outline" size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
                   {isEdit ? 'ZAPISZ ZMIANY' : 'OPUBLIKUJ OGŁOSZENIE'}
                 </Text>
               </>
@@ -544,8 +542,8 @@ function FormSection({ label, required, children }: { label: string; required?: 
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>{label}</Text>
-        {required && <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9 }}>*</Text>}
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{label}</Text>
+        {required && <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>*</Text>}
       </View>
       {children}
     </View>
@@ -556,7 +554,7 @@ function FieldInput({ value, onChangeText, placeholder, theme, keyboardType, onF
   return (
     <TextInput
       style={{
-        color: theme.text, fontFamily: 'Orbitron', fontSize: 12,
+        color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12,
         backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1,
         borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 12,
       }}

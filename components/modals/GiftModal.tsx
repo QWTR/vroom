@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, ActivityIndicator,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { GiftData } from '../../hooks/useGifts';
@@ -55,14 +54,14 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
           </View>
 
           <Text style={{
-            fontFamily: 'Orbitron', fontSize: 9, color: '#f5c518',
-            letterSpacing: 3, marginBottom: 10,
+            fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518',
+            letterSpacing: 1, marginBottom: 10,
           }}>
             {claimed ? 'ODEBRANO!' : 'PREZENT DLA CIEBIE'}
           </Text>
 
           <Text style={{
-            fontFamily: 'Orbitron', fontSize: 18, color: t.text,
+            fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: t.text,
             fontWeight: '900', textAlign: 'center', marginBottom: 10, letterSpacing: 0.5,
           }}>
             {gift.title}
@@ -70,7 +69,7 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
 
           {!!gift.description && (
             <Text style={{
-              fontFamily: 'Orbitron', fontSize: 9, color: t.textDim,
+              fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim,
               textAlign: 'center', lineHeight: 16, marginBottom: 20,
             }}>
               {gift.description}
@@ -88,7 +87,7 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
               name={gift.type === 'achievement' ? 'emoji-events' : 'stars'}
               size={14} color="#f5c518"
             />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#f5c518', letterSpacing: 1 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', letterSpacing: 1 }}>
               {gift.type === 'achievement'
                 ? `OSIĄGNIĘCIE: ${(gift.data as any)?.achievementKey ?? ''}`
                 : `+${(gift.data as any)?.points ?? 0} PKT`
@@ -112,7 +111,7 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
                 onPress={onClose}
                 activeOpacity={0.85}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim }}>
                   POMIŃ
                 </Text>
               </TouchableOpacity>
@@ -132,7 +131,7 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
                   ? <ActivityIndicator size="small" color="#111" />
                   : <Text style={{ fontSize: 18 }}>🎁</Text>
                 }
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#111', fontWeight: '900' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#111', fontWeight: '900' }}>
                   ODBIERZ PREZENT
                 </Text>
               </TouchableOpacity>
@@ -147,7 +146,7 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
               onPress={onClose}
               activeOpacity={0.85}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#4de926', fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>
                 SUPER, DZIĘKI! 🚀
               </Text>
             </TouchableOpacity>

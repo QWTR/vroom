@@ -1,13 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { memo, useMemo } from 'react';
-import {
-  Modal,
-  ScrollView,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Modal, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
@@ -107,7 +101,7 @@ export const NavigationVoiceSettingsModal = memo(function NavigationVoiceSetting
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-            <Text style={{ color: theme.textMuted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+            <Text style={{ color: theme.textMuted, fontSize: 12, fontWeight: '800', flex: 1 }}>
               POLSKI LEKTOR
             </Text>
             <TouchableOpacity
@@ -115,7 +109,7 @@ export const NavigationVoiceSettingsModal = memo(function NavigationVoiceSetting
               style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 7 }}
             >
               <MaterialIcons name="play-arrow" size={18} color={theme.primary} />
-              <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '800' }}>ODSŁUCHAJ</Text>
+              <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '800' }}>ODSŁUCHAJ</Text>
             </TouchableOpacity>
           </View>
 
@@ -170,7 +164,7 @@ function ToggleRow(props: {
     <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14 }}>
       <View style={{ flex: 1, paddingRight: 12 }}>
         <Text style={{ color: props.text, fontSize: 14, fontWeight: '700' }}>{props.label}</Text>
-        <Text style={{ color: props.muted, fontSize: 11, marginTop: 3 }}>{props.description}</Text>
+        <Text style={{ color: props.muted, fontSize: 12, marginTop: 3 }}>{props.description}</Text>
       </View>
       <Switch value={props.value} onValueChange={props.onChange} trackColor={{ true: props.color }} />
     </View>
@@ -207,7 +201,7 @@ function VoiceRow(props: {
       />
       <View style={{ flex: 1, marginLeft: 10 }}>
         <Text style={{ color: props.theme.text, fontSize: 13, fontWeight: '700' }}>{props.name}</Text>
-        <Text style={{ color: props.theme.textMuted, fontSize: 10, marginTop: 3 }}>{props.quality}</Text>
+        <Text style={{ color: props.theme.textMuted, fontSize: 12, marginTop: 3 }}>{props.quality}</Text>
       </View>
       <TouchableOpacity onPress={props.onPreview} hitSlop={8} style={{ padding: 5 }}>
         <MaterialIcons name="volume-up" size={20} color={props.theme.primary} />

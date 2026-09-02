@@ -1,15 +1,7 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import React, { memo, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
@@ -208,25 +200,25 @@ const styles = StyleSheet.create({
   handle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 10 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
   headerIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  heading: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
-  subheading: { fontSize: 11, marginTop: 2 },
+  heading: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  subheading: { fontSize: 12, marginTop: 2 },
   close: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
   quickItem: { width: '23.5%', minHeight: 90, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', padding: 7 },
   quickIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  quickLabel: { fontSize: 9, fontWeight: '800', textAlign: 'center', marginTop: 6 },
+  quickLabel: { fontSize: 12, fontWeight: '800', textAlign: 'center', marginTop: 6 },
   detailsButton: { height: 44, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
-  detailsButtonText: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
+  detailsButtonText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
   detailsScroll: { flexGrow: 0 },
-  sectionLabel: { fontFamily: 'Orbitron', fontSize: 8, fontWeight: '800', letterSpacing: 1, marginTop: 6, marginBottom: 8 },
+  sectionLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 1, marginTop: 6, marginBottom: 8 },
   categoryRow: { gap: 7, paddingBottom: 6 },
   categoryChip: { height: 36, borderRadius: 12, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  chipText: { fontSize: 8, fontWeight: '900' },
+  chipText: { fontSize: 12, fontWeight: '900' },
   wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 8 },
   optionChip: { minHeight: 36, borderRadius: 12, borderWidth: 1, paddingHorizontal: 11, alignItems: 'center', justifyContent: 'center' },
-  optionText: { fontSize: 11, fontWeight: '700' },
+  optionText: { fontSize: 12, fontWeight: '700' },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   backButton: { height: 44, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8 },
   submitButton: { flex: 1, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  submitText: { color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  submitText: { color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
 });

@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  FlatList, ActivityIndicator, Dimensions, Share,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, FlatList, ActivityIndicator, Dimensions, Share } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
@@ -67,11 +65,11 @@ export function RoutesListModal({
           {/* Nagłówek */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border, marginBottom: 4 }}>
             <MaterialCommunityIcons name="map-marker-path" size={20} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, flex: 1 }}>
               WSZYSTKIE TRASY
             </Text>
             <View style={{ backgroundColor: theme.primaryBg, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: theme.primaryBorder }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary }}>{routes.length}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary }}>{routes.length}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
@@ -100,9 +98,9 @@ export function RoutesListModal({
                     <MaterialCommunityIcons name="map-marker-path" size={16} color={theme.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{route.name}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{route.name}</Text>
                     {!!route.description && (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }} numberOfLines={1}>{route.description}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }} numberOfLines={1}>{route.description}</Text>
                     )}
                   </View>
                   <View style={{
@@ -118,17 +116,17 @@ export function RoutesListModal({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <MaterialIcons name="straighten" size={12} color={theme.primary} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted }}>{route.distance.toFixed(1)} km</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>{route.distance.toFixed(1)} km</Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <MaterialIcons name="place" size={12} color={theme.textDim} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted }}>{route.points.length} pkt</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>{route.points.length} pkt</Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <MaterialIcons name="favorite" size={12} color={theme.textDim} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted }}>{route._count?.likes ?? 0}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>{route._count?.likes ?? 0}</Text>
                   </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginLeft: 'auto' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginLeft: 'auto' }}>
                     {new Date(route.createdAt).toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' })}
                   </Text>
                 </View>
@@ -140,7 +138,7 @@ export function RoutesListModal({
                     onPress={() => onLeaderboard(route)} activeOpacity={0.8}
                   >
                     <MaterialIcons name="leaderboard" size={14} color="#FFD700" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '700' }}>TOP</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -148,7 +146,7 @@ export function RoutesListModal({
                     onPress={() => { onClose(); onNavigate(route); }} activeOpacity={0.8}
                   >
                     <MaterialIcons name="navigation" size={14} color="#fff" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>NAWIGUJ</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>NAWIGUJ</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -156,7 +154,7 @@ export function RoutesListModal({
                     onPress={() => onShare(route)} activeOpacity={0.8}
                   >
                     <MaterialIcons name="share" size={14} color="#00bfff" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff' }}>WYŚLIJ</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff' }}>WYŚLIJ</Text>
                   </TouchableOpacity>
 
                   {isOwner && (

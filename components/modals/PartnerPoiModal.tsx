@@ -1,17 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  Linking,
-  Pressable,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-  Platform,
-  Dimensions,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Linking, Pressable, ScrollView, ActivityIndicator, Platform, Dimensions } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -146,7 +135,7 @@ function InfoRow({
         <MaterialCommunityIcons name={icon} size={18} color={accent} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: isDark ? '#888' : '#999', letterSpacing: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isDark ? '#888' : '#999', letterSpacing: 1 }}>
           {label.toUpperCase()}
         </Text>
         <Text
@@ -320,7 +309,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                 paddingVertical: 5,
                 borderRadius: 8,
               }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', color: '#fff', letterSpacing: 1 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 1 }}>
                   PARTNER VROOM
                 </Text>
               </View>
@@ -350,13 +339,13 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                 )}
               </View>
               <View style={{ flex: 1, paddingBottom: 4 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', color: theme.text, letterSpacing: 0.5 }} numberOfLines={2}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700', color: theme.text, letterSpacing: 0.5 }} numberOfLines={2}>
                   {display.name}
                 </Text>
                 {!!(detail?.poi?.companyName && detail.poi.companyName !== display.name) && (
-                  <Text style={{ fontSize: 11, color: theme.textDim, marginTop: 2 }}>{detail.poi.companyName}</Text>
+                  <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 2 }}>{detail.poi.companyName}</Text>
                 )}
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: accent, letterSpacing: 1.2, marginTop: 4 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent, letterSpacing: 1, marginTop: 4 }}>
                   {categoryLabel.toUpperCase()}
                 </Text>
               </View>
@@ -380,12 +369,12 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                   paddingVertical: 10,
                   marginBottom: 16,
                 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#f39c12', fontWeight: '700' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: '#f39c12', fontWeight: '700' }}>
                     {stats.averageRating}
                   </Text>
                   <View>
                     <StarsRow rating={stats.averageRating || 0} size={14} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 3 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 3 }}>
                       {stats.reviewCount} {stats.reviewCount === 1 ? 'OPINIA' : 'OPINII'}
                     </Text>
                   </View>
@@ -416,7 +405,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                 }}
               >
                 <MaterialCommunityIcons name="ticket-percent-outline" size={18} color="#fff" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
                   OFERTY · WYDARZENIA · KONTAKT
                 </Text>
               </TouchableOpacity>
@@ -424,7 +413,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
               {/* Galeria — osobna sekcja, bez rozciągania logo na hero */}
               {gallery.length > 0 && (
                 <View style={{ marginBottom: 18 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 1, marginBottom: 10 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 10 }}>
                     ZDJĘCIA · {gallery.length}
                   </Text>
                   <ScrollView
@@ -547,7 +536,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                     onPress={() => { onNavigate(poi.lat, poi.lng, poi.name); onClose(); }}
                   >
                     <MaterialCommunityIcons name="navigation-outline" size={16} color="#e33835" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', fontWeight: '700' }}>NAWIGUJ</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>NAWIGUJ</Text>
                   </TouchableOpacity>
                 )}
                 {!!display.websiteUrl && (
@@ -567,7 +556,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                     onPress={() => Linking.openURL(display.websiteUrl!)}
                   >
                     <MaterialCommunityIcons name="open-in-new" size={16} color={accent} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: accent, fontWeight: '700' }}>STRONA</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent, fontWeight: '700' }}>STRONA</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -583,7 +572,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                   marginBottom: 16,
                 }}>
                   <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: divider }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', letterSpacing: 0.5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 0.5 }}>
                       OPINIE UŻYTKOWNIKÓW
                     </Text>
                   </View>
@@ -598,7 +587,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                       }}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '600' }}>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '600' }}>
                           @{r.user.username}
                         </Text>
                         <StarsRow rating={r.rating} size={11} />
@@ -608,7 +597,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                       )}
                       {!!r.reply && (
                         <View style={{ marginTop: 9, padding: 10, borderLeftWidth: 2, borderLeftColor: accent, backgroundColor: `${accent}10` }}>
-                          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: accent }}>ODPOWIEDŹ FIRMY</Text>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent }}>ODPOWIEDŹ FIRMY</Text>
                           <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 5, lineHeight: 18 }}>{r.reply.body}</Text>
                         </View>
                       )}
@@ -635,7 +624,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                   }}
                 >
                   <MaterialCommunityIcons name="star-outline" size={16} color="#f39c12" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
                     {detail?.myReview ? 'EDYTUJ SWOJĄ OPINIĘ' : 'WYSTAW OPINIĘ'}
                   </Text>
                 </TouchableOpacity>
@@ -648,7 +637,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                   padding: 16,
                   marginBottom: 8,
                 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, marginBottom: 12, fontWeight: '700' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, marginBottom: 12, fontWeight: '700' }}>
                     TWOJA OCENA
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
@@ -696,7 +685,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                         alignItems: 'center',
                       }}
                     >
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, fontWeight: '700' }}>ANULUJ</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, fontWeight: '700' }}>ANULUJ</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={submitReview}
@@ -718,7 +707,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                       ) : (
                         <>
                           <MaterialCommunityIcons name="check" size={16} color="#000" />
-                          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#000', fontWeight: '700' }}>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#000', fontWeight: '700' }}>
                             {detail?.myReview ? 'ZAKTUALIZUJ' : 'OPUBLIKUJ'}
                           </Text>
                         </>

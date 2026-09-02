@@ -1,9 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import {
-  Modal, View, Text, TextInput, TouchableOpacity,
-  ScrollView, KeyboardAvoidingView, Platform,
-  ActivityIndicator, Image,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
@@ -87,7 +84,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
           >
 
             {/* Kategoria */}
-            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>KATEGORIA</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>KATEGORIA</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {CATEGORIES.map(cat => (
                 <TouchableOpacity
@@ -106,7 +103,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             </View>
 
             {/* Nazwa */}
-            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>NAZWA *</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>NAZWA *</Text>
             <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, height: 50, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
               <MaterialIcons name="label-outline" size={18} color={theme.primary} />
               <TextInput
@@ -117,7 +114,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             </View>
 
             {/* Opis */}
-            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>OPIS</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>OPIS</Text>
             <View style={[{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, paddingTop: 12, height: 90, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
               <MaterialIcons name="notes" size={18} color={theme.primary} style={{ marginTop: 2 }} />
               <TextInput
@@ -128,7 +125,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             </View>
 
             {/* Zdjęcia */}
-            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>
+            <Text style={{ color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>
               ZDJĘCIA <Text style={{ color: theme.textFaint }}>(opcjonalnie, maks. 5)</Text>
             </Text>
 

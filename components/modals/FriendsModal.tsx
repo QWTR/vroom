@@ -1,8 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import {
-  View, Text, TouchableOpacity,
-  FlatList, Image, ActivityIndicator, TextInput,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme }      from '../../contexts/ThemeContext';
@@ -105,7 +103,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
     if (state === 'friend') return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#ff6b9d12', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#ff6b9d30' }}>
         <MaterialIcons name="favorite" size={13} color="#ff6b9d" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff6b9d' }}>ZNAJOMY</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff6b9d' }}>ZNAJOMY</Text>
       </View>
     );
 
@@ -118,7 +116,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
     if (state === 'sent') return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#4de92612', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#4de92630' }}>
         <MaterialIcons name="check" size={13} color="#4de926" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926' }}>WYSŁANO</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926' }}>WYSŁANO</Text>
       </View>
     );
 
@@ -129,7 +127,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
         activeOpacity={0.8}
       >
         <MaterialIcons name="person-add" size={13} color={theme.primary} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.primary, fontWeight: '700' }}>DODAJ</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700' }}>DODAJ</Text>
       </TouchableOpacity>
     );
   };
@@ -142,9 +140,9 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
           {/* Nagłówek */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border, marginBottom: 4 }}>
             <MaterialIcons name="people" size={20} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>ZNAJOMI</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, flex: 1 }}>ZNAJOMI</Text>
             <View style={{ backgroundColor: theme.primaryBg, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: theme.primaryBorder }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary }}>{friends.length}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary }}>{friends.length}</Text>
             </View>
             <TouchableOpacity onPress={handleClose} style={{ padding: 4 }}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
@@ -168,7 +166,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
                   activeOpacity={0.8}
                 >
                   <MaterialIcons name={t.icon as any} size={13} color={tab === t.key ? '#fff' : theme.textDim} />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', color: tab === t.key ? '#fff' : theme.textDim }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: tab === t.key ? '#fff' : theme.textDim }}>
                     {t.label}
                   </Text>
                 </TouchableOpacity>
@@ -185,14 +183,14 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
             ) : friends.length === 0 ? (
               <View style={{ paddingVertical: 48, alignItems: 'center', gap: 12 }}>
                 <MaterialIcons name="people-outline" size={48} color={theme.border3} />
-                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 12 }}>Brak znajomych</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>Brak znajomych</Text>
                 {isOwner && (
                   <TouchableOpacity
                     style={{ backgroundColor: theme.primaryBg, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1, borderColor: theme.primaryBorder, flexDirection: 'row', alignItems: 'center', gap: 7 }}
                     onPress={() => setTab('add')}
                   >
                     <MaterialIcons name="person-add" size={14} color={theme.primary} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary, fontWeight: '700' }}>DODAJ ZNAJOMEGO</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700' }}>DODAJ ZNAJOMEGO</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -219,7 +217,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
                       }}>
                         {f.avatarUrl
                           ? <Image source={{ uri: f.avatarUrl }} style={{ width: 48, height: 48 }} />
-                          : <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.primary }}>{f.username.slice(0, 2).toUpperCase()}</Text>
+                          : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.primary }}>{f.username.slice(0, 2).toUpperCase()}</Text>
                         }
                       </View>
                       {f.online && (
@@ -229,10 +227,10 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
 
                     {/* Info */}
                     <TouchableOpacity style={{ flex: 1 }} onPress={() => { handleClose(); router.push(`/profile/${f.id}` as any); }} activeOpacity={0.8}>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }}>{f.username}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>{f.username}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: f.online ? '#4de926' : theme.textDim }} />
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{f.online ? 'Online' : 'Offline'}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>{f.online ? 'Online' : 'Offline'}</Text>
                       </View>
                     </TouchableOpacity>
 
@@ -273,7 +271,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
               }}>
                 <MaterialIcons name="search" size={18} color={theme.textDim} />
                 <TextInput
-                  style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 12 }}
+                  style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12 }}
                   value={searchQuery}
                   onChangeText={handleSearch}
                   placeholder="Szukaj po nazwie..."
@@ -296,14 +294,14 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
               ) : searchQuery.trim().length < 2 ? (
                 <View style={{ paddingVertical: 40, alignItems: 'center', gap: 10 }}>
                   <MaterialIcons name="person-search" size={44} color={theme.border3} />
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center' }}>
                     Wpisz minimum 2 znaki{'\n'}aby wyszukać użytkownika
                   </Text>
                 </View>
               ) : searchResults.length === 0 ? (
                 <View style={{ paddingVertical: 40, alignItems: 'center', gap: 10 }}>
                   <MaterialIcons name="search-off" size={44} color={theme.border3} />
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>Brak wyników</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>Brak wyników</Text>
                 </View>
               ) : (
                 <FlatList
@@ -329,7 +327,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
                         }}>
                           {u.avatarUrl
                             ? <Image source={{ uri: u.avatarUrl }} style={{ width: 46, height: 46 }} />
-                            : <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.primary }}>{u.username.slice(0, 2).toUpperCase()}</Text>
+                            : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.primary }}>{u.username.slice(0, 2).toUpperCase()}</Text>
                           }
                         </View>
                         {u.online && (
@@ -339,10 +337,10 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
 
                       {/* Nazwa */}
                       <TouchableOpacity style={{ flex: 1 }} onPress={() => { handleClose(); router.push(`/profile/${u.id}` as any); }} activeOpacity={0.8}>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }}>{u.username}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>{u.username}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
                           <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: u.online ? '#4de926' : theme.textDim }} />
-                          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{u.online ? 'Online' : 'Offline'}</Text>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>{u.online ? 'Online' : 'Offline'}</Text>
                         </View>
                       </TouchableOpacity>
 

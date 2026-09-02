@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  View, Text, TouchableOpacity, Image,
-  ScrollView, TextInput, ActivityIndicator, FlatList,
-  Animated, Dimensions, Modal, KeyboardAvoidingView, Platform, StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, Image, ScrollView, ActivityIndicator, FlatList, Animated, Dimensions, Modal, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme }  from '../../contexts/ThemeContext';
@@ -167,25 +164,25 @@ export function ConversationInfoSheet({
     if (!status || status.status === 'none') return (
       <TouchableOpacity style={[base, { borderColor: '#4de92640', backgroundColor: '#4de92610' }]} onPress={() => handleFriendAction(userId)}>
         <Feather name="user-plus" size={13} color="#4de926" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', color: '#4de926' }}>DODAJ</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#4de926' }}>DODAJ</Text>
       </TouchableOpacity>
     );
     if (status.status === 'pending' && status.isSender) return (
       <View style={[base, { borderColor: '#ffffff20' }]}>
         <Feather name="clock" size={13} color="#ffffff40" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', color: '#ffffff40' }}>WYSŁANO</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#ffffff40' }}>WYSŁANO</Text>
       </View>
     );
     if (status.status === 'pending' && !status.isSender) return (
       <View style={[base, { borderColor: '#ff922b40' }]}>
         <Feather name="bell" size={13} color="#ff922b" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', color: '#ff922b' }}>OCZEKUJE</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#ff922b' }}>OCZEKUJE</Text>
       </View>
     );
     if (status.status === 'accepted') return (
       <View style={[base, { borderColor: '#4de92630', backgroundColor: '#4de92610' }]}>
         <Feather name="check" size={13} color="#4de926" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', color: '#4de926' }}>ZNAJOMY</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: '#4de926' }}>ZNAJOMY</Text>
       </View>
     );
     return null;
@@ -222,7 +219,7 @@ export function ConversationInfoSheet({
             {(isGroup ? convAvatar : otherParticipant?.avatarUrl)
               ? <Image source={{ uri: (isGroup ? convAvatar : otherParticipant?.avatarUrl) as string }} style={{ width: 80, height: 80, borderRadius: 40 }} />
               : <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: theme.surface3, borderWidth: 2, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 26, fontWeight: '700' }}>{convName?.slice(0, 2).toUpperCase() ?? '??'}</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 26, fontWeight: '700' }}>{convName?.slice(0, 2).toUpperCase() ?? '??'}</Text>
                 </View>
             }
             {isGroup && (
@@ -234,7 +231,7 @@ export function ConversationInfoSheet({
 
           {isGroup && editingName ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20 }}>
-              <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 15, fontWeight: '700', backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 12, paddingVertical: 6 }} value={groupName} onChangeText={setGroupName} autoFocus selectTextOnFocus />
+              <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '700', backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 12, paddingVertical: 6 }} value={groupName} onChangeText={setGroupName} autoFocus selectTextOnFocus />
               <TouchableOpacity onPress={handleSaveName} disabled={saving}>
                 {saving ? <ActivityIndicator size="small" color={theme.primary} /> : <Feather name="check" size={18} color="#4de926" />}
               </TouchableOpacity>
@@ -244,12 +241,12 @@ export function ConversationInfoSheet({
             </View>
           ) : (
             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={isGroup ? () => setEditingName(true) : undefined} activeOpacity={isGroup ? 0.75 : 1}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>{convName}</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>{convName}</Text>
               {isGroup && <Feather name="edit-2" size={14} color={theme.textFaint} />}
             </TouchableOpacity>
           )}
 
-          <Text style={{ color: theme.textDim, fontSize: 11 }}>
+          <Text style={{ color: theme.textDim, fontSize: 12 }}>
             {isGroup ? `${participants.length} uczestników` : (otherParticipant?.online ? 'Online' : 'Offline')}
           </Text>
         </View>
@@ -268,7 +265,7 @@ export function ConversationInfoSheet({
               onPress={() => setTab(t.key)}
             >
               <Feather name={t.icon} size={15} color={tab === t.key ? theme.primary : theme.textFaint} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1, color: tab === t.key ? theme.primary : theme.textFaint }}>{t.label}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, color: tab === t.key ? theme.primary : theme.textFaint }}>{t.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -276,20 +273,20 @@ export function ConversationInfoSheet({
         {/* INFO */}
         {tab === 'info' && (
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            <Text style={{ color: theme.textFaint, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>UCZESTNICY</Text>
+            <Text style={{ color: theme.textFaint, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>UCZESTNICY</Text>
             {participants.map(p => (
               <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
                 {p.avatarUrl
                   ? <Image source={{ uri: p.avatarUrl }} style={{ width: 42, height: 42, borderRadius: 21 }} />
                   : <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface3, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{p.username?.slice(0, 2).toUpperCase()}</Text>
+                      <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{p.username?.slice(0, 2).toUpperCase()}</Text>
                     </View>
                 }
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{p.username}{p.id === myId ? ' (Ty)' : ''}</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{p.username}{p.id === myId ? ' (Ty)' : ''}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.online ? '#4de926' : theme.border2 }} />
-                    <Text style={{ color: theme.textDim, fontSize: 10 }}>{p.online ? 'Online' : 'Offline'}</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12 }}>{p.online ? 'Online' : 'Offline'}</Text>
                   </View>
                 </View>
                 {p.id !== myId && (
@@ -314,7 +311,7 @@ export function ConversationInfoSheet({
               : media.length === 0
               ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10 }}>
                   <MaterialCommunityIcons name="image-off-outline" size={40} color={theme.border3} />
-                  <Text style={{ color: theme.textFaint, fontFamily: 'Orbitron', fontSize: 11 }}>Brak multimediów</Text>
+                  <Text style={{ color: theme.textFaint, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Brak multimediów</Text>
                 </View>
               : <FlatList data={media} keyExtractor={(_, i) => String(i)} numColumns={3}
                   renderItem={({ item }) => <Image source={{ uri: item.url }} style={{ width: THUMB, height: THUMB, margin: 1, borderRadius: 4 }} resizeMode="cover" />}
@@ -345,20 +342,20 @@ export function ConversationInfoSheet({
                   {item.sender.avatarUrl
                     ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} />
                     : <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface3, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{item.sender.username?.slice(0, 2).toUpperCase()}</Text>
+                        <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.sender.username?.slice(0, 2).toUpperCase()}</Text>
                       </View>
                   }
                   <View style={{ flex: 1, gap: 3 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{item.sender.username}</Text>
-                      <Text style={{ color: theme.textFaint, fontSize: 9 }}>{new Date(item.createdAt).toLocaleDateString('pl', { day: '2-digit', month: '2-digit' })}</Text>
+                      <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.sender.username}</Text>
+                      <Text style={{ color: theme.textFaint, fontSize: 12 }}>{new Date(item.createdAt).toLocaleDateString('pl', { day: '2-digit', month: '2-digit' })}</Text>
                     </View>
                     <Text style={{ color: theme.textMuted, fontSize: 12, lineHeight: 17 }} numberOfLines={2}>{item.content}</Text>
                   </View>
                 </View>
               )}
               ListEmptyComponent={searchQuery.length >= 2 && !searchLoading
-                ? <View style={{ alignItems: 'center', paddingTop: 60 }}><Text style={{ color: theme.textFaint, fontFamily: 'Orbitron', fontSize: 11 }}>Brak wyników</Text></View>
+                ? <View style={{ alignItems: 'center', paddingTop: 60 }}><Text style={{ color: theme.textFaint, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Brak wyników</Text></View>
                 : null
               }
               contentContainerStyle={{ paddingBottom: 40 }}

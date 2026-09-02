@@ -1,5 +1,6 @@
 import React, { type ReactNode } from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { VROOM_RED } from './constants';
@@ -79,8 +80,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  sub: { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, textAlign: 'center' },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  sub: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, textAlign: 'center' },
   cta: {
     marginTop: 8,
     borderRadius: 12,
@@ -88,5 +89,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
-  ctaText: { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, fontWeight: '700' },
+  ctaText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
 });

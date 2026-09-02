@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, Image,
-  FlatList, Modal, ActivityIndicator, StatusBar, Platform, Linking, TextInput,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Image, FlatList, Modal, ActivityIndicator, StatusBar, Platform, Linking } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -251,7 +249,7 @@ export default function MeetDetailScreen() {
 
   if (!meet) return (
     <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
-      <Text style={{ color: theme.text, fontFamily: 'Orbitron' }}>Nie znaleziono meetu</Text>
+      <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold' }}>Nie znaleziono meetu</Text>
     </View>
   );
 
@@ -300,13 +298,13 @@ export default function MeetDetailScreen() {
       <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
         {item.avatarUrl
           ? <Image source={{ uri: item.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-          : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>{item.username.charAt(0).toUpperCase()}</Text>
+          : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700' }}>{item.username.charAt(0).toUpperCase()}</Text>
         }
       </View>
-      <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{item.username}</Text>
+      <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.username}</Text>
       {item.id === meet.creator.id && (
         <View style={{ backgroundColor: theme.primaryBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: theme.primaryBorder }}>
-          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>ORGANIZATOR</Text>
+          <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ORGANIZATOR</Text>
         </View>
       )}
       <MaterialIcons name="arrow-forward-ios" size={12} color={theme.textDim} />
@@ -351,16 +349,16 @@ export default function MeetDetailScreen() {
           <View style={{ position: 'absolute', bottom: 14, left: 16, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {isHot && (
               <View style={{ backgroundColor: theme.primary, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>🔥 HOT</Text>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>🔥 HOT</Text>
               </View>
             )}
             {badge && (
               <View style={{ backgroundColor: badge.color + 'dd', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{badge.label}</Text>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{badge.label}</Text>
               </View>
             )}
             <View style={{ backgroundColor: meet.category === 'official' ? '#FFD700dd' : '#00000060', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                 {meet.category === 'official' ? '⭐ OFICJALNY' : '🏁 NIEOFICJALNY'}
               </Text>
             </View>
@@ -385,16 +383,16 @@ export default function MeetDetailScreen() {
               <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primaryBg, borderWidth: 1.5, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
                 {meet.creator.avatarUrl
                   ? <Image source={{ uri: meet.creator.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                  : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 15, fontWeight: '700' }}>{meet.creator.username.charAt(0).toUpperCase()}</Text>
+                  : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '700' }}>{meet.creator.username.charAt(0).toUpperCase()}</Text>
                 }
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>ORGANIZATOR</Text>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>ORGANIZATOR</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700' }}>
                   {meet.organizerName ? meet.organizerName : `@${meet.creator.username}`}
                 </Text>
                 {meet.organizerName && (
-                  <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>@{meet.creator.username}</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>@{meet.creator.username}</Text>
                 )}
               </View>
               <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
@@ -410,8 +408,8 @@ export default function MeetDetailScreen() {
             ].map(info => (
               <View key={info.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name={info.icon as any} size={18} color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>{info.label}</Text>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>{info.value}</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{info.label}</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', textAlign: 'center' }}>{info.value}</Text>
               </View>
             ))}
           </View>
@@ -419,8 +417,8 @@ export default function MeetDetailScreen() {
           {/* PASEK ZAPEŁNIENIA */}
           <View style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, gap: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>Miejsca</Text>
-              <Text style={{ color: isFull ? '#e33835' : theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Miejsca</Text>
+              <Text style={{ color: isFull ? '#e33835' : theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                 {isFull ? 'BRAK MIEJSC' : `${spots} wolnych`}
               </Text>
             </View>
@@ -428,15 +426,15 @@ export default function MeetDetailScreen() {
               <View style={{ height: '100%', width: `${pct * 100}%`, backgroundColor: isFull ? '#e33835' : theme.primary, borderRadius: 3 }} />
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>{meet.participantsCount} zapisanych</Text>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>{meet.maxParticipants} miejsc łącznie</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{meet.participantsCount} zapisanych</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{meet.maxParticipants} miejsc łącznie</Text>
             </View>
           </View>
 
           {/* BILET QR — uczestnik */}
           {meet.isJoined && (
             <View style={{ gap: 12 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
                 {meet.isApprovedParticipant ? 'TWÓJ BILET UCZESTNIKA' : 'TWÓJ BILET VROOM'}
               </Text>
               <TouchableOpacity
@@ -449,10 +447,10 @@ export default function MeetDetailScreen() {
                     <MaterialIcons name="qr-code-2" size={24} color={meet.isApprovedParticipant ? '#4de926' : theme.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700' }}>
                       {meet.isApprovedParticipant ? 'QR uczestnika z autem' : 'Pokaż kod QR'}
                     </Text>
-                    <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4 }}>
+                    <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>
                       {meet.checkedInAt
                         ? `Wszedłeś na teren · ${meet.entryType === 'free_vroom' ? 'FREE VROOM' : 'standard'}`
                         : meet.isApprovedParticipant && meet.car
@@ -475,10 +473,10 @@ export default function MeetDetailScreen() {
                 >
                   <MaterialCommunityIcons name="car-sports" size={24} color={theme.primary} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                       {meet.participantStatus === 'rejected' ? 'Zgłoś się ponownie z autem' : 'Zgłoś się jako uczestnik z autem'}
                     </Text>
-                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 3 }}>Wybierz auto z garażu — organizator zatwierdzi</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 3 }}>Wybierz auto z garażu — organizator zatwierdzi</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={20} color={theme.textDim} />
                 </TouchableOpacity>
@@ -487,9 +485,9 @@ export default function MeetDetailScreen() {
                 <View style={{ backgroundColor: '#ff980015', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#ff980040', flexDirection: 'row', gap: 12, alignItems: 'center' }}>
                   <MaterialIcons name="hourglass-top" size={22} color="#ff9800" />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#ff9800', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>OCZEKUJE NA AKCEPTACJĘ</Text>
+                    <Text style={{ color: '#ff9800', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>OCZEKUJE NA AKCEPTACJĘ</Text>
                     {meet.car && (
-                      <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>
+                      <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>
                         {meet.car.brand} {meet.car.specs}
                       </Text>
                     )}
@@ -502,7 +500,7 @@ export default function MeetDetailScreen() {
           {/* ORGANIZATOR — skan / zespół */}
           {(canScan || canManage) && (
             <View style={{ gap: 12 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>PANEL ORGANIZATORA</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>PANEL ORGANIZATORA</Text>
               {canScan && (
                 <TouchableOpacity
                   style={{ backgroundColor: theme.primary, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
@@ -510,24 +508,24 @@ export default function MeetDetailScreen() {
                   activeOpacity={0.85}
                 >
                   <MaterialIcons name="qr-code-scanner" size={22} color="#fff" />
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>SKANUJ BILET QR</Text>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>SKANUJ BILET QR</Text>
                 </TouchableOpacity>
               )}
               {canScan && meet.freeEntryQuota > 0 && (
                 <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE VROOM — GOŚCIE</Text>
-                  <Text style={{ color: '#f5c518', fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>FREE VROOM — GOŚCIE</Text>
+                  <Text style={{ color: '#f5c518', fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
                     {meet.freeEntryRemaining} / {meet.freeEntryQuota}
                   </Text>
                 </View>
               )}
               {canScan && meet.freeParticipantEntryQuota > 0 && (
                 <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE VROOM — UCZESTNICY Z AUTEM</Text>
-                  <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>FREE VROOM — UCZESTNICY Z AUTEM</Text>
+                  <Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
                     {meet.freeParticipantEntryRemaining} / {meet.freeParticipantEntryQuota}
                   </Text>
-                  <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>Free przydzielane przy skanie QR na miejscu</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>Free przydzielane przy skanie QR na miejscu</Text>
                 </View>
               )}
               {canEdit && (
@@ -537,7 +535,7 @@ export default function MeetDetailScreen() {
                   activeOpacity={0.85}
                 >
                   <MaterialIcons name="tune" size={20} color={theme.primary} />
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>USTAW PULE FREE WJAZDÓW</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>USTAW PULE FREE WJAZDÓW</Text>
                 </TouchableOpacity>
               )}
               {meet.canReviewApplications && (
@@ -548,12 +546,12 @@ export default function MeetDetailScreen() {
                 >
                   <MaterialCommunityIcons name="car-multiple" size={22} color={theme.primary} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZGŁOSZENIA Z AUTEM</Text>
-                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>Zatwierdzaj uczestników z garażu</Text>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZGŁOSZENIA Z AUTEM</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>Zatwierdzaj uczestników z garażu</Text>
                   </View>
                   {(meet.pendingApplications ?? 0) > 0 && (
                     <View style={{ backgroundColor: theme.primary, borderRadius: 12, minWidth: 24, height: 24, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
-                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{meet.pendingApplications}</Text>
+                      <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{meet.pendingApplications}</Text>
                     </View>
                   )}
                   <MaterialIcons name="chevron-right" size={20} color={theme.textDim} />
@@ -566,7 +564,7 @@ export default function MeetDetailScreen() {
                   activeOpacity={0.85}
                 >
                   <MaterialIcons name="groups" size={22} color={theme.primary} />
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZARZĄDZAJ ZESPOŁEM</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZARZĄDZAJ ZESPOŁEM</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -575,15 +573,15 @@ export default function MeetDetailScreen() {
           {/* BILET I LINKI */}
           {(ticketLabel || actionLinks.length > 0) && (
             <View style={{ gap: 12 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>BILETY I LINKI</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>BILETY I LINKI</Text>
               {ticketLabel && (
                 <View style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.primaryBorder }}>
                     <MaterialIcons name="confirmation-number" size={20} color={theme.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>CENA BILETU</Text>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>{ticketLabel}</Text>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>CENA BILETU</Text>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>{ticketLabel}</Text>
                   </View>
                 </View>
               )}
@@ -598,7 +596,7 @@ export default function MeetDetailScreen() {
                   onPress={() => openExternalUrl(link.url)} activeOpacity={0.85}
                 >
                   <MaterialIcons name={link.icon as any} size={20} color={theme.primary} />
-                  <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{link.label}</Text>
+                  <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{link.label}</Text>
                   <MaterialIcons name="open-in-new" size={16} color={theme.textDim} />
                 </TouchableOpacity>
               ))}
@@ -608,7 +606,7 @@ export default function MeetDetailScreen() {
           {/* SOCIAL MEDIA ORGANIZATORA */}
           {socialLinks.length > 0 && (
             <View style={{ gap: 12 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>SOCIAL MEDIA</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>SOCIAL MEDIA</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {socialLinks.map((link, i) => (
                   <TouchableOpacity
@@ -617,7 +615,7 @@ export default function MeetDetailScreen() {
                     onPress={() => openExternalUrl(link.url)} activeOpacity={0.85}
                   >
                     <MaterialIcons name={link.icon as any} size={16} color={theme.primary} />
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{link.label}</Text>
+                    <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{link.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -629,7 +627,7 @@ export default function MeetDetailScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {meet.tags.map((tag, i) => (
                 <View key={i} style={{ backgroundColor: theme.primaryBg, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: theme.primaryBorder }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{tag}</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{tag}</Text>
                 </View>
               ))}
             </View>
@@ -638,14 +636,14 @@ export default function MeetDetailScreen() {
           {/* OPIS */}
           {!!meet.description && (
             <View style={{ gap: 10 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>O MEECIE</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>O MEECIE</Text>
               <Text style={{ color: theme.text, fontSize: 13, lineHeight: 22 }}>{meet.description}</Text>
             </View>
           )}
 
           {/* LOKALIZACJA */}
           <View style={{ gap: 10 }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>LOKALIZACJA</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>LOKALIZACJA</Text>
             <TouchableOpacity
               style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: theme.border }}
               onPress={openMaps} activeOpacity={0.8}
@@ -654,16 +652,16 @@ export default function MeetDetailScreen() {
                 <MaterialIcons name="location-on" size={20} color={theme.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={2}>{meet.locationName}</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={2}>{meet.locationName}</Text>
                 {meet.lat && meet.lng && (
-                  <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 3 }}>
+                  <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 3 }}>
                     📍 {meet.lat.toFixed(4)}, {meet.lng.toFixed(4)}
                   </Text>
                 )}
               </View>
               <View style={{ alignItems: 'center', gap: 3 }}>
                 <MaterialIcons name="navigation" size={18} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>NAWIGUJ</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>NAWIGUJ</Text>
               </View>
             </TouchableOpacity>
             {canEdit && meet.lat != null && meet.lng != null && (
@@ -672,7 +670,7 @@ export default function MeetDetailScreen() {
                 onPress={() => setInviteModal(true)} activeOpacity={0.85}
               >
                 <MaterialIcons name="campaign" size={22} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZAPROŚ UŻYTKOWNIKÓW W POBLIŻU</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZAPROŚ UŻYTKOWNIKÓW W POBLIŻU</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -680,11 +678,11 @@ export default function MeetDetailScreen() {
           {/* ZASADY */}
           {meet.rules.length > 0 && (
             <View style={{ gap: 12 }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>ZASADY</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>ZASADY</Text>
               {meet.rules.map((rule, i) => (
                 <View key={i} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
                   <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.primaryBorder, flexShrink: 0 }}>
-                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{i + 1}</Text>
+                    <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{i + 1}</Text>
                   </View>
                   <Text style={{ flex: 1, color: theme.text, fontSize: 13, lineHeight: 20, marginTop: 4 }}>{rule}</Text>
                 </View>
@@ -695,9 +693,9 @@ export default function MeetDetailScreen() {
           {/* UCZESTNICY */}
           <View style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>UCZESTNICY</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>UCZESTNICY</Text>
               <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setModalVisible(true)}>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>WSZYSCY ({meet.participantsCount})</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WSZYSCY ({meet.participantsCount})</Text>
                 <MaterialIcons name="arrow-forward-ios" size={11} color={theme.primary} />
               </TouchableOpacity>
             </View>
@@ -710,13 +708,13 @@ export default function MeetDetailScreen() {
                 >
                   {p.avatarUrl
                     ? <Image source={{ uri: p.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                    : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{p.username.charAt(0).toUpperCase()}</Text>
+                    : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{p.username.charAt(0).toUpperCase()}</Text>
                   }
                 </TouchableOpacity>
               ))}
               {meet.participantsCount > 6 && (
                 <View style={{ marginLeft: -10, width: 38, height: 38, borderRadius: 19, backgroundColor: theme.surface, borderWidth: 2, borderColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>+{meet.participantsCount - 6}</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>+{meet.participantsCount - 6}</Text>
                 </View>
               )}
             </View>
@@ -728,10 +726,10 @@ export default function MeetDetailScreen() {
       {/* FLOATING CTA */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.border, padding: 16, paddingBottom: Platform.OS === 'ios' ? 32 : 16, flexDirection: 'row', gap: 10 }}>
         <View style={{ backgroundColor: theme.surface, borderRadius: 12, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border }}>
-          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>
+          <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>
             {new Date(meet.date).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })}
           </Text>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
             {new Date(meet.date).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
@@ -761,7 +759,7 @@ export default function MeetDetailScreen() {
                 size={20}
                 color={meet.isJoined ? '#4de926' : isFull ? theme.textDim : '#fff'}
               />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', color: meet.isJoined ? '#4de926' : isFull ? theme.textDim : '#fff' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', color: meet.isJoined ? '#4de926' : isFull ? theme.textDim : '#fff' }}>
                 {meet.isJoined
                   ? meet.ticketSalesEnabled ? 'TWÓJ BILET QR' : 'DOŁĄCZONO ✓'
                   : isFull ? 'BRAK MIEJSC' : meet.ticketSalesEnabled ? 'KUP BILET' : 'DOŁĄCZ DO MEETU'}
@@ -775,11 +773,11 @@ export default function MeetDetailScreen() {
       <Modal visible={inviteModal} animationType="fade" transparent onRequestClose={() => !inviteSending && setInviteModal(false)}>
         <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', padding: 24 }}>
           <View style={{ backgroundColor: theme.surface2, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: theme.border }}>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700', marginBottom: 8 }}>Zaproszenia w pobliżu</Text>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700', marginBottom: 8 }}>Zaproszenia w pobliżu</Text>
             <Text style={{ color: theme.textDim, fontSize: 12, lineHeight: 18, marginBottom: 16 }}>
               VROOM wyśle powiadomienie (push + centrum powiadomień) użytkownikom z włączonym udostępnianiem lokalizacji, którzy są w promieniu od punktu meetu. Max raz na 24 h.
             </Text>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>PROMIEŃ (KM)</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>PROMIEŃ (KM)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
               {[25, 50, 100, 150].map(km => (
                 <TouchableOpacity
@@ -792,7 +790,7 @@ export default function MeetDetailScreen() {
                     backgroundColor: inviteRadius === km ? theme.primaryBg : theme.surface3,
                   }}
                 >
-                  <Text style={{ color: inviteRadius === km ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{km} km</Text>
+                  <Text style={{ color: inviteRadius === km ? theme.primary : theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{km} km</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -801,13 +799,13 @@ export default function MeetDetailScreen() {
                 style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border2 }}
                 onPress={() => !inviteSending && setInviteModal(false)} disabled={inviteSending}
               >
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ANULUJ</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ANULUJ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: inviteSending ? 0.7 : 1 }}
                 onPress={sendNearbyInvites} disabled={inviteSending}
               >
-                {inviteSending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>WYŚLIJ</Text>}
+                {inviteSending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WYŚLIJ</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -817,26 +815,26 @@ export default function MeetDetailScreen() {
       <Modal visible={quotaModal} animationType="fade" transparent onRequestClose={() => !quotaSaving && setQuotaModal(false)}>
         <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', padding: 24 }}>
           <View style={{ backgroundColor: theme.surface2, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: theme.border, gap: 14 }}>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>Pule free wjazdów VROOM</Text>
-            <Text style={{ color: theme.textDim, fontSize: 11, lineHeight: 17 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>Pule free wjazdów VROOM</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, lineHeight: 17 }}>
               Pierwsze zeskanowane kody QR dostają darmowy wjazd — osobno dla gości i uczestników z autem.
             </Text>
             <View>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>FREE — GOŚCIE (QR użytkownika)</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 6 }}>FREE — GOŚCIE (QR użytkownika)</Text>
               <TextInput
                 value={quotaVisitor}
                 onChangeText={setQuotaVisitor}
                 keyboardType="number-pad"
-                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Orbitron' }}
+                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Manrope_600SemiBold' }}
               />
             </View>
             <View>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>FREE — UCZESTNICY Z AUTEM</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 6 }}>FREE — UCZESTNICY Z AUTEM</Text>
               <TextInput
                 value={quotaParticipant}
                 onChangeText={setQuotaParticipant}
                 keyboardType="number-pad"
-                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Orbitron' }}
+                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Manrope_600SemiBold' }}
               />
             </View>
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
@@ -845,14 +843,14 @@ export default function MeetDetailScreen() {
                 onPress={() => !quotaSaving && setQuotaModal(false)}
                 disabled={quotaSaving}
               >
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ANULUJ</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ANULUJ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: quotaSaving ? 0.7 : 1 }}
                 onPress={saveQuotas}
                 disabled={quotaSaving}
               >
-                {quotaSaving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>}
+                {quotaSaving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -863,7 +861,7 @@ export default function MeetDetailScreen() {
         <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: theme.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 20, maxHeight: '85%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>UCZESTNICY ({meet.participantsCount})</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>UCZESTNICY ({meet.participantsCount})</Text>
               <TouchableOpacity style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface, alignItems: 'center', justifyContent: 'center' }} onPress={() => setModalVisible(false)}>
                 <MaterialIcons name="close" size={18} color={theme.text} />
               </TouchableOpacity>

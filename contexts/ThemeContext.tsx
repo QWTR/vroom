@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/mapConfig';
 import {
   darkTheme, lightTheme, AppTheme, ThemeMode,
-  THEME_MODE_KEY, CUSTOM_THEME_KEY, buildCustomTheme, isThemeDark,
+  THEME_MODE_KEY, CUSTOM_THEME_KEY, buildCustomTheme, isThemeDark, normalizeAccessibleTheme,
 } from '../constants/theme';
 import { APP_THEME_PRESETS, getAppThemePreset } from '../constants/appThemePresets';
 
@@ -189,13 +189,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [isPremiumTheme, mode, presetId, syncThemeToBackend]);
 
   const presetTheme = mode === 'preset' ? getAppThemePreset(presetId)?.theme : null;
-  const theme = mode === 'dark'
+  const rawTheme = mode === 'dark'
     ? darkTheme
     : mode === 'light'
       ? lightTheme
       : mode === 'preset' && presetTheme
         ? presetTheme
         : customTheme;
+  const theme = useMemo(() => normalizeAccessibleTheme(rawTheme), [rawTheme]);
   const isDark = mode === 'dark' || ((mode === 'custom' || mode === 'preset') && isThemeDark(theme));
 
   const value = useMemo(() => ({

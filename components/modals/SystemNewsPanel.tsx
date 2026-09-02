@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View, Text, TouchableOpacity, FlatList, Image,
-  ActivityIndicator, Linking, StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, Image, ActivityIndicator, Linking, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -227,24 +225,24 @@ const ss = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
   },
   iconBtn: { width: 48, height: 48, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  listMeta: { fontFamily: 'Satoshi', fontSize: 11, marginBottom: 8 },
-  pageMeta: { fontFamily: 'Orbitron', fontSize: 9, textAlign: 'center', marginTop: 8, letterSpacing: 1 },
+  headerTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  listMeta: { fontFamily: 'Satoshi', fontSize: 12, marginBottom: 8 },
+  pageMeta: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, textAlign: 'center', marginTop: 8, letterSpacing: 1 },
   card: { borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
   cardBanner: { width: '100%', height: 160 },
   cardBannerEmpty: { alignItems: 'center', justifyContent: 'center' },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 },
   badge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700', letterSpacing: 0.8 },
-  sourceMini: { fontFamily: 'Satoshi', fontSize: 10 },
-  cardTitle: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900', marginBottom: 6 },
+  badgeText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.8 },
+  sourceMini: { fontFamily: 'Satoshi', fontSize: 12 },
+  cardTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900', marginBottom: 6 },
   cardBody: { fontFamily: 'Satoshi', fontSize: 13, lineHeight: 20 },
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
-  cardDate: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 },
+  cardDate: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
   readMore: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
-  readMoreText: { fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
+  readMoreText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   detailBanner: { width: '100%', height: 220 },
-  detailTitle: { fontFamily: 'Orbitron', fontSize: 20, fontWeight: '900', lineHeight: 28, marginBottom: 8 },
+  detailTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '900', lineHeight: 28, marginBottom: 8 },
   detailExcerpt: { fontFamily: 'Satoshi', fontSize: 14, lineHeight: 22, marginBottom: 12 },
   detailBody: { fontFamily: 'Satoshi', fontSize: 15, lineHeight: 24 },
   divider: { height: 1, marginVertical: 16 },
@@ -252,8 +250,8 @@ const ss = StyleSheet.create({
     marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14,
   },
-  sourceBtnText: { fontFamily: 'Orbitron', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  sourceBtnText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
   emptyBox: { alignItems: 'center', paddingVertical: 48, gap: 10 },
-  emptyTitle: { fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 3 },
+  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
   emptySub: { fontFamily: 'Satoshi', fontSize: 12, textAlign: 'center', paddingHorizontal: 32 },
 });

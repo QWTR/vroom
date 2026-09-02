@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, type TextStyle, type StyleProp } from 'react-native';
+import { View, type TextStyle, type StyleProp } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import type { VroomkiTextOverlay } from '../../lib/vroomkiTypes';
 
 const STROKE_OFFSETS = [
@@ -21,7 +22,7 @@ export function VroomkiStyledText({
   const strokeWidth = Math.max(0, overlay.strokeWidth ?? 0);
   const strokeColor = overlay.strokeColor ?? '#000000';
   const base: TextStyle = {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontWeight: '800',
     textAlign: 'center',
     fontSize,

@@ -1,8 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  View, Text, TouchableOpacity, ActivityIndicator,
-  Dimensions, StatusBar, Animated, Modal, FlatList, Platform, ScrollView
-} from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator, Dimensions, StatusBar, Animated, Modal, FlatList, Platform, ScrollView } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -157,12 +155,12 @@ function GalleryModal({ photos, startIdx, username, onClose }: {
         {/* Top bar */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, paddingTop: insets.top + 12, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
-            <Text style={{ fontFamily: 'Orbitron', color: '#ffffff90', fontSize: 8, letterSpacing: 3 }}>GALERIA</Text>
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '900', marginTop: 2 }}>{username}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffff90', fontSize: 12, letterSpacing: 1 }}>GALERIA</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '900', marginTop: 2 }}>{username}</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ backgroundColor: '#ffffff12', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>
                 {current + 1} / {photos.length}
               </Text>
             </View>
@@ -355,7 +353,7 @@ function EntryCard({
       {/* Top-left: Label + galeria */}
       <View style={{ position: 'absolute', top: topInset + (photos.length > 1 ? 28 : 12), left: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
         <View style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: '#ffffff15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#ffffff25' }}>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11, fontWeight: '900' }}>{label}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '900' }}>{label}</Text>
         </View>
         {photos.length > 0 && (
           <TouchableOpacity
@@ -364,7 +362,7 @@ function EntryCard({
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
             <MaterialIcons name="photo-library" size={11} color="#ffffffcc" />
-            <Text style={{ fontFamily: 'Orbitron', color: '#ffffffcc', fontSize: 8 }}>{photos.length}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffffcc', fontSize: 12 }}>{photos.length}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -380,7 +378,7 @@ function EntryCard({
           style={{ borderRadius: 20, paddingHorizontal: 11, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 5 }}
         >
           <MaterialIcons name="how-to-vote" size={13} color="#000" />
-          <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 8, fontWeight: '900', letterSpacing: 1 }}>TWÓJ GŁOS</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 12, fontWeight: '900', letterSpacing: 1 }}>TWÓJ GŁOS</Text>
         </LinearGradient>
       </Animated.View>
 
@@ -389,9 +387,9 @@ function EntryCard({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <PremiumAvatar user={entry.user} size={32} representative />
           <View style={{ flex: 1 }}>
-            <PremiumName user={entry.user} style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }} />
+            <PremiumName user={entry.user} style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }} />
             {entry.car && (
-              <Text style={{ fontFamily: 'Orbitron', color: '#ffffff55', fontSize: 8, marginTop: 1 }} numberOfLines={1}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffff55', fontSize: 12, marginTop: 1 }} numberOfLines={1}>
                 {entry.car.brand}  ·  {entry.car.specs}
               </Text>
             )}
@@ -399,12 +397,12 @@ function EntryCard({
           {entry.wins > 0 && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#ffffff10', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
               <MaterialCommunityIcons name="sword-cross" size={10} color={goldColor} />
-              <Text style={{ fontFamily: 'Orbitron', color: goldColor, fontSize: 8, fontWeight: '900' }}>{entry.wins}W</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: goldColor, fontSize: 12, fontWeight: '900' }}>{entry.wins}W</Text>
             </View>
           )}
         </View>
         {entry.description ? (
-          <Text style={{ fontFamily: 'Orbitron', color: '#ffffff45', fontSize: 8, marginTop: 5, letterSpacing: 0.5 }} numberOfLines={1}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffff45', fontSize: 12, marginTop: 5, letterSpacing: 0.5 }} numberOfLines={1}>
             "{entry.description}"
           </Text>
         ) : null}
@@ -576,7 +574,7 @@ export default function GridVoteScreen() {
     <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
       <MaterialCommunityIcons name="sword-cross" size={48} color="#222" />
       <ActivityIndicator size="large" color={theme.gold} style={{ marginTop: 20 }} />
-      <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 9, marginTop: 14, letterSpacing: 3 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12, marginTop: 14, letterSpacing: 1 }}>
         ŁADOWANIE BITEW
       </Text>
     </View>
@@ -585,12 +583,12 @@ export default function GridVoteScreen() {
   if (battles.length === 0) return (
     <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', padding: 32 }}>
       <MaterialCommunityIcons name="sword-cross" size={72} color="#1a1a1a" />
-      <Text style={{ fontFamily: 'Orbitron', color: '#2a2a2a', fontSize: 13, marginTop: 20, letterSpacing: 3 }}>BRAK AKTYWNYCH BITEW</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#2a2a2a', fontSize: 13, marginTop: 20, letterSpacing: 1 }}>BRAK AKTYWNYCH BITEW</Text>
       <TouchableOpacity
         style={{ marginTop: 32, backgroundColor: theme.gold, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 12 }}
         onPress={() => router.back()}
       >
-        <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>WRÓĆ</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 12, fontWeight: '900', letterSpacing: 1 }}>WRÓĆ</Text>
       </TouchableOpacity>
     </View>
   );
@@ -625,7 +623,7 @@ export default function GridVoteScreen() {
               ? <ActivityIndicator size="small" color={theme.gold} />
               : <MaterialCommunityIcons name="flag-checkered" size={12} color={theme.gold} />
             }
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>
               {Object.keys(votedMap).length}/{battles.length}
             </Text>
           </View>
@@ -679,7 +677,7 @@ export default function GridVoteScreen() {
             <View style={{ alignItems: 'center', gap: 3 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 {/* Pct A */}
-                <Text style={{ fontFamily: 'Orbitron', color: myVote === battle.entryA.id ? theme.gold : '#444', fontSize: 13, fontWeight: '900' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: myVote === battle.entryA.id ? theme.gold : '#444', fontSize: 13, fontWeight: '900' }}>
                   {myVote ? `${pctA}%` : '?'}
                 </Text>
 
@@ -690,17 +688,17 @@ export default function GridVoteScreen() {
                   style={{ borderRadius: 24, paddingHorizontal: 16, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                 >
                   <MaterialCommunityIcons name="sword-cross" size={12} color="#000" />
-                  <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 14, fontWeight: '900', letterSpacing: 4 }}>VS</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>VS</Text>
                   <MaterialCommunityIcons name="sword-cross" size={12} color="#000" />
                 </LinearGradient>
 
                 {/* Pct B */}
-                <Text style={{ fontFamily: 'Orbitron', color: myVote === battle.entryB.id ? theme.gold : '#444', fontSize: 13, fontWeight: '900' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: myVote === battle.entryB.id ? theme.gold : '#444', fontSize: 13, fontWeight: '900' }}>
                   {myVote ? `${pctB}%` : '?'}
                 </Text>
               </View>
 
-              <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 8, letterSpacing: 1 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12, letterSpacing: 1 }}>
                 {idx + 1}/{battles.length}  ·  ⏱ {timeLeft(battle.endsAt)}
               </Text>
             </View>
@@ -734,13 +732,13 @@ export default function GridVoteScreen() {
           {/* Głosy info */}
           {myVote && (
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 8 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12 }}>
                 {battle.votesA} głosów
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', color: '#222', fontSize: 8, letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#222', fontSize: 12, letterSpacing: 1 }}>
                 WYNIKI
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 8 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12 }}>
                 {battle.votesB} głosów
               </Text>
             </View>
@@ -764,10 +762,10 @@ export default function GridVoteScreen() {
                         : <>
                             <MaterialIcons name="how-to-vote" size={18} color="#000" />
                             <View style={{ flexShrink: 1 }}>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 10, fontWeight: '900' }} numberOfLines={1}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 12, fontWeight: '900' }} numberOfLines={1}>
                                 {battle.entryA.user.username}
                               </Text>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#00000070', fontSize: 7 }}>TWÓJ GŁOS</Text>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#00000070', fontSize: 12 }}>TWÓJ GŁOS</Text>
                             </View>
                           </>
                       }
@@ -778,10 +776,10 @@ export default function GridVoteScreen() {
                         : <>
                             <MaterialIcons name="thumb-up" size={16} color="#333" />
                             <View style={{ flexShrink: 1 }}>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#ccc', fontSize: 10, fontWeight: '900' }} numberOfLines={1}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ccc', fontSize: 12, fontWeight: '900' }} numberOfLines={1}>
                                 {battle.entryA.user.username}
                               </Text>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 7 }}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12 }}>
                                 {myVote ? 'ZMIEŃ GŁOS' : 'ZAGŁOSUJ'}
                               </Text>
                             </View>
@@ -810,10 +808,10 @@ export default function GridVoteScreen() {
                         : <>
                             <MaterialIcons name="how-to-vote" size={18} color="#000" />
                             <View style={{ flexShrink: 1 }}>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#000', fontSize: 10, fontWeight: '900' }} numberOfLines={1}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#000', fontSize: 12, fontWeight: '900' }} numberOfLines={1}>
                                 {battle.entryB.user.username}
                               </Text>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#00000070', fontSize: 7 }}>TWÓJ GŁOS</Text>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#00000070', fontSize: 12 }}>TWÓJ GŁOS</Text>
                             </View>
                           </>
                       }
@@ -824,10 +822,10 @@ export default function GridVoteScreen() {
                         : <>
                             <MaterialIcons name="thumb-up" size={16} color="#333" />
                             <View style={{ flexShrink: 1 }}>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#ccc', fontSize: 10, fontWeight: '900' }} numberOfLines={1}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ccc', fontSize: 12, fontWeight: '900' }} numberOfLines={1}>
                                 {battle.entryB.user.username}
                               </Text>
-                              <Text style={{ fontFamily: 'Orbitron', color: '#333', fontSize: 7 }}>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#333', fontSize: 12 }}>
                                 {myVote ? 'ZMIEŃ GŁOS' : 'ZAGŁOSUJ'}
                               </Text>
                             </View>

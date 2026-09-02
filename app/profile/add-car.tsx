@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Switch, Image, Text,
-} from 'react-native';
+import { View, TouchableOpacity, ScrollView, ActivityIndicator, Switch, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter }         from 'expo-router';
 import * as ImagePicker      from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -103,8 +101,8 @@ export default function AddCarScreen() {
     } finally { setLoading(false); }
   };
 
-  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
-  const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
+  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Manrope_600SemiBold' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
+  const labelStyle = { fontFamily: 'Manrope_600SemiBold' as const, color: theme.textDim, fontSize: 12, marginBottom: 8, letterSpacing: 1 };
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 80 }}>
@@ -112,9 +110,9 @@ export default function AddCarScreen() {
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, letterSpacing: 2 }}>DODAJ AUTO</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, letterSpacing: 1 }}>DODAJ AUTO</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -132,18 +130,18 @@ export default function AddCarScreen() {
         {compressing && (
           <View style={{ width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center' }}>
             <ActivityIndicator color={theme.primary} size="small" />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 6 }}>Kompresja...</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, marginTop: 6 }}>Kompresja...</Text>
           </View>
         )}
         {!compressing && photos.length < 5 && (
           <>
             <TouchableOpacity style={{ width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center' }} onPress={pickPhotos}>
               <MaterialIcons name="photo-library" size={26} color={theme.primary} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Galeria</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, marginTop: 4 }}>Galeria</Text>
             </TouchableOpacity>
             <TouchableOpacity style={{ width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center', marginLeft: 8 }} onPress={pickFromCamera}>
               <MaterialIcons name="photo-camera" size={26} color={theme.primary} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Aparat</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, marginTop: 4 }}>Aparat</Text>
             </TouchableOpacity>
           </>
         )}
@@ -192,7 +190,7 @@ export default function AddCarScreen() {
                 backgroundColor: active ? theme.primaryBg : theme.surface3,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: active ? theme.primary : theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? theme.primary : theme.textDim }}>
                 {opt.label}
               </Text>
             </TouchableOpacity>
@@ -204,7 +202,7 @@ export default function AddCarScreen() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, backgroundColor: theme.surface3, padding: 16, borderRadius: 10, borderWidth: 1, borderColor: theme.border2 }}>
         <View>
           <Text style={labelStyle}>USTAW JAKO GŁÓWNE</Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 9, marginTop: 3 }}>Wyświetlane na Twoim profilu</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12, marginTop: 3 }}>Wyświetlane na Twoim profilu</Text>
         </View>
         <Switch value={isMain} onValueChange={setIsMain} trackColor={{ true: theme.primary, false: theme.surface4 }} thumbColor="#fff" />
       </View>
@@ -212,9 +210,9 @@ export default function AddCarScreen() {
       {/* PODGLĄD */}
       {(brand || model || year || power || engine) && (
         <View style={{ backgroundColor: theme.surface3, borderRadius: 10, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: theme.primaryBorder }}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 9, marginBottom: 8 }}>PODGLĄD</Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 16, marginBottom: 4 }}>{[brand, model].filter(Boolean).join(' ') || '—'}</Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 11 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12, marginBottom: 8 }}>PODGLĄD</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 16, marginBottom: 4 }}>{[brand, model].filter(Boolean).join(' ') || '—'}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>
             {[year && `${year} r.`, power && `${power} KM`, engine, color].filter(Boolean).join(' · ') || '—'}
           </Text>
         </View>
@@ -227,7 +225,7 @@ export default function AddCarScreen() {
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, letterSpacing: 1 }}>DODAJ AUTO 🚗</Text>
+          : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, letterSpacing: 1 }}>DODAJ AUTO 🚗</Text>
         }
       </TouchableOpacity>
     </ScrollView>

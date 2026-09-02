@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, TouchableOpacity, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { PartnerPoi } from '../../hooks/usePartnerPois';
@@ -78,13 +79,13 @@ export const PartnerPoiMarker = memo(({ poi, onPress, compact = false }: Props) 
               <>
                 <Text
                   numberOfLines={1}
-                  style={{ color: accent, fontSize: 8, fontWeight: '900', marginBottom: 1 }}
+                  style={{ color: accent, fontSize: 12, fontWeight: '900', marginBottom: 1 }}
                 >
                   PARTNER
                 </Text>
                 <Text
                   numberOfLines={1}
-                  style={{ color: '#d8e9ff', fontSize: 9, fontWeight: '800' }}
+                  style={{ color: '#d8e9ff', fontSize: 12, fontWeight: '800' }}
                 >
                   {name}
                 </Text>

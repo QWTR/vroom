@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -38,7 +39,7 @@ export function CommunityEmptyState({
         <MaterialCommunityIcons name={icon as any} size={36} color={theme.border3} />
       </View>
       <Text style={{
-        fontFamily: 'Orbitron',
+        fontFamily: 'Manrope_600SemiBold',
         fontSize: 12,
         color: theme.text,
         fontWeight: '700',
@@ -49,12 +50,12 @@ export function CommunityEmptyState({
       </Text>
       {subtitle ? (
         <Text style={{
-          fontFamily: 'Orbitron',
-          fontSize: 9,
+          fontFamily: 'Manrope_600SemiBold',
+          fontSize: 12,
           color: theme.textDim,
           marginTop: 8,
           textAlign: 'center',
-          lineHeight: 14,
+          lineHeight: 16,
         }}>
           {subtitle}
         </Text>
@@ -71,8 +72,8 @@ export function CommunityEmptyState({
           }}
         >
           <Text style={{
-            fontFamily: 'Orbitron',
-            fontSize: 10,
+            fontFamily: 'Manrope_600SemiBold',
+            fontSize: 12,
             color: theme.onPrimary,
             fontWeight: '800',
             letterSpacing: 1,

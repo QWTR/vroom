@@ -1,8 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, ActivityIndicator, Modal, Share, Linking, Platform,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ActivityIndicator, Modal, Share, Linking, Platform } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useRouter }      from 'expo-router';
@@ -637,15 +635,15 @@ function makePremiumStyles(t: AppTheme) {
   },
 
   title: {
-    fontFamily: 'OrbitronBold',
+    fontFamily: 'Manrope_700Bold',
     fontSize: 28, color: t.text,
-    textAlign: 'center', letterSpacing: 6,
+    textAlign: 'center', letterSpacing: 1,
     marginBottom: 8,
   },
   subtitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 11, color: t.textDim,
-    textAlign: 'center', letterSpacing: 2,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: t.textDim,
+    textAlign: 'center', letterSpacing: 1,
     marginBottom: 16,
   },
   optionalBanner: {
@@ -661,10 +659,10 @@ function makePremiumStyles(t: AppTheme) {
   },
   optionalBannerText: {
     flex: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textMuted,
-    lineHeight: 15,
+    lineHeight: 16,
   },
   optionalBold: {
     color: GOLD,
@@ -682,18 +680,18 @@ function makePremiumStyles(t: AppTheme) {
     marginBottom: 18,
   },
   activeBannerTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#4de926',
     fontWeight: '900',
     letterSpacing: 1,
     marginBottom: 4,
   },
   activeBannerText: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textMuted,
-    lineHeight: 13,
+    lineHeight: 16,
   },
   expiredBanner: {
     flexDirection: 'row',
@@ -708,10 +706,10 @@ function makePremiumStyles(t: AppTheme) {
   },
   expiredBannerText: {
     flex: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#ffd8a8',
-    lineHeight: 13,
+    lineHeight: 16,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -726,10 +724,10 @@ function makePremiumStyles(t: AppTheme) {
   },
   errorBannerText: {
     flex: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#ffc9c9',
-    lineHeight: 13,
+    lineHeight: 16,
   },
 
   benefitsCard: {
@@ -754,28 +752,28 @@ function makePremiumStyles(t: AppTheme) {
   },
   benefitIcon: { fontSize: 20, width: 28, textAlign: 'center' },
   benefitText: {
-    fontFamily: 'Orbitron',
-    fontSize: 11, color: t.text,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: t.text,
     fontWeight: '700', flex: 1,
   },
   benefitSub: {
-    fontFamily: 'Orbitron',
-    fontSize: 8, color: t.textDim,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: t.textDim,
     marginTop: 2,
   },
   benefitGroupTitle: {
-    fontFamily: 'Orbitron', fontSize: 10, color: GOLD, fontWeight: '900',
-    letterSpacing: 2, marginBottom: 9, marginLeft: 4,
+    fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: GOLD, fontWeight: '900',
+    letterSpacing: 1, marginBottom: 9, marginLeft: 4,
   },
 
   sectionLabel: {
-    fontFamily: 'Orbitron',
-    fontSize: 9, color: R,
-    letterSpacing: 4, marginBottom: 14,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: R,
+    letterSpacing: 1, marginBottom: 14,
     textAlign: 'center',
   },
   storeKitHint: {
-    fontSize: 11,
+    fontSize: 12,
     color: t.textMuted,
     textAlign: 'center',
     marginBottom: 12,
@@ -792,18 +790,18 @@ function makePremiumStyles(t: AppTheme) {
     gap: 6,
   },
   termsCardTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.text,
     fontWeight: '800',
     letterSpacing: 1,
     marginBottom: 4,
   },
   termsBullet: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textMuted,
-    lineHeight: 14,
+    lineHeight: 16,
   },
   termsLinksRow: {
     flexDirection: 'row',
@@ -812,14 +810,14 @@ function makePremiumStyles(t: AppTheme) {
     alignItems: 'center',
   },
   termsLink: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: R,
     textDecorationLine: 'underline',
   },
   termsLinkSep: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textDim,
   },
 
@@ -847,10 +845,10 @@ function makePremiumStyles(t: AppTheme) {
     borderColor: '#ffffff20',
   },
   offerCtaTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.onPrimary,
-    letterSpacing: 1.5,
+    letterSpacing: 1,
     fontWeight: '900',
   },
   offerBtnPlaceholder: {},
@@ -863,36 +861,36 @@ function makePremiumStyles(t: AppTheme) {
     backgroundColor: '#e3383510',
   },
   offerName: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 12, color: t.text,
     fontWeight: '900', letterSpacing: 1,
     marginBottom: 3,
   },
   offerPriceMain: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 16,
     color: GOLD,
     fontWeight: '900',
     marginTop: 2,
   },
   offerPricePeriod: {
-    fontSize: 11,
+    fontSize: 12,
     color: t.textMuted,
     fontWeight: '700',
   },
   offerPriceSub: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textDim,
     marginTop: 5,
-    lineHeight: 12,
+    lineHeight: 16,
   },
   footerLegal: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textDim,
     textAlign: 'center',
-    lineHeight: 13,
+    lineHeight: 16,
     marginTop: 8,
     paddingHorizontal: 8,
   },
@@ -902,8 +900,8 @@ function makePremiumStyles(t: AppTheme) {
     borderWidth: 1, borderColor: GOLD + '40',
   },
   badgeTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 8, color: GOLD, fontWeight: '900',
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: GOLD, fontWeight: '900',
   },
 
   noOffersWrap: {
@@ -915,7 +913,7 @@ function makePremiumStyles(t: AppTheme) {
     backgroundColor: t.border,
   },
   noOffersTitle: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 12,
     color: t.text,
     fontWeight: '800',
@@ -923,10 +921,10 @@ function makePremiumStyles(t: AppTheme) {
     textAlign: 'center',
   },
   noOffersBody: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: t.textMuted,
-    lineHeight: 15,
+    lineHeight: 16,
     textAlign: 'center',
   },
   retryBtn: {
@@ -940,10 +938,10 @@ function makePremiumStyles(t: AppTheme) {
     alignItems: 'center',
   },
   retryTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: R,
-    letterSpacing: 2,
+    letterSpacing: 1,
     fontWeight: '800',
   },
 
@@ -953,9 +951,9 @@ function makePremiumStyles(t: AppTheme) {
     alignItems: 'center',
   },
   restoreTxt: {
-    fontFamily: 'Orbitron',
-    fontSize: 10, color: t.textFaint,
-    letterSpacing: 2,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12, color: t.textFaint,
+    letterSpacing: 1,
   },
   debugBackdrop: {
     flex: 1,
@@ -982,7 +980,7 @@ function makePremiumStyles(t: AppTheme) {
   },
   debugTitle: {
     color: t.text,
-    fontFamily: 'OrbitronBold',
+    fontFamily: 'Manrope_700Bold',
     fontSize: 12,
     letterSpacing: 1,
   },
@@ -1012,7 +1010,7 @@ function makePremiumStyles(t: AppTheme) {
   },
   debugText: {
     color: t.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 16,
     padding: 12,
   },

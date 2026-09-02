@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TouchableOpacity, Modal, ScrollView, Platform,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, ScrollView, Platform } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { RouteMiniMap }   from './RouteMiniMap';
 import { ShareRouteModal } from '../modals/ShareRouteModal';
@@ -41,32 +40,32 @@ function RouteRow({ route, onNavigate, onLeaderboard, onShare, onClose }: {
       </View>
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{route.name}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{route.name}</Text>
           {route.isOwn && (
             <View style={{ backgroundColor: theme.primaryBg, borderRadius: 6, borderWidth: 1, borderColor: theme.primaryBorder, paddingHorizontal: 5, paddingVertical: 2 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.primary }}>MOJA</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary }}>MOJA</Text>
             </View>
           )}
         </View>
         {route.author && !route.isOwn && (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint, marginBottom: 4 }} numberOfLines={1}>autor: {route.author.username}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textFaint, marginBottom: 4 }} numberOfLines={1}>autor: {route.author.username}</Text>
         )}
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <MaterialIcons name="straighten" size={9} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{route.distance.toFixed(1)} km</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{route.distance.toFixed(1)} km</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <MaterialIcons name="replay" size={9} color={theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{route.totalRuns} przej.</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{route.totalRuns} przej.</Text>
           </View>
         </View>
         {route.myBestTime != null && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <MaterialIcons name="emoji-events" size={10} color={posColor} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: posColor }}>#{route.myPosition}</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>{formatTime(route.myBestTime)}</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint }}>/ {route.totalRunners}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: posColor }}>#{route.myPosition}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>{formatTime(route.myBestTime)}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textFaint }}>/ {route.totalRunners}</Text>
           </View>
         )}
       </View>
@@ -79,7 +78,7 @@ function RouteRow({ route, onNavigate, onLeaderboard, onShare, onClose }: {
         </TouchableOpacity>
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 7 }} onPress={() => { onClose(); onNavigate(route); }} activeOpacity={0.8}>
           <MaterialIcons name="navigation" size={12} color="#fff" />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>NAWIGUJ</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>NAWIGUJ</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -100,7 +99,7 @@ export default function ParticipatedRoutesSection({ routes = [], myId, onNavigat
         onPress={() => setModalVisible(true)} activeOpacity={0.8}
       >
         <MaterialCommunityIcons name="map-marker-path" size={14} color={theme.primary} style={{ marginRight: 6 }} />
-        <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 10, letterSpacing: 0.5 }}>PRZEJECHANE TRASY ({routes.length})</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, letterSpacing: 0.5 }}>PRZEJECHANE TRASY ({routes.length})</Text>
       </TouchableOpacity>
 
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)} statusBarTranslucent>
@@ -113,8 +112,8 @@ export default function ParticipatedRoutesSection({ routes = [], myId, onNavigat
                 <MaterialCommunityIcons name="map-marker-path" size={18} color={theme.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>PRZEJECHANE TRASY</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>{routes.length} tras</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>PRZEJECHANE TRASY</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>{routes.length} tras</Text>
               </View>
               <TouchableOpacity onPress={() => setModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <MaterialIcons name="close" size={20} color={theme.textDim} />

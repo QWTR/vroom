@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -13,6 +14,7 @@ import { usePremium } from '../../contexts/PremiumContext';
 import { TripStoryComposer } from '../../components/trips/TripStoryComposer';
 import type { TripStoryData } from '../../components/trips/TripStoryCard';
 import { apiRequest } from '../../lib/api/client';
+import { formatSpeedKmh } from '../../lib/tripStatFormatters';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
@@ -303,7 +305,7 @@ export default function HistoryRidesScreen() {
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface }}>
           <MaterialIcons name="arrow-back" size={20} color={theme.text} />
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text }}>HISTORIA PRZEJAZDOW</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text }}>HISTORIA PRZEJAZDOW</Text>
       </View>
 
       <View style={{ padding: 14, gap: 10 }}>
@@ -312,7 +314,7 @@ export default function HistoryRidesScreen() {
             style={{ flex: 1, borderRadius: 10, paddingVertical: 9, alignItems: 'center', borderWidth: 1, borderColor: showAllHistoryOnMap ? '#268bff40' : theme.border, backgroundColor: showAllHistoryOnMap ? '#268bff18' : theme.surface }}
             onPress={() => { setShowAllHistoryOnMap(true); setSelectedHistoryRoute(null); }}
           >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: showAllHistoryOnMap ? '#268bff' : theme.textDim }}>POKAZ WSZYSTKO</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: showAllHistoryOnMap ? '#268bff' : theme.textDim }}>POKAZ WSZYSTKO</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={{ borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center', borderWidth: 1, borderColor: historyMapEnabled ? '#4de92640' : theme.border, backgroundColor: historyMapEnabled ? '#4de92618' : theme.surface }}
@@ -322,7 +324,7 @@ export default function HistoryRidesScreen() {
               if (enabling) void hydrateLoadedRoutesForMap();
             }}
           >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: historyMapEnabled ? '#4de926' : theme.textDim }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: historyMapEnabled ? '#4de926' : theme.textDim }}>
               {historyMapEnabled ? 'UKRYJ MAPE' : 'POKAZ MAPE'}
             </Text>
           </TouchableOpacity>
@@ -357,7 +359,7 @@ export default function HistoryRidesScreen() {
             </Mapbox.MapView>
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                 {loading || routeLoading ? 'Ladowanie historii...' : historyShapeGeoJson ? 'Kliknij POKAZ MAPE' : 'Brak danych tras do mapy'}
               </Text>
             </View>
@@ -365,13 +367,13 @@ export default function HistoryRidesScreen() {
         </View>
 
         {showAllHistoryOnMap && historyWithRoute.length > MAX_HISTORY_ROUTES_ON_MAP && (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
             Na mapie pokazano ostatnie {MAX_HISTORY_ROUTES_ON_MAP} tras.
           </Text>
         )}
 
         {activityHistoryAccessLimit === 20 && (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
             Konto Free pokazuje 20 najnowszych przejazdow. Pelna historia jest w Premium.
           </Text>
         )}
@@ -420,20 +422,20 @@ export default function HistoryRidesScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text }}>
                     {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Number(a.distance || 0).toFixed(1)} km
                   </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
-                    Max: {Number(a.maxSpeed || 0).toFixed(1)} km/h · Avg: {Number(a.avgSpeed || 0).toFixed(1)} km/h
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 4 }}>
+                    Max: {formatSpeedKmh(a.maxSpeed)} km/h · Avg: {formatSpeedKmh(a.avgSpeed)} km/h
                   </Text>
                   {!hasRoute && (
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff922b', marginTop: 4 }}>
                       Brak zapisanego sladu mapy dla tego przejazdu.
                     </Text>
                   )}
                   {isPremium && hasRoute && (
                     <TouchableOpacity onPress={() => router.push(`/replay/${a.id}` as any)} style={{ marginTop: 9, borderRadius: 8, paddingVertical: 8, alignItems: 'center', backgroundColor: '#FFD44718', borderWidth: 1, borderColor: '#FFD44744' }}>
-                      <Text style={{ color: '#FFD447', fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900' }}>OTWÓRZ DRIVE REPLAY</Text>
+                      <Text style={{ color: '#FFD447', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>OTWÓRZ DRIVE REPLAY</Text>
                     </TouchableOpacity>
                   )}
                   {hasRoute && (
@@ -443,7 +445,7 @@ export default function HistoryRidesScreen() {
                       style={{ marginTop: 8, borderRadius: 8, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, backgroundColor: '#ffffff0b', borderWidth: 1, borderColor: '#ffffff20' }}
                     >
                       {storyLoadingId === Number(a.id) ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="auto-awesome" size={15} color="#fff" />}
-                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900' }}>UTWÓRZ VROOM STORY</Text>
+                      <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>UTWÓRZ VROOM STORY</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>

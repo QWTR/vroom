@@ -1,14 +1,15 @@
 import React from 'react';
-import { View, TouchableOpacity, Text } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 const RED = '#e33835';
 
 export function SettingsSectionLabel({ title, isDark }: { title: string; isDark: boolean }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, marginBottom: 12, marginHorizontal: 4 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 30, marginBottom: 14, marginHorizontal: 4 }}>
       <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : '#00000010' }} />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED + '90', letterSpacing: 3 }}>{title}</Text>
+      <Text variant="label" style={{ fontSize: 14, color: isDark ? '#ff7774' : '#9f1412', fontWeight: '700', letterSpacing: 0.4 }}>{title}</Text>
       <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : '#00000010' }} />
     </View>
   );
@@ -65,21 +66,21 @@ export function SettingsRow({
   return (
     <>
       <TouchableOpacity
-        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12, opacity: disabled ? 0.4 : 1 }}
+        style={{ minHeight: 76, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12, opacity: disabled ? 0.72 : 1 }}
         onPress={onPress}
         activeOpacity={onPress ? 0.7 : 1}
         disabled={disabled || !onPress}
       >
-        <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: ic + '20', borderWidth: 1, borderColor: ic + '30', justifyContent: 'center', alignItems: 'center' }}>
-          <MaterialIcons name={icon as any} size={17} color={ic} />
+        <View style={{ width: 44, height: 44, borderRadius: 13, backgroundColor: ic + '20', borderWidth: 1.5, borderColor: ic + '60', justifyContent: 'center', alignItems: 'center' }}>
+          <MaterialIcons name={icon as any} size={22} color={ic} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: destructive ? RED : textMain, fontWeight: '600' }}>{label}</Text>
-          {sublabel ? <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textDim, marginTop: 3, lineHeight: 14 }}>{sublabel}</Text> : null}
+          <Text variant="body" style={{ fontSize: 16, color: destructive ? RED : textMain, fontWeight: '600' }}>{label}</Text>
+          {sublabel ? <Text variant="bodySmall" style={{ fontSize: 14, color: textDim, marginTop: 4, lineHeight: 21 }}>{sublabel}</Text> : null}
         </View>
-        {right !== undefined ? right : (onPress ? <MaterialIcons name="chevron-right" size={18} color={textDim} /> : null)}
+        {right !== undefined ? right : (onPress ? <MaterialIcons name="chevron-right" size={24} color={textDim} /> : null)}
       </TouchableOpacity>
-      {!last ? <View style={{ height: 1, backgroundColor: divider, marginLeft: 64 }} /> : null}
+      {!last ? <View style={{ height: 1, backgroundColor: divider, marginLeft: 76 }} /> : null}
     </>
   );
 }

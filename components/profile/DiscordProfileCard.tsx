@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Text, View } from 'react-native';
+import { Image, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { DiscordProfile } from '../../constants/profile';
 import { GLASS_BORDER, GLASS_SHADOW, glassSurface } from './profileCardTheme';
@@ -57,10 +58,10 @@ export function DiscordProfileCard({ discord, theme }: Props) {
           <MaterialIcons name="discord" size={15} color={DISCORD_BLURPLE} />
           <Text
             style={{
-              fontFamily: 'Orbitron',
-              fontSize: 8,
+              fontFamily: 'Manrope_600SemiBold',
+              fontSize: 12,
               color: DISCORD_BLURPLE,
-              letterSpacing: 1.5,
+              letterSpacing: 1,
               fontWeight: '800',
             }}
           >
@@ -69,11 +70,11 @@ export function DiscordProfileCard({ discord, theme }: Props) {
         </View>
         <Text
           numberOfLines={1}
-          style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '800', marginTop: 5 }}
+          style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '800', marginTop: 5 }}
         >
           {discord.displayName}
         </Text>
-        <Text numberOfLines={1} style={{ fontSize: 11, color: theme.textDim, marginTop: 2 }}>
+        <Text numberOfLines={1} style={{ fontSize: 12, color: theme.textDim, marginTop: 2 }}>
           @{discord.username}
         </Text>
       </View>

@@ -1,8 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  RefreshControl, StatusBar, Dimensions,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, StatusBar, Dimensions } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -72,7 +70,7 @@ export default function GridCategoriesScreen() {
       />
       <View style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
         <View style={{ backgroundColor: theme.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border2 }}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, lineHeight: 15 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, lineHeight: 16 }}>
             Wystaw swoje auto do walki. System losuje rywala, społeczność głosuje 24h.{' '}
             <Text style={{ color: theme.gold }}>Zwycięzca otrzymuje odznakę LEGENDARY 🏆</Text>
           </Text>
@@ -89,7 +87,7 @@ export default function GridCategoriesScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.gold} />}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 4 }}>
             WYBIERZ KATEGORIĘ
           </Text>
 
@@ -124,12 +122,12 @@ export default function GridCategoriesScreen() {
 
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
                         {cat.name.toUpperCase()}
                       </Text>
                       {badge && (
                         <View style={{ backgroundColor: badge.color + '20', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: badge.color + '50' }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: badge.color, fontSize: 7, fontWeight: '700' }}>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: badge.color, fontSize: 12, fontWeight: '700' }}>
                             {badge.label}
                           </Text>
                         </View>
@@ -137,7 +135,7 @@ export default function GridCategoriesScreen() {
                     </View>
 
                     {cat.description && (
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, lineHeight: 13, marginBottom: 8 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, lineHeight: 16, marginBottom: 8 }}>
                         {cat.description}
                       </Text>
                     )}
@@ -146,14 +144,14 @@ export default function GridCategoriesScreen() {
                       <View style={{ flexDirection: 'row', gap: 12 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                           <MaterialCommunityIcons name="car" size={10} color={theme.textDim} />
-                          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>
                             {ev._count?.entries ?? 0} zawodników
                           </Text>
                         </View>
                         {ev.status === 'open' && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                             <MaterialIcons name="schedule" size={10} color={theme.textDim} />
-                            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
+                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>
                               Zapisy do {new Date(ev.registrationEndsAt).toLocaleDateString('pl-PL')}
                             </Text>
                           </View>
@@ -162,7 +160,7 @@ export default function GridCategoriesScreen() {
                     )}
 
                     {!ev && (
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 8 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12 }}>
                         Brak aktywnego eventu
                       </Text>
                     )}

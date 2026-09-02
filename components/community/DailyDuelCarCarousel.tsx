@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react';
-import {
-  View, Text, FlatList, Dimensions, NativeSyntheticEvent, NativeScrollEvent, TouchableOpacity,
-} from 'react-native';
+import { View, FlatList, Dimensions, NativeSyntheticEvent, NativeScrollEvent, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -103,7 +102,7 @@ export const DailyDuelCarCarousel = React.memo(function DailyDuelCarCarousel({
             paddingHorizontal: 10,
             paddingVertical: 4,
           }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
               {index + 1} / {uris.length}
             </Text>
           </View>

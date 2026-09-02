@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  View, Text, ActivityIndicator, Image,
-} from 'react-native';
+import { View, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import { fetchMaintenanceStatus, shouldBlockMap } from '../../lib/maintenance';
 
@@ -53,7 +52,7 @@ export function MapMaintenanceScreen({ message, onCleared }: Props) {
         resizeMode="contain"
       />
       <Text style={{
-        fontFamily: 'OrbitronBold',
+        fontFamily: 'Manrope_700Bold',
         color: theme.text,
         fontSize: 20,
         textAlign: 'center',

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
@@ -27,7 +28,7 @@ export function AdPlaceholder({ variant }: Props) {
           minHeight: 40,
         }}
       >
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', letterSpacing: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center', letterSpacing: 1 }}>
           TU POWINNA BYĆ REKLAMA
         </Text>
       </View>
@@ -53,9 +54,9 @@ export function AdPlaceholder({ variant }: Props) {
     >
       <Text
         style={{
-          fontFamily: 'Orbitron',
+          fontFamily: 'Manrope_600SemiBold',
           color: theme.textDim,
-          fontSize: 8,
+          fontSize: 12,
           textAlign: 'center',
           letterSpacing: 1,
         }}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import ViewShot from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
@@ -88,7 +89,7 @@ const MarkerRendererInner = ({ user, distance, onCapture }: MarkerRendererProps)
             borderWidth: 1.5, borderColor, minWidth: 88, alignItems: 'center',
           }}>
             <Text numberOfLines={1} style={{
-              color: theme.mapLabelText, fontSize: 10, fontWeight: '700',
+              color: theme.mapLabelText, fontSize: 12, fontWeight: '700',
               textAlign: 'center', letterSpacing: 0.3,
             }}>
               {user.name}
@@ -99,7 +100,7 @@ const MarkerRendererInner = ({ user, distance, onCapture }: MarkerRendererProps)
                 backgroundColor: user.status === 'Online' ? theme.online : theme.textDim,
               }} />
               <Text style={{
-                color, fontSize: 8, fontWeight: '700',
+                color, fontSize: 12, fontWeight: '700',
                 textAlign: 'center', letterSpacing: 0.5,
               }}>
                 {distance.toFixed(1)} km

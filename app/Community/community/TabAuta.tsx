@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  View, Text, TouchableOpacity, FlatList, RefreshControl,
-  Dimensions, Alert, StyleSheet, Linking,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, RefreshControl, Dimensions, Alert, StyleSheet, Linking } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -154,14 +152,14 @@ const ReelCard = React.memo(function ReelCard({
       <View style={{ position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#00000078', borderRadius: 999, padding: 6, paddingRight: 12 }}>
           <MaterialIcons name={isSponsored ? 'campaign' : 'local-fire-department'} size={16} color="#e33835" />
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, letterSpacing: 1 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, letterSpacing: 1 }}>
             {isSponsored ? 'SPONSOROWANE' : 'VROOMKI'}
           </Text>
         </View>
         {photos.length > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#00000078', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 }}>
             <MaterialIcons name="photo-library" size={14} color="#fff" />
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10 }}>{photoIndex + 1}/{photos.length}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }}>{photoIndex + 1}/{photos.length}</Text>
           </View>
         )}
       </View>
@@ -198,7 +196,7 @@ const ReelCard = React.memo(function ReelCard({
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name={post.isLiked ? 'heart' : 'heart-outline'} size={28} color={post.isLiked ? '#e33835' : '#fff'} />
           </View>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, marginTop: 4 }}>{post.likesCount}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, marginTop: 4 }}>{post.likesCount}</Text>
         </TouchableOpacity>
         )}
         {!isSponsored && (
@@ -206,7 +204,7 @@ const ReelCard = React.memo(function ReelCard({
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name="comment-outline" size={27} color="#fff" />
           </View>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, marginTop: 4 }}>{post.commentsCount}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, marginTop: 4 }}>{post.commentsCount}</Text>
         </TouchableOpacity>
         )}
         {!isSponsored && (
@@ -231,11 +229,11 @@ const ReelCard = React.memo(function ReelCard({
           activeOpacity={isSponsored ? 1 : 0.8}
           disabled={isSponsored}
         >
-          <PremiumName user={{ ...post.author, username: `@${post.author.username}` }} style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '800' }} />
+          <PremiumName user={{ ...post.author, username: `@${post.author.username}` }} style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '800' }} />
         </TouchableOpacity>
         {post.car && (
           <TouchableOpacity onPress={() => onCar(post.car!.id)} activeOpacity={0.82} style={{ alignSelf: 'flex-start', marginTop: 8, backgroundColor: '#e33835d8', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10 }} numberOfLines={1}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }} numberOfLines={1}>
               {post.car.brand} · {post.car.specs}
             </Text>
           </TouchableOpacity>
@@ -277,12 +275,12 @@ const ReelCard = React.memo(function ReelCard({
             }}
           >
             <MaterialIcons name="open-in-new" size={16} color="#fff" />
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11, fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>
               {post.sponsored.ctaText || 'Dowiedz się więcej'}
             </Text>
           </TouchableOpacity>
         ) : (
-          <Text style={{ fontFamily: 'Orbitron', color: '#ffffffa8', fontSize: 9, marginTop: 8 }}>{time} · {post.viewsCount} wyświetleń</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffffa8', fontSize: 12, marginTop: 8 }}>{time} · {post.viewsCount} wyświetleń</Text>
         )}
       </View>
     </View>
@@ -512,12 +510,12 @@ export function TabAuta({
   const Empty = () => (
     <View style={{ minHeight: reelHeight, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, backgroundColor: theme.bg }}>
       <MaterialIcons name="smart-display" size={64} color="#e338354d" />
-      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 16, letterSpacing: 2, marginTop: 18 }}>PIERWSZA VROOMKA?</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 16, letterSpacing: 1, marginTop: 18 }}>PIERWSZA VROOMKA?</Text>
       <Text style={{ color: theme.textDim, textAlign: 'center', marginTop: 10, lineHeight: 20 }}>
         Wrzuć auto z garażu, zdjęcia albo film. Feed będzie uczył się po lajkach, komentarzach i oglądaniu.
       </Text>
       <TouchableOpacity onPress={() => void startCreateFlow()} style={{ marginTop: 20, backgroundColor: '#e33835', borderRadius: 16, paddingHorizontal: 18, paddingVertical: 13 }}>
-        <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11 }}>DODAJ VROOMKĘ</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }}>DODAJ VROOMKĘ</Text>
       </TouchableOpacity>
     </View>
   );

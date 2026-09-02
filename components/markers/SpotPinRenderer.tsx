@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { captureRef } from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
 import { CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
@@ -71,8 +72,8 @@ export function SpotPinRenderer({ spot, zoom, onCapture }: Props) {
         <Text
           numberOfLines={1}
           style={{
-            fontFamily: 'Orbitron',
-            fontSize: 9,
+            fontFamily: 'Manrope_600SemiBold',
+            fontSize: 12,
             color: theme.mapLabelText,
             fontWeight: '700',
             letterSpacing: 0.5,

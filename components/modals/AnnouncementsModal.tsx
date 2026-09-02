@@ -1,10 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, FlatList,
-  StyleSheet, StatusBar,
-  Image, ActivityIndicator,
-  BackHandler,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, FlatList, StyleSheet, StatusBar, Image, ActivityIndicator, BackHandler } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -128,7 +124,7 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                   <View style={{ padding: 14 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <View style={[ss.catChip, { backgroundColor: accent + '18', borderColor: accent + '35' }]}>
-                        <Text style={{ fontSize: 10 }}>{categoryEmoji(item.category)}</Text>
+                        <Text style={{ fontSize: 12 }}>{categoryEmoji(item.category)}</Text>
                         <Text style={[ss.catChipText, { color: accent }]}>
                           {categoryLabel(item.category)}
                         </Text>
@@ -212,7 +208,7 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
 
                 <View style={[ss.catChip, { backgroundColor: accent + '18', borderColor: accent + '35', alignSelf: 'flex-start', marginBottom: 14 }]}>
                   <Text style={{ fontSize: 12 }}>{categoryEmoji(item.category)}</Text>
-                  <Text style={[ss.catChipText, { color: accent, fontSize: 9 }]}>
+                  <Text style={[ss.catChipText, { color: accent, fontSize: 12 }]}>
                     {categoryLabel(item.category)}
                   </Text>
                 </View>
@@ -268,32 +264,32 @@ const ss = StyleSheet.create({
     borderBottomWidth: 1,
   },
   iconBtn:     { width: 48, height: 48, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  headerSub:   { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1, marginTop: 2 },
+  headerTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  headerSub:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginTop: 2 },
 
   card:       { borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
   cardBanner: { width: '100%', height: 160 },
 
   pinnedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, margin: 10, marginBottom: 0 },
-  pinnedText:  { fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700', letterSpacing: 1 },
+  pinnedText:  { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
 
   catChip:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
-  catChipText: { fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
+  catChipText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
 
-  cardTitle:   { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900', letterSpacing: 0.5, marginBottom: 6 },
-  cardBody:    { fontFamily: 'Orbitron', fontSize: 9, lineHeight: 16, letterSpacing: 0.3 },
-  cardDate:    { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 },
+  cardTitle:   { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900', letterSpacing: 0.5, marginBottom: 6 },
+  cardBody:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, lineHeight: 16, letterSpacing: 0.3 },
+  cardDate:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
   unseenDot:   { width: 8, height: 8, borderRadius: 4 },
   readMore:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
-  readMoreText:{ fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
+  readMoreText:{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
 
   detailBanner:  { width: '100%', height: 220 },
-  detailTitle:   { fontFamily: 'Orbitron', fontSize: 20, fontWeight: '900', letterSpacing: 0.5, lineHeight: 28, marginBottom: 8 },
-  detailExcerpt: { fontFamily: 'Orbitron', fontSize: 11, lineHeight: 18, letterSpacing: 0.3 },
-  detailBody:    { fontFamily: 'Orbitron', fontSize: 11, lineHeight: 20, letterSpacing: 0.3 },
+  detailTitle:   { fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '900', letterSpacing: 0.5, lineHeight: 28, marginBottom: 8 },
+  detailExcerpt: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, lineHeight: 18, letterSpacing: 0.3 },
+  detailBody:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, lineHeight: 20, letterSpacing: 0.3 },
   divider:       { height: 1, marginVertical: 16 },
 
   emptyBox:   { alignItems: 'center', paddingVertical: 60, gap: 10 },
-  emptyTitle: { fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 3 },
-  emptySub:   { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 0.5, textAlign: 'center', paddingHorizontal: 40, lineHeight: 14 },
+  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
+  emptySub:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5, textAlign: 'center', paddingHorizontal: 40, lineHeight: 16 },
 });

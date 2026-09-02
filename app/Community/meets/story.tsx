@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  View, Text, Image, ActivityIndicator, TouchableOpacity, ScrollView, useWindowDimensions,
-} from 'react-native';
+import { View, Image, ActivityIndicator, TouchableOpacity, ScrollView, useWindowDimensions } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -182,7 +181,7 @@ export default function MeetStoryScreen() {
             ) : (
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <ActivityIndicator size="large" color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                   {generating ? 'GENEROWANIE...' : 'ŁADOWANIE ZDJĘCIA...'}
                 </Text>
               </View>
@@ -190,7 +189,7 @@ export default function MeetStoryScreen() {
           </View>
 
           {!!username && (
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, marginBottom: 20, textAlign: 'center' }}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginBottom: 20, textAlign: 'center' }}>
               @{username} · {meet?.title}
             </Text>
           )}
@@ -215,7 +214,7 @@ export default function MeetStoryScreen() {
               ? <ActivityIndicator color="#fff" />
               : <>
                   <MaterialIcons name="file-download" size={22} color="#fff" />
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                     POBIERZ GRAFIKĘ
                   </Text>
                 </>
@@ -241,7 +240,7 @@ export default function MeetStoryScreen() {
             }}
           >
             <MaterialCommunityIcons name="share-variant" size={22} color={theme.text} />
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               UDOSTĘPNIJ
             </Text>
           </TouchableOpacity>
@@ -256,7 +255,7 @@ export default function MeetStoryScreen() {
               opacity: generating ? 0.5 : 1,
             }}
           >
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
               ODŚWIEŻ PODGLĄD
             </Text>
           </TouchableOpacity>

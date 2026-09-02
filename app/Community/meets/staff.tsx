@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -122,7 +121,7 @@ export default function MeetStaffScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>
         <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: theme.border, gap: 12 }}>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>DODAJ CZŁONKA</Text>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>DODAJ CZŁONKA</Text>
           <TextInput
             value={username}
             onChangeText={setUsername}
@@ -143,7 +142,7 @@ export default function MeetStaffScreen() {
                   backgroundColor: role === r.key ? theme.primaryBg : theme.surface2,
                 }}
               >
-                <Text style={{ color: role === r.key ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{r.label}</Text>
+                <Text style={{ color: role === r.key ? theme.primary : theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{r.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -153,23 +152,23 @@ export default function MeetStaffScreen() {
             style={{ backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: adding ? 0.7 : 1 }}
           >
             {adding ? <ActivityIndicator color="#fff" /> : (
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>DODAJ</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>DODAJ</Text>
             )}
           </TouchableOpacity>
         </View>
 
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>AKTUALNY ZESPÓŁ ({staff.length})</Text>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>AKTUALNY ZESPÓŁ ({staff.length})</Text>
         {staff.map(s => (
           <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border }}>
             <View style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center' }}>
               {s.user.avatarUrl
                 ? <Image source={{ uri: s.user.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>{s.user.username.charAt(0).toUpperCase()}</Text>
+                : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>{s.user.username.charAt(0).toUpperCase()}</Text>
               }
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>@{s.user.username}</Text>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, marginTop: 2 }}>{s.role.toUpperCase()}</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>@{s.user.username}</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 }}>{s.role.toUpperCase()}</Text>
             </View>
             {s.role !== 'owner' && (
               <TouchableOpacity onPress={() => removeStaff(s.user.id)} style={{ padding: 8 }}>

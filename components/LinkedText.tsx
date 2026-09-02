@@ -1,5 +1,6 @@
 import React from 'react';
-import { Text, Linking, StyleProp, TextStyle } from 'react-native';
+import { Linking, StyleProp, TextStyle } from 'react-native';
+import { AppText as Text } from './ui/AppText';
 
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 

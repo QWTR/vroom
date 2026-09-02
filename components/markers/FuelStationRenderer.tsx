@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import ViewShot from 'react-native-view-shot';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuelStation } from '../../hooks/useFuelStations';
@@ -54,7 +55,7 @@ export function FuelStationRenderer({ station, onCapture }: Props) {
               paddingVertical: 2,
               marginTop: 3,
             }}>
-              <Text style={{ color: '#00bfff', fontSize: 9, fontWeight: '700' }}>
+              <Text style={{ color: '#00bfff', fontSize: 12, fontWeight: '700' }}>
                 {pb95.toFixed(2)}
               </Text>
             </View>

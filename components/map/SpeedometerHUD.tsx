@@ -1,14 +1,6 @@
 import React, { memo, useEffect, useState, type ReactNode } from 'react';
-import {
-  DeviceEventEmitter,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { DeviceEventEmitter, Pressable, StyleSheet, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import {
   markSpeedometerEmitted,
@@ -147,11 +139,11 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       marginTop: 6,
     },
     speedNumber: {
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 36,
       fontWeight: '900',
       color: theme.text,
-      letterSpacing: -1,
+      letterSpacing: -0.2,
       lineHeight: 40,
       width: '100%',
       textAlign: 'center',
@@ -187,7 +179,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       backgroundColor: '#fff5f5',
     },
     limitText: {
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 13,
       fontWeight: '900',
       color: '#111111',
@@ -196,7 +188,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       color: theme.danger,
     },
     limitDash: {
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 13,
       fontWeight: '700',
       color: '#666666',
@@ -208,7 +200,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       gap: 3,
     },
     pendingDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#f59f00' },
-    pendingText: { color: '#f59f00', fontSize: 7, fontWeight: '900' },
+    pendingText: { color: '#f59f00', fontSize: 12, fontWeight: '900' },
     quickReportBtn: {
       width: 58,
       height: 58,
@@ -225,7 +217,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       shadowRadius: 10,
     },
     quickReportLabel: {
-      fontSize: 11,
+      fontSize: 12,
       fontWeight: '800',
       color: theme.onPrimary,
       marginTop: 2,
@@ -241,11 +233,11 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       justifyContent: 'center',
     },
     navDistance: {
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 26,
       fontWeight: '900',
       color: theme.text,
-      letterSpacing: -0.5,
+      letterSpacing: -0.2,
       lineHeight: 30,
     },
     instruction: {
@@ -388,11 +380,10 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
       >
         <Text
           style={[
-            limitSmall ? { fontSize: 11, fontFamily: 'Orbitron', fontWeight: '900' } : hud.limitText,
+            limitSmall ? { fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '900' } : hud.limitText,
             overLimit && hud.limitTextOver,
           ]}
           numberOfLines={1}
-          adjustsFontSizeToFit
           minimumFontScale={0.75}
         >
           {displayLimit ?? (canReportSpeedLimit ? '+' : '—')}
@@ -408,7 +399,6 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
         <Text
           style={[hud.speedNumber, overLimit && hud.speedNumberOver]}
           numberOfLines={1}
-          adjustsFontSizeToFit
           minimumFontScale={0.65}
         >
           {Math.round(valueKmh)}
@@ -533,7 +523,6 @@ export const SpeedValueText = memo(function SpeedValueText({
     <Text
       style={[style, overLimit && { color: theme.danger }]}
       numberOfLines={1}
-      adjustsFontSizeToFit
       minimumFontScale={0.65}
     >
       {Math.round(valueKmh)}
@@ -589,7 +578,7 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
     >
       <Text
         style={{
-          fontFamily: 'Orbitron',
+          fontFamily: 'Manrope_600SemiBold',
           fontSize: smallFont ? 12 : 15,
           fontWeight: '900',
           color: overLimit ? theme.danger : '#111111',

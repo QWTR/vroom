@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Text,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter }    from 'expo-router';
 import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage     from '@react-native-async-storage/async-storage';
@@ -65,46 +63,46 @@ export default function ChangeEmailScreen() {
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, letterSpacing: 2 }}>ZMIEŃ E-MAIL</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 15, color: theme.text, letterSpacing: 1 }}>ZMIEŃ E-MAIL</Text>
         <View style={{ width: 60 }} />
       </View>
 
       {/* OBECNY EMAIL */}
       <View style={{ backgroundColor: theme.surface3, borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: theme.border }}>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 8, letterSpacing: 2, marginBottom: 6 }}>OBECNY E-MAIL</Text>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 13 }}>{currentEmail || '...'}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12, letterSpacing: 1, marginBottom: 6 }}>OBECNY E-MAIL</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 13 }}>{currentEmail || '...'}</Text>
       </View>
 
       {/* FORMULARZ */}
       <View style={{ backgroundColor: theme.surface3, borderRadius: 16, padding: 20, gap: 10, borderWidth: 1, borderColor: theme.border, marginBottom: 24 }}>
 
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 }}>NOWY E-MAIL</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 4 }}>NOWY E-MAIL</Text>
         <View style={[inputBase,
           newEmail && !isValidEmail(newEmail)                          && { borderColor: '#e33835' },
           newEmail && isValidEmail(newEmail) && newEmail !== currentEmail && { borderColor: '#4CAF5050' },
         ]}>
           <MaterialIcons name="email" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
-          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={newEmail} onChangeText={setNewEmail} placeholder="nowy@email.com" placeholderTextColor={theme.textFaint} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={newEmail} onChangeText={setNewEmail} placeholder="nowy@email.com" placeholderTextColor={theme.textFaint} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
           {newEmail && isValidEmail(newEmail) && newEmail !== currentEmail && (
             <MaterialIcons name="check-circle" size={18} color="#4CAF50" style={{ marginRight: 12 }} />
           )}
         </View>
         {newEmail && !isValidEmail(newEmail) && (
-          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Nieprawidłowy format e-mail</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, marginTop: 4 }}>Nieprawidłowy format e-mail</Text>
         )}
         {newEmail && newEmail === currentEmail && (
-          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Nowy e-mail musi być inny niż obecny</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, marginTop: 4 }}>Nowy e-mail musi być inny niż obecny</Text>
         )}
 
         <View style={{ height: 1, backgroundColor: theme.border2, marginVertical: 6 }} />
 
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 }}>POTWIERDŹ HASŁEM</Text>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 8, marginBottom: 8, marginTop: -4 }}>Ze względów bezpieczeństwa wymagamy hasła</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 4 }}>POTWIERDŹ HASŁEM</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12, marginBottom: 8, marginTop: -4 }}>Ze względów bezpieczeństwa wymagamy hasła</Text>
         <View style={inputBase}>
           <MaterialIcons name="lock-outline" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
-          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={password} onChangeText={setPassword} placeholder="Wpisz swoje hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showPass} autoCapitalize="none" />
+          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={password} onChangeText={setPassword} placeholder="Wpisz swoje hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showPass} autoCapitalize="none" />
           <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 12 }}>
             <MaterialIcons name={showPass ? 'visibility' : 'visibility-off'} size={18} color={theme.textDim} />
           </TouchableOpacity>
@@ -118,7 +116,7 @@ export default function ChangeEmailScreen() {
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <><MaterialIcons name="email" size={18} color="#fff" /><Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ E-MAIL</Text></>
+          : <><MaterialIcons name="email" size={18} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ E-MAIL</Text></>
         }
       </TouchableOpacity>
     </ScrollView>

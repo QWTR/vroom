@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  View, Text, TouchableOpacity, Modal, ActivityIndicator, StatusBar, Image,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, ActivityIndicator, StatusBar, Image } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -90,7 +89,7 @@ function CameraUnavailable() {
         onPress={() => router.back()}
         style={{ backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center' }}
       >
-        <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>WRÓĆ</Text>
+        <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WRÓĆ</Text>
       </TouchableOpacity>
     </View>
   );
@@ -278,7 +277,7 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
           onPress={requestPermission}
           style={{ backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center' }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZEZWÓL NA APARAT</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZEZWÓL NA APARAT</Text>
         </TouchableOpacity>
       </View>
     );
@@ -297,16 +296,16 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
       <View style={{ marginHorizontal: 16, marginBottom: 8, gap: 8 }}>
         {freeEntryQuota > 0 && (
           <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE GOŚCIE</Text>
-            <Text style={{ color: freeEntryRemaining > 0 ? '#f5c518' : theme.textDim, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>FREE GOŚCIE</Text>
+            <Text style={{ color: freeEntryRemaining > 0 ? '#f5c518' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>
               {freeEntryRemaining} / {freeEntryQuota}
             </Text>
           </View>
         )}
         {freeParticipantQuota > 0 && (
           <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE UCZESTNICY Z AUTEM</Text>
-            <Text style={{ color: freeParticipantRemaining > 0 ? '#4de926' : theme.textDim, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>FREE UCZESTNICY Z AUTEM</Text>
+            <Text style={{ color: freeParticipantRemaining > 0 ? '#4de926' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>
               {freeParticipantRemaining} / {freeParticipantQuota}
             </Text>
           </View>
@@ -338,12 +337,12 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                   <View style={{ width: 64, height: 64, borderRadius: 32, overflow: 'hidden', backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: isParticipant ? '#4de92650' : theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
                     {result.user.avatarUrl
                       ? <Image source={{ uri: result.user.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                      : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 22, fontWeight: '700' }}>{result.user.username.charAt(0).toUpperCase()}</Text>
+                      : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '700' }}>{result.user.username.charAt(0).toUpperCase()}</Text>
                     }
                   </View>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>@{result.user.username}</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' }}>@{result.user.username}</Text>
                   <View style={{ backgroundColor: isParticipant ? '#4de92620' : theme.primaryBg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: isParticipant ? '#4de92650' : theme.primaryBorder }}>
-                    <Text style={{ color: isParticipant ? '#4de926' : theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                    <Text style={{ color: isParticipant ? '#4de926' : theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                       {isParticipant ? 'UCZESTNIK Z AUTEM' : 'GOŚĆ / UŻYTKOWNIK'}
                     </Text>
                   </View>
@@ -354,7 +353,7 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                   )}
                   {result.alreadyCheckedIn && (
                     <View style={{ backgroundColor: '#ff980020', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#ff980050' }}>
-                      <Text style={{ color: '#ff9800', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>JUŻ ZESKANOWANY</Text>
+                      <Text style={{ color: '#ff9800', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>JUŻ ZESKANOWANY</Text>
                     </View>
                   )}
                 </View>
@@ -368,8 +367,8 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                       }
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>AUTO</Text>
-                      <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>
+                      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>AUTO</Text>
+                      <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                         {result.car.brand} {result.car.specs}
                       </Text>
                     </View>
@@ -406,7 +405,7 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                       disabled={submitting}
                       style={{ flex: 1, backgroundColor: '#e3383515', borderRadius: 14, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#e3383540' }}
                     >
-                      <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>ODRZUĆ</Text>
+                      <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ODRZUĆ</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={confirmParticipant}
@@ -415,7 +414,7 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                     >
                       {submitting
                         ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>ZATWIERDŹ WJAZD</Text>
+                        : <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZATWIERDŹ WJAZD</Text>
                       }
                     </TouchableOpacity>
                   </View>
@@ -424,7 +423,7 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
                     onPress={closeResult}
                     style={{ backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 }}
                   >
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>SKANUJ KOLEJNY</Text>
+                    <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>SKANUJ KOLEJNY</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -439,8 +438,8 @@ function MeetScanCamera({ camera }: { camera: CameraModule }) {
 function InfoRow({ label, value, theme, accent }: { label: string; value: string; theme: any; accent?: string }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border }}>
-      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>{label}</Text>
-      <Text style={{ color: accent || theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', textAlign: 'right', flex: 1 }}>{value}</Text>
+      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{label}</Text>
+      <Text style={{ color: accent || theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', textAlign: 'right', flex: 1 }}>{value}</Text>
     </View>
   );
 }

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import ViewShot from 'react-native-view-shot';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -23,10 +24,10 @@ export const RouteEndpointRenderer = ({ type, label, onCapture }: Props) => {
             paddingHorizontal: 10, paddingVertical: 5, marginBottom: 4,
             borderWidth: 1.5, borderColor: color, minWidth: 70, alignItems: 'center',
           }}>
-            <Text style={{ color, fontSize: 9, fontWeight: '800', letterSpacing: 1 }}>
+            <Text style={{ color, fontSize: 12, fontWeight: '800', letterSpacing: 1 }}>
               {type === 'start' ? 'START' : 'KONIEC'}
             </Text>
-            <Text style={{ color: theme.textMuted, fontSize: 8, marginTop: 1 }} numberOfLines={1}>
+            <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
               {label}
             </Text>
           </View>

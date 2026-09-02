@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -33,12 +34,12 @@ export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemov
           minWidth: 56, alignItems: 'center',
         }}>
           <Text style={{
-            color, fontSize: 8, fontWeight: '800',
+            color, fontSize: 12, fontWeight: '800',
             letterSpacing: 1,
           }}>
             {label.toUpperCase()}
           </Text>
-          <Text style={{ color: theme.textDim, fontSize: 6, marginTop: 1 }}>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 1 }}>
             TAP TO REMOVE
           </Text>
         </View>

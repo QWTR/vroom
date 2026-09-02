@@ -1,5 +1,6 @@
 import React from 'react';
-import { Text } from 'react-native';
+
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import { formatDuelTimer } from './dailyDuelTypes';
 import { useSharedNow } from '../../hooks/useSharedNow';
@@ -17,9 +18,9 @@ export function DailyDuelResetTimer({ endsAt }: Props) {
 
   return (
     <Text style={{
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       color: theme.textDim,
-      fontSize: 8,
+      fontSize: 12,
       letterSpacing: 1,
       marginTop: 3,
     }} numberOfLines={1}>

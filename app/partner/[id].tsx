@@ -2,18 +2,8 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Dimensions,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Dimensions, Linking, Modal, Pressable, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_URL } from '../../constants/config';
@@ -200,8 +190,8 @@ export default function PartnerHubScreen() {
           <MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: '#ff3b3f', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2 }}>PARTNER VROOM</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 15, marginTop: 3 }} numberOfLines={1}>{poi?.name || 'Partner Hub'}</Text>
+          <Text style={{ color: '#ff3b3f', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>PARTNER VROOM</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 15, marginTop: 3 }} numberOfLines={1}>{poi?.name || 'Partner Hub'}</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/profile/benefits' as any)} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: card, alignItems: 'center', justifyContent: 'center' }}>
           <MaterialCommunityIcons name="wallet-giftcard" size={21} color={accent} />
@@ -222,7 +212,7 @@ export default function PartnerHubScreen() {
               }}
             >
               <MaterialCommunityIcons name={item.icon as any} size={16} color={tab === item.id ? accent : theme.textDim} />
-              <Text style={{ color: tab === item.id ? theme.text : theme.textDim, fontSize: 11, fontWeight: '700' }}>{item.label}</Text>
+              <Text style={{ color: tab === item.id ? theme.text : theme.textDim, fontSize: 12, fontWeight: '700' }}>{item.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -290,7 +280,7 @@ export default function PartnerHubScreen() {
               <View style={{ padding: 16, gap: 9 }}>
                 <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{offer.title}</Text>
                 <Text style={{ color: theme.textDim, lineHeight: 20 }}>{offer.description}</Text>
-                {offer.endsAt && <Text style={{ color: accent, fontSize: 11 }}>Ważna do {new Date(offer.endsAt).toLocaleDateString('pl-PL')}</Text>}
+                {offer.endsAt && <Text style={{ color: accent, fontSize: 12 }}>Ważna do {new Date(offer.endsAt).toLocaleDateString('pl-PL')}</Text>}
                 {claims[offer.id] ? (
                   <View style={{ padding: 14, borderRadius: 13, backgroundColor: '#fff', alignItems: 'center', gap: 9 }}>
                     {offer.redemptionType === 'claim_qr' && <QRCode value={claims[offer.id].claimToken} size={120} />}
@@ -324,7 +314,7 @@ export default function PartnerHubScreen() {
                 <Text style={{ color: accent, fontWeight: '700' }}>{new Date(event.startsAt).toLocaleString('pl-PL')}</Text>
                 <Text style={{ color: theme.textDim }}>{event.locationName}</Text>
                 <Text style={{ color: theme.textDim, lineHeight: 20 }}>{event.description}</Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }}>{event._count?.registrations || 0}{event.capacity ? ` / ${event.capacity}` : ''} zapisanych</Text>
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>{event._count?.registrations || 0}{event.capacity ? ` / ${event.capacity}` : ''} zapisanych</Text>
                 <View style={{ padding: 14, borderRadius: 13, backgroundColor: `${accent}18`, borderWidth: 1, borderColor: accent, alignItems: 'center' }}>
                   <Text style={{ color: accent, fontWeight: '900' }}>OTWÓRZ OFICJALNE WYDARZENIE</Text>
                 </View>
@@ -352,7 +342,7 @@ export default function PartnerHubScreen() {
                   {review.comment && <Text style={{ color: theme.textDim, marginTop: 8, lineHeight: 20 }}>{review.comment}</Text>}
                   {review.reply && (
                     <View style={{ marginTop: 12, padding: 12, borderLeftWidth: 2, borderLeftColor: accent, backgroundColor: `${accent}10` }}>
-                      <Text style={{ color: accent, fontSize: 10, fontWeight: '800' }}>ODPOWIEDŹ FIRMY</Text>
+                      <Text style={{ color: accent, fontSize: 12, fontWeight: '800' }}>ODPOWIEDŹ FIRMY</Text>
                       <Text style={{ color: theme.textDim, marginTop: 5 }}>{review.reply.body}</Text>
                     </View>
                   )}

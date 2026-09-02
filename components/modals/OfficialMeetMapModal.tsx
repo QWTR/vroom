@@ -1,12 +1,6 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  Pressable,
-  Image,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -92,11 +86,11 @@ export function OfficialMeetMapModal({ meet, visible, onClose, onOpenEvent, onNa
               <View style={{ flex: 1, gap: 6 }}>
                 <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                   <View style={{ backgroundColor: '#f5c518dd', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                    <Text style={{ color: '#000', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 }}>⭐ OFICJALNE</Text>
+                    <Text style={{ color: '#000', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 }}>⭐ OFICJALNE</Text>
                   </View>
                   {meet.status === 'HOT' && (
                     <View style={{ backgroundColor: '#ff9800dd', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                      <Text style={{ color: '#000', fontSize: 9, fontWeight: '900' }}>🔥 HOT</Text>
+                      <Text style={{ color: '#000', fontSize: 12, fontWeight: '900' }}>🔥 HOT</Text>
                     </View>
                   )}
                 </View>
@@ -176,7 +170,7 @@ function InfoRow({
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <MaterialCommunityIcons name={icon} size={18} color="#f5c518" />
       <View style={{ flex: 1 }}>
-        <Text style={{ color: theme.textMuted, fontSize: 11, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ color: theme.textMuted, fontSize: 12, fontWeight: '600' }}>{label}</Text>
         <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>{value}</Text>
       </View>
     </View>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -125,7 +126,7 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
     }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, paddingBottom: 6 }}>
         <MaterialCommunityIcons name="map-marker-path" size={14} color={theme.primary} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, flex: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, flex: 1 }}>
           TRASA
         </Text>
         <View style={[{
@@ -153,14 +154,14 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
         ) : displayPoints.length >= 2 ? (
           <RouteMiniMap points={displayPoints} width={mapWidth} height={mapHeight} />
         ) : (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, padding: 16 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, padding: 16 }}>
             Brak podglądu geometrii
           </Text>
         )}
       </View>
 
       <Text style={{
-        fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700',
+        fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700',
         marginHorizontal: 10, marginTop: 8,
       }} numberOfLines={1}>
         {data.name}
@@ -168,14 +169,14 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
       <View style={{ flexDirection: 'row', gap: 12, marginHorizontal: 10, marginTop: 4, marginBottom: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
           <MaterialIcons name="straighten" size={11} color={theme.primary} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
             {data.distance.toFixed(1)} km
           </Text>
         </View>
         {displayPoints.length >= 2 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <MaterialIcons name="place" size={11} color={theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
               {displayPoints.length} pkt
             </Text>
           </View>
@@ -191,7 +192,7 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
         activeOpacity={0.85}
       >
         <MaterialIcons name="navigation" size={13} color={theme.onPrimary} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>
           NAWIGUJ PO TEJ TRASIE
         </Text>
       </TouchableOpacity>

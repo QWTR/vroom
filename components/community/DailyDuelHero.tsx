@@ -1,8 +1,6 @@
 import React from 'react';
-import {
-  View, Text, TouchableOpacity, Image, ActivityIndicator,
-  Dimensions, StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, Image, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -74,10 +72,10 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
       <View style={[shellStyle, { padding: 24 }]}>
         <LinearGradient colors={shellGradient} style={StyleSheet.absoluteFillObject} />
         <Text style={{
-          fontSize: 11,
+          fontSize: 12,
           color: theme.text,
           fontWeight: '900',
-          letterSpacing: 2,
+          letterSpacing: 1,
           textTransform: 'uppercase',
         }}>
           Pojedynek dnia
@@ -116,10 +114,10 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
           <MaterialCommunityIcons name="sword-cross" size={14} color={theme.primary} />
           <Text style={{
-            fontSize: 10,
+            fontSize: 12,
             color: theme.text,
             fontWeight: '900',
-            letterSpacing: 2,
+            letterSpacing: 1,
             textTransform: 'uppercase',
           }}>
             Pojedynek dnia
@@ -209,10 +207,10 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
               <AppAnimationLayer
                 animation={vsAnimation}
                 style={{ width: 48, height: 48 }}
-                fallbackIcon={<Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>}
+                fallbackIcon={<Text style={{ fontSize: 12, color: theme.primary, fontWeight: '900' }}>VS</Text>}
               />
             ) : (
-              <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>
+              <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '900' }}>VS</Text>
             )}
           </View>
         </View>
@@ -243,7 +241,7 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
         }}>
           <Text style={{
             flex: 1,
-            fontSize: 11,
+            fontSize: 12,
             color: '#ffffff',
             fontWeight: '700',
             textTransform: 'uppercase',
@@ -253,7 +251,7 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, 
           </Text>
           <Text style={{
             flex: 1,
-            fontSize: 11,
+            fontSize: 12,
             color: '#ffffff',
             fontWeight: '700',
             textTransform: 'uppercase',

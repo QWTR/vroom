@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import ViewShot, { captureRef } from 'react-native-view-shot';
@@ -111,19 +112,19 @@ const styles = StyleSheet.create({
   header: { paddingTop: 52, paddingHorizontal: 18, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#ffffff10' },
   circleButton: { width: 43, height: 43, borderRadius: 22, borderWidth: 1, borderColor: '#ffffff20', backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
   headerCopy: { flex: 1, marginHorizontal: 13 },
-  title: { color: '#fff', fontFamily: 'OrbitronBold', fontSize: 15, letterSpacing: 2.1 },
-  subtitle: { color: '#ffffff70', fontSize: 9, marginTop: 4 },
+  title: { color: '#fff', fontFamily: 'Manrope_700Bold', fontSize: 15, letterSpacing: 1 },
+  subtitle: { color: '#ffffff70', fontSize: 12, marginTop: 4 },
   premiumChip: { height: 30, borderRadius: 9, paddingHorizontal: 9, backgroundColor: '#ffd447', flexDirection: 'row', alignItems: 'center', gap: 4 },
-  premiumText: { color: '#111', fontWeight: '900', fontSize: 8 },
+  premiumText: { color: '#111', fontWeight: '900', fontSize: 12 },
   scrollContent: { padding: 18, paddingBottom: 42 },
   previewHalo: { borderRadius: 27, padding: 2, backgroundColor: '#ffd447', shadowColor: '#29c7ff', shadowOpacity: 0.36, shadowRadius: 28, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
   capture: { width: '100%', aspectRatio: 9 / 16, borderRadius: 25, overflow: 'hidden', backgroundColor: '#030506' },
   tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 18, paddingHorizontal: 4 },
-  tip: { flex: 1, color: '#ffffff87', fontSize: 10, lineHeight: 15 },
+  tip: { flex: 1, color: '#ffffff87', fontSize: 12, lineHeight: 16 },
   shareButton: { height: 58, borderRadius: 17, backgroundColor: '#ffd447', flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
-  shareText: { color: '#111', fontFamily: 'OrbitronBold', fontSize: 11, letterSpacing: 1 },
+  shareText: { color: '#111', fontFamily: 'Manrope_700Bold', fontSize: 12, letterSpacing: 1 },
   downloadButton: { height: 54, borderRadius: 17, borderWidth: 1, borderColor: '#ffffff28', backgroundColor: '#121212', flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  downloadText: { color: '#fff', fontFamily: 'OrbitronBold', fontSize: 10, letterSpacing: 1 },
+  downloadText: { color: '#fff', fontFamily: 'Manrope_700Bold', fontSize: 12, letterSpacing: 1 },
   secondaryButton: { height: 49, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  secondaryText: { color: '#ffffff6f', fontWeight: '900', fontSize: 9, letterSpacing: 1.1 },
+  secondaryText: { color: '#ffffff6f', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
 });

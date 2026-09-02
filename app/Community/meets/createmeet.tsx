@@ -1,9 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
-  Modal, Image,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter }          from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker         from '@react-native-community/datetimepicker';
@@ -181,14 +178,14 @@ export default function CreateMeet() {
                 onPress={pickCover} activeOpacity={0.8}
               >
                 <MaterialIcons name="photo-library" size={28} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>GALERIA</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>GALERIA</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, borderStyle: 'dashed', paddingVertical: 28, alignItems: 'center', gap: 8 }}
                 onPress={pickCoverCamera} activeOpacity={0.8}
               >
                 <MaterialIcons name="photo-camera" size={28} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>APARAT</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>APARAT</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -254,7 +251,7 @@ export default function CreateMeet() {
           {lat !== null && lng !== null && locationName ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, marginLeft: 2 }}>
               <MaterialIcons name="check-circle" size={13} color="#4de926" />
-              <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 8 }}>Zaznaczono na mapie</Text>
+              <Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Zaznaczono na mapie</Text>
             </View>
           ) : null}
         </Field>
@@ -268,7 +265,7 @@ export default function CreateMeet() {
               keyboardType="numeric" value={maxP}
               onChangeText={v => setMaxP(String(Math.min(parseInt(v) || 1, USER_MAX)))} maxLength={2}
             />
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>/ {USER_MAX}</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>/ {USER_MAX}</Text>
           </View>
           <View style={{ height: 3, backgroundColor: theme.border, borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
             <View style={{ height: '100%', width: `${(maxClamped / USER_MAX) * 100}%`, backgroundColor: theme.primary, borderRadius: 2 }} />
@@ -284,7 +281,7 @@ export default function CreateMeet() {
                 <TouchableOpacity key={tag} onPress={() => toggleTag(tag)}
                   style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, backgroundColor: active ? theme.primaryBg : theme.surface, borderColor: active ? theme.primary : theme.border }}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', color: active ? theme.primary : theme.textDim }}>{tag}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: active ? theme.primary : theme.textDim }}>{tag}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -306,7 +303,7 @@ export default function CreateMeet() {
         <Field label="ZASADY (opcjonalnie)">
           {rules.map((rule, i) => (
             <View key={i} style={[fieldStyle(theme), { marginBottom: 8 }]}>
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', minWidth: 20 }}>{i + 1}.</Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', minWidth: 20 }}>{i + 1}.</Text>
               <TextInput
                 style={[inputStyle(theme), { flex: 1 }]} placeholder={`Zasada ${i + 1}...`}
                 placeholderTextColor={theme.textDim} value={rule} onChangeText={v => setRule(i, v)}
@@ -322,7 +319,7 @@ export default function CreateMeet() {
             style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: theme.border, borderRadius: 10, justifyContent: 'center' }}
           >
             <MaterialIcons name="add" size={16} color={theme.textDim} />
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>DODAJ ZASADĘ</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>DODAJ ZASADĘ</Text>
           </TouchableOpacity>
         </Field>
 
@@ -333,7 +330,7 @@ export default function CreateMeet() {
         >
           {submitting
             ? <ActivityIndicator color="#fff" />
-            : <><MaterialCommunityIcons name="flag-checkered" size={20} color="#fff" /><Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>OPUBLIKUJ MEET</Text></>
+            : <><MaterialCommunityIcons name="flag-checkered" size={20} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>OPUBLIKUJ MEET</Text></>
           }
         </TouchableOpacity>
       </ScrollView>
@@ -367,17 +364,17 @@ export default function CreateMeet() {
             {geocoding ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <ActivityIndicator size="small" color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11 }}>Pobieranie adresu...</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Pobieranie adresu...</Text>
               </View>
             ) : lat !== null ? (
               <View style={{ gap: 4 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>WYBRANA LOKALIZACJA</Text>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', lineHeight: 20 }}>{locationName}</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>WYBRANA LOKALIZACJA</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', lineHeight: 20 }}>{locationName}</Text>
               </View>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <MaterialIcons name="touch-app" size={18} color={theme.textDim} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11 }}>Kliknij na mapie żeby wybrać miejsce</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Kliknij na mapie żeby wybrać miejsce</Text>
               </View>
             )}
             <TouchableOpacity
@@ -385,7 +382,7 @@ export default function CreateMeet() {
               onPress={() => setMapVisible(false)} disabled={geocoding || lat === null}
             >
               <MaterialIcons name="check" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>POTWIERDŹ LOKALIZACJĘ</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>POTWIERDŹ LOKALIZACJĘ</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -398,7 +395,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   const { theme } = useTheme();
   return (
     <View style={{ marginBottom: 18 }}>
-      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, marginBottom: 8 }}>{label}</Text>
+      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>{label}</Text>
       {children}
     </View>
   );
@@ -409,5 +406,5 @@ function fieldStyle(theme: any) {
 }
 
 function inputStyle(theme: any) {
-  return { flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, padding: 0 };
+  return { flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, padding: 0 };
 }

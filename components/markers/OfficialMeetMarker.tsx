@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, TouchableOpacity, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
@@ -64,13 +65,13 @@ export const OfficialMeetMarker = memo(({ meet, onPress, compact = false }: Prop
               <>
                 <Text
                   numberOfLines={1}
-                  style={{ color: ACCENT, fontSize: 7, fontWeight: '900', marginBottom: 1, letterSpacing: 0.5 }}
+                  style={{ color: ACCENT, fontSize: 12, fontWeight: '900', marginBottom: 1, letterSpacing: 0.5 }}
                 >
                   {isHot ? '🔥 HOT' : '⭐ EVENT'}
                 </Text>
                 <Text
                   numberOfLines={2}
-                  style={{ color: '#f0f4ff', fontSize: 9, fontWeight: '800', textAlign: 'center' }}
+                  style={{ color: '#f0f4ff', fontSize: 12, fontWeight: '800', textAlign: 'center' }}
                 >
                   {title}
                 </Text>

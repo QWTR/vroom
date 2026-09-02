@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
@@ -26,7 +27,7 @@ export default function DiscordLinkedScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
       <MaterialIcons name="discord" size={42} color="#5865F2" />
       <ActivityIndicator color="#5865F2" />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
         WRACAMY DO VROOM…
       </Text>
     </View>

@@ -1,17 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
-  Image,
-  Keyboard,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Dimensions, FlatList, Image, Keyboard, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -209,8 +198,8 @@ const styles = StyleSheet.create({
     right: 6,
     bottom: 22,
   },
-  username: { color: '#fff', fontSize: 10, fontWeight: '800', textShadowColor: '#000', textShadowRadius: 4 },
-  caption: { color: '#f0f0f0', fontSize: 9, marginTop: 2, textShadowColor: '#000', textShadowRadius: 4 },
+  username: { color: '#fff', fontSize: 12, fontWeight: '800', textShadowColor: '#000', textShadowRadius: 4 },
+  caption: { color: '#f0f0f0', fontSize: 12, marginTop: 2, textShadowColor: '#000', textShadowRadius: 4 },
   viewsBadge: {
     position: 'absolute',
     left: 6,

@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  View, Text, Linking, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Modal, ScrollView, Dimensions,
-  Platform, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet,
-} from 'react-native';
+import { View, Linking, TouchableOpacity, Image, ActivityIndicator, Modal, ScrollView, Dimensions, Platform, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { BlurView } from 'expo-blur';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -435,7 +432,7 @@ export const PhotoViewer = ({
             backgroundColor: '#000000aa', borderRadius: 20,
             paddingHorizontal: 14, paddingVertical: 5,
           }}>
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, letterSpacing: 2 }}>
+            <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
               {idx + 1} / {photos.length}
             </Text>
           </View>
@@ -631,7 +628,7 @@ function DiscussionVideoPlayer({ uri }: { uri: string }) {
             backgroundColor: '#0000009a',
           }}>
             <MaterialIcons name="smart-display" size={15} color="#fff" />
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9 }}>WIDEO</Text>
+            <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>WIDEO</Text>
           </View>
           <TouchableOpacity
             activeOpacity={0.82}
@@ -700,12 +697,12 @@ function DiscussionVideoPlayer({ uri }: { uri: string }) {
               <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: '#e33835' }} />
             </View>
           </Pressable>
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, minWidth: 76, textAlign: 'right' }}>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, minWidth: 76, textAlign: 'right' }}>
             {formatVideoTime(positionMs)} / {durationMs ? formatVideoTime(durationMs) : '--:--'}
           </Text>
         </View>
         {!loaded && (
-          <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>
             Przygotowywanie odtwarzania...
           </Text>
         )}
@@ -789,7 +786,7 @@ export const MediaGrid = ({ photos, videos }: { photos: string[]; videos: string
                       backgroundColor: '#000000bb',
                       justifyContent: 'center', alignItems: 'center',
                     }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: '#fff', fontWeight: '900' }}>
                         +{total - 4}
                       </Text>
                     </View>
@@ -830,7 +827,7 @@ export const DeleteModal = ({
           }}>
             <MaterialIcons name="delete-forever" size={32} color="#e33835" />
           </View>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 14, letterSpacing: 2, marginBottom: 8 }}>USUŃ POST</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 14, letterSpacing: 1, marginBottom: 8 }}>USUŃ POST</Text>
           <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 20, textAlign: 'center', marginBottom: 24 }}>
             Czy na pewno chcesz usunąć ten post?{'\n'}
             <Text style={{ color: '#e33835' }}>Ta operacja jest nieodwracalna.</Text>
@@ -844,7 +841,7 @@ export const DeleteModal = ({
               }}
               onPress={onCancel}
             >
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11 }}>ANULUJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12 }}>ANULUJ</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={{
@@ -855,7 +852,7 @@ export const DeleteModal = ({
               onPress={onConfirm}
             >
               <MaterialIcons name="delete" size={15} color="#fff" />
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11 }}>USUŃ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }}>USUŃ</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -887,7 +884,7 @@ export const ActionBtn = ({
         size={16}
         color={active ? activeColor : theme.textDim}
       />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: active ? activeColor : theme.textDim }}>{count}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? activeColor : theme.textDim }}>{count}</Text>
     </TouchableOpacity>
   );
 };
@@ -918,7 +915,7 @@ export const ReactionChips = ({
           }}
         >
           <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
-          <Text style={{ fontSize: 10, color: r.myReaction ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>
+          <Text style={{ fontSize: 12, color: r.myReaction ? theme.primary : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontWeight: '700' }}>
             {r.count}
           </Text>
         </TouchableOpacity>
@@ -935,7 +932,7 @@ export const StatPill = ({ icon, value, color }: { icon: string; value: string; 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
       <MaterialIcons name={icon as any} size={10} color={color ?? theme.textDim} />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{value}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>{value}</Text>
     </View>
   );
 };
@@ -1025,7 +1022,7 @@ export const DiscussionPollCard = ({
                   backgroundColor: active ? POLL_ACCENT : (isDark ? '#ffffff12' : '#0000000a'),
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: '800', color: active ? '#fff' : theme.textDim }}>{letter}</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: active ? '#fff' : theme.textDim }}>{letter}</Text>
                 </View>
                 <Text
                   numberOfLines={2}
@@ -1035,8 +1032,8 @@ export const DiscussionPollCard = ({
                 </Text>
                 {showResults && (
                   <View style={{ alignItems: 'flex-end', minWidth: 32 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: local.myVote === i ? POLL_ACCENT : theme.textDim }}>{pct}%</Text>
-                    <Text style={{ fontSize: 9, color: theme.textDim, marginTop: 1 }}>{local.voteCounts[i]}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: local.myVote === i ? POLL_ACCENT : theme.textDim }}>{pct}%</Text>
+                    <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 1 }}>{local.voteCounts[i]}</Text>
                   </View>
                 )}
               </View>
@@ -1044,7 +1041,7 @@ export const DiscussionPollCard = ({
           );
         })}
         {showResults ? (
-          <Text style={{ fontSize: 10, color: theme.textDim, textAlign: 'center', marginTop: 9 }}>
+          <Text style={{ fontSize: 12, color: theme.textDim, textAlign: 'center', marginTop: 9 }}>
             {local.totalVotes} {local.totalVotes === 1 ? 'głos' : local.totalVotes < 5 ? 'głosy' : 'głosów'}
           </Text>
         ) : (
@@ -1059,7 +1056,7 @@ export const DiscussionPollCard = ({
           >
             {voting
               ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>Zagłosuj</Text>
+              : <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Zagłosuj</Text>
             }
           </TouchableOpacity>
         )}
@@ -1131,7 +1128,7 @@ export const ComposeBox = ({
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleInputRef = useRef<TextInput>(null);
+  const titleInputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   const keyboardInset = useKeyboardInset();
   const pollKeyboardInset = useKeyboardInset(pollModal);
 
@@ -1281,7 +1278,7 @@ export const ComposeBox = ({
                       backgroundColor: `${POLL_ACCENT}10`, borderWidth: 1, borderColor: `${POLL_ACCENT}25`,
                     }}
                   >
-                    <Text style={{ fontSize: 10, color: theme.textMuted }} numberOfLines={1}>{opt}</Text>
+                    <Text style={{ fontSize: 12, color: theme.textMuted }} numberOfLines={1}>{opt}</Text>
                   </View>
                 ))}
               </ScrollView>
@@ -1358,7 +1355,7 @@ export const ComposeBox = ({
                     {u.type === 'province' ? `@${u.mention}` : u.username}
                   </Text>
                   {u.type === 'province' && (
-                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>{u.label}</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>{u.label}</Text>
                   )}
                 </View>
               </TouchableOpacity>
@@ -1379,7 +1376,7 @@ export const ComposeBox = ({
               backgroundColor: pillSolidBg,
               color: theme.text,
               fontSize: 13,
-              fontFamily: 'Orbitron',
+              fontFamily: 'Manrope_600SemiBold',
               paddingHorizontal: 14,
               paddingVertical: 10,
             }}
@@ -1467,14 +1464,14 @@ export const ComposeBox = ({
             size={14}
             color={selectedCategory ? theme.primary : theme.textDim}
           />
-          <Text style={{ color: selectedCategory ? theme.primary : theme.textDim, fontSize: 11 }}>
+          <Text style={{ color: selectedCategory ? theme.primary : theme.textDim, fontSize: 12 }}>
             {selectedCategory ? getDiscussionCategoryMeta(selectedCategory).label : 'Kategoria'}
           </Text>
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
           {!showTitleField && !title.trim() && (
             <TouchableOpacity onPress={openTitleField} hitSlop={8}>
-              <Text style={{ color: theme.textDim, fontSize: 11, fontFamily: 'Satoshi' }}>
+              <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Satoshi' }}>
                 Dodaj tytul
               </Text>
             </TouchableOpacity>
@@ -1542,7 +1539,7 @@ export const ComposeBox = ({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}
               >
-                <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 6 }}>Pytanie</Text>
+                <Text style={{ fontSize: 12, color: theme.textDim, marginBottom: 6 }}>Pytanie</Text>
                 <TextInput
                   value={pollQuestion}
                   onChangeText={setPollQuestion}
@@ -1555,14 +1552,14 @@ export const ComposeBox = ({
                     borderWidth: 1, borderColor: theme.border,
                   }}
                 />
-                <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 8 }}>Opcje ({pollOptions.length}/6)</Text>
+                <Text style={{ fontSize: 12, color: theme.textDim, marginBottom: 8 }}>Opcje ({pollOptions.length}/6)</Text>
                 {pollOptions.map((opt, i) => (
                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <View style={{
                       width: 22, height: 22, borderRadius: 6, backgroundColor: `${POLL_ACCENT}18`,
                       alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <Text style={{ fontSize: 10, fontWeight: '800', color: POLL_ACCENT }}>{String.fromCharCode(65 + i)}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: POLL_ACCENT }}>{String.fromCharCode(65 + i)}</Text>
                     </View>
                     <TextInput
                       value={opt}

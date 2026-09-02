@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, PanResponder, type LayoutChangeEvent } from 'react-native';
+import { View, PanResponder, type LayoutChangeEvent } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 
 function formatMs(ms: number) {
   const sec = Math.max(0, Math.round(ms / 1000));
@@ -63,8 +64,8 @@ export function TrackStartScrubber({
   return (
     <View style={{ marginTop: 12 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', letterSpacing: 1 }}>{label}</Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: accent }}>{formatMs(valueMs)}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', letterSpacing: 1 }}>{label}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent }}>{formatMs(valueMs)}</Text>
       </View>
       <View
         onLayout={onLayout}
@@ -91,7 +92,7 @@ export function TrackStartScrubber({
         />
       </View>
       {!!hint && (
-        <Text style={{ color: '#ffffff88', fontSize: 10, marginTop: 6, lineHeight: 14 }}>{hint}</Text>
+        <Text style={{ color: '#ffffff88', fontSize: 12, marginTop: 6, lineHeight: 16 }}>{hint}</Text>
       )}
     </View>
   );

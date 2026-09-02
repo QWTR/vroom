@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, FlatList, Image, Pressable,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, FlatList, Image, Pressable } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Feather } from '@expo/vector-icons';
@@ -53,13 +52,13 @@ function ClubRow({
           : <MaterialCommunityIcons name="shield-crown-outline" size={18} color="#e33835" />}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', letterSpacing: 1.5, marginBottom: 2 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', letterSpacing: 1, marginBottom: 2 }}>
           {badge}
         </Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
           {club.name}
         </Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 2 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
           {club.memberCount} członków
           {club.myRank ? ` · ${club.myRank.name.toUpperCase()}` : ''}
         </Text>
@@ -77,7 +76,7 @@ function ClubRow({
         }}
       >
         <MaterialCommunityIcons name="chat" size={12} color={theme.textDim} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>CZAT</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>CZAT</Text>
       </TouchableOpacity>
       <Feather name="chevron-right" size={15} color={theme.textDim} />
     </TouchableOpacity>
@@ -112,7 +111,7 @@ export function MyClubsModal({
           borderBottomWidth: 1, borderBottomColor: theme.border,
         }}>
           <MaterialCommunityIcons name="shield-account" size={20} color={theme.primary} />
-          <Text style={{ flex: 1, marginLeft: 8, fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 1.5 }}>
+          <Text style={{ flex: 1, marginLeft: 8, fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1 }}>
             MOJE KLUBY
           </Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -138,7 +137,7 @@ export function MyClubsModal({
                 }}
               >
                 <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700',
+                  fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700',
                   color: active ? '#fff' : theme.textDim,
                 }}>
                   {label} ({count})
@@ -155,7 +154,7 @@ export function MyClubsModal({
           ListEmptyComponent={(
             <View style={{ alignItems: 'center', paddingVertical: 36, gap: 8 }}>
               <MaterialCommunityIcons name="shield-off-outline" size={40} color={theme.border3} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 1 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                 {tab === 'owner' ? 'NIE ZAŁOŻYŁEŚ KLUBU' : 'NIE NALEŻYSZ DO ŻADNEGO KLUBU'}
               </Text>
             </View>

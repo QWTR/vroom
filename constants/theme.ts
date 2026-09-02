@@ -8,11 +8,17 @@ export const darkTheme = {
   border:         '#ffffff08',
   border2:        '#ffffff10',
   border3:        '#ffffff15',
+  controlBorder:  '#666c76',
+  focusRing:      '#ff625f',
   text:           '#ffffff',
-  textMuted:      '#ffffff70',
-  textDim:        '#ffffff40',
-  textFaint:      '#ffffff20',
+  textSecondary:  '#d0d3d8',
+  textMuted:      '#a9aeb7',
+  textDim:        '#a9aeb7',
+  textFaint:      '#a9aeb7',
+  textDisabled:   '#8f959f',
   primary:        '#e33835',
+  primaryText:    '#ff625f',
+  link:           '#ff625f',
   primaryBg:      '#e3383518',
   primaryBorder:  '#e3383535',
   primaryBorder2: '#e3383550',
@@ -43,11 +49,17 @@ export const lightTheme = {
   border:         '#00000040',
   border2:        '#00000055',
   border3:        '#00000065',
+  controlBorder:  '#68707c',
+  focusRing:      '#9f1412',
   text:           '#000000',
-  textMuted:      '#141414',
-  textDim:        '#2a2a2a',
-  textFaint:      '#4a4a4a',
+  textSecondary:  '#252a33',
+  textMuted:      '#4b5563',
+  textDim:        '#4b5563',
+  textFaint:      '#4b5563',
+  textDisabled:   '#5f6875',
   primary:        '#b81815',
+  primaryText:    '#9f1412',
+  link:           '#9f1412',
   primaryBg:      '#b8181518',
   primaryBorder:  '#b8181548',
   primaryBorder2: '#b8181568',
@@ -91,6 +103,109 @@ export function isThemeDark(theme: AppTheme): boolean {
 
 export function buildCustomTheme(overrides: Partial<AppTheme>): AppTheme {
   return { ...darkTheme, ...overrides };
+}
+
+type RgbaColor = { r: number; g: number; b: number; a: number };
+
+function parseHexColor(value: string): RgbaColor | null {
+  if (!value?.startsWith('#')) return null;
+  let raw = value.slice(1);
+  if (raw.length === 3 || raw.length === 4) {
+    raw = raw.split('').map((part) => `${part}${part}`).join('');
+  }
+  if (raw.length !== 6 && raw.length !== 8) return null;
+  const parsed = Number.parseInt(raw, 16);
+  if (!Number.isFinite(parsed)) return null;
+  return {
+    r: Number.parseInt(raw.slice(0, 2), 16),
+    g: Number.parseInt(raw.slice(2, 4), 16),
+    b: Number.parseInt(raw.slice(4, 6), 16),
+    a: raw.length === 8 ? Number.parseInt(raw.slice(6, 8), 16) / 255 : 1,
+  };
+}
+
+function toHex({ r, g, b }: RgbaColor): string {
+  const part = (value: number) => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, '0');
+  return `#${part(r)}${part(g)}${part(b)}`;
+}
+
+function composite(foreground: RgbaColor, background: RgbaColor): RgbaColor {
+  const alpha = foreground.a + background.a * (1 - foreground.a);
+  if (alpha <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  return {
+    r: (foreground.r * foreground.a + background.r * background.a * (1 - foreground.a)) / alpha,
+    g: (foreground.g * foreground.a + background.g * background.a * (1 - foreground.a)) / alpha,
+    b: (foreground.b * foreground.a + background.b * background.a * (1 - foreground.a)) / alpha,
+    a: alpha,
+  };
+}
+
+export function contrastRatio(foreground: string, background: string): number {
+  const fg = parseHexColor(foreground);
+  const bg = parseHexColor(background);
+  if (!fg || !bg) return 1;
+  const composed = composite(fg, bg);
+  const lighter = Math.max(colorLuminance(toHex(composed)), colorLuminance(toHex(bg)));
+  const darker = Math.min(colorLuminance(toHex(composed)), colorLuminance(toHex(bg)));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function blend(from: RgbaColor, to: RgbaColor, amount: number): RgbaColor {
+  return {
+    r: from.r + (to.r - from.r) * amount,
+    g: from.g + (to.g - from.g) * amount,
+    b: from.b + (to.b - from.b) * amount,
+    a: 1,
+  };
+}
+
+function minimumContrast(color: string, backgrounds: string[]): number {
+  return backgrounds.reduce((minimum, background) => Math.min(minimum, contrastRatio(color, background)), Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Keeps the requested hue whenever possible, then moves it toward the safer
+ * black/white endpoint until it is readable on every supplied surface.
+ */
+export function ensureContrast(color: string, backgrounds: string[], targetRatio = 4.5): string {
+  const parsed = parseHexColor(color) ?? parseHexColor('#ffffff')!;
+  const opaque = toHex({ ...parsed, a: 1 });
+  if (minimumContrast(opaque, backgrounds) >= targetRatio) return opaque;
+
+  const black = parseHexColor('#000000')!;
+  const white = parseHexColor('#ffffff')!;
+  const endpoint = minimumContrast('#ffffff', backgrounds) >= minimumContrast('#000000', backgrounds) ? white : black;
+  for (let step = 1; step <= 50; step += 1) {
+    const candidate = toHex(blend(parsed, endpoint, step / 50));
+    if (minimumContrast(candidate, backgrounds) >= targetRatio) return candidate;
+  }
+  return toHex(endpoint);
+}
+
+/** Applies WCAG-oriented foreground colors without altering persisted theme choices. */
+export function normalizeAccessibleTheme(theme: AppTheme): AppTheme {
+  const readingSurfaces = [theme.bg, theme.bgAlt, theme.surface, theme.surface2, theme.surface3];
+  const text = ensureContrast(theme.text, readingSurfaces, 4.5);
+  const textSecondary = ensureContrast(theme.textSecondary ?? theme.textMuted, readingSurfaces, 4.5);
+  const textMuted = ensureContrast(theme.textMuted, readingSurfaces, 4.5);
+  const primaryText = ensureContrast(theme.primaryText ?? theme.primary, readingSurfaces, 4.5);
+  return {
+    ...theme,
+    text,
+    textSecondary,
+    textMuted,
+    textDim: textMuted,
+    textFaint: textMuted,
+    textDisabled: ensureContrast(theme.textDisabled ?? textMuted, readingSurfaces, 4.5),
+    primaryText,
+    link: ensureContrast(theme.link ?? theme.primary, readingSurfaces, 4.5),
+    icon: ensureContrast(theme.icon, readingSurfaces, 3),
+    controlBorder: ensureContrast(theme.controlBorder ?? theme.border3, readingSurfaces, 3),
+    focusRing: ensureContrast(theme.focusRing ?? theme.primary, readingSurfaces, 3),
+    onPrimary: ensureContrast(theme.onPrimary, [theme.primary], 4.5),
+    mapOverlayText: ensureContrast(theme.mapOverlayText, [theme.mapOverlay], 4.5),
+    mapLabelText: ensureContrast(theme.mapLabelText, [theme.mapLabelBg], 4.5),
+  };
 }
 
 export function withAlpha(hex: string, alphaHex: string): string {

@@ -1,26 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import {
-
-  View,
-
-  Text,
-
-  TouchableOpacity,
-
-  TextInput,
-
-  ScrollView,
-
-  Image,
-
-  ActivityIndicator,
-
-  Dimensions,
-
-  StyleSheet,
-
-} from 'react-native';
+import { View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 
 import { useRouter } from 'expo-router';
 
@@ -134,7 +115,7 @@ function StepPill({ label, active, done }: { label: string; active: boolean; don
 
       )}
 
-      <Text style={{ fontFamily: 'Orbitron', color: active ? '#fff' : done ? '#e33835' : '#ffffff88', fontSize: 9, letterSpacing: 1 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: active ? '#fff' : done ? '#e33835' : '#ffffff88', fontSize: 12, letterSpacing: 1 }}>
 
         {label}
 
@@ -200,7 +181,7 @@ function ToolButton({
 
       </View>
 
-      <Text style={{ color: active ? '#e33835' : '#ffffffcc', fontSize: 9, marginTop: 7, fontFamily: 'Orbitron', letterSpacing: 0.5 }}>
+      <Text style={{ color: active ? '#e33835' : '#ffffffcc', fontSize: 12, marginTop: 7, fontFamily: 'Manrope_600SemiBold', letterSpacing: 0.5 }}>
 
         {label}
 
@@ -695,13 +676,13 @@ export default function VroomkiCreateScreen() {
 
             />
 
-            <Text style={{ color: theme.textDim, fontSize: 10, textAlign: 'right', marginTop: 4 }}>{caption.length}/300</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, textAlign: 'right', marginTop: 4 }}>{caption.length}/300</Text>
 
 
 
             <Text style={[styles.sectionLabel, { marginTop: 20 }]}>AUTO Z GARAŻU (OPCJONALNIE)</Text>
 
-            <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>Przypnij auto, które pokazujesz w reelsie</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, marginBottom: 10 }}>Przypnij auto, które pokazujesz w reelsie</Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
 
@@ -743,7 +724,7 @@ export default function VroomkiCreateScreen() {
 
                     )}
 
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, marginTop: 8 }} numberOfLines={1}>{car.brand}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, marginTop: 8 }} numberOfLines={1}>{car.brand}</Text>
 
                     {selected && (
 
@@ -916,13 +897,13 @@ const styles = StyleSheet.create({
 
   headerTitle: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#fff',
 
-    fontSize: 11,
+    fontSize: 12,
 
-    letterSpacing: 2,
+    letterSpacing: 1,
 
     fontWeight: '800',
 
@@ -948,11 +929,11 @@ const styles = StyleSheet.create({
 
   publishBtnText: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#fff',
 
-    fontSize: 10,
+    fontSize: 12,
 
     fontWeight: '800',
 
@@ -1000,11 +981,11 @@ const styles = StyleSheet.create({
 
     color: '#ffffff66',
 
-    fontSize: 10,
+    fontSize: 12,
 
     marginTop: 10,
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     letterSpacing: 0.5,
 
@@ -1058,11 +1039,11 @@ const styles = StyleSheet.create({
 
   soundTrimBtnText: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#fff',
 
-    fontSize: 9,
+    fontSize: 12,
 
     fontWeight: '700',
 
@@ -1072,7 +1053,7 @@ const styles = StyleSheet.create({
 
     color: '#ffffffcc',
 
-    fontSize: 11,
+    fontSize: 12,
 
     flexShrink: 1,
 
@@ -1136,11 +1117,11 @@ const styles = StyleSheet.create({
 
   captionPreviewLabel: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#e33835',
 
-    fontSize: 9,
+    fontSize: 12,
 
     letterSpacing: 1,
 
@@ -1160,13 +1141,13 @@ const styles = StyleSheet.create({
 
   sectionLabel: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#ffffff88',
 
-    fontSize: 9,
+    fontSize: 12,
 
-    letterSpacing: 1.5,
+    letterSpacing: 1,
 
     marginBottom: 8,
 
@@ -1182,7 +1163,7 @@ const styles = StyleSheet.create({
 
     padding: 14,
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     fontSize: 12,
 
@@ -1284,7 +1265,7 @@ const styles = StyleSheet.create({
 
   bigPublishText: {
 
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
 
     color: '#fff',
 

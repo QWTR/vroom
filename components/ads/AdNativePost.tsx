@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import {
   NativeAd,
   NativeAdView,
@@ -134,7 +135,7 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <AdvertiserView
               style={{
-                fontFamily: 'Orbitron',
+                fontFamily: 'Manrope_600SemiBold',
                 color: theme.text,
                 fontSize: 12,
                 fontWeight: '700',
@@ -149,12 +150,12 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
               borderWidth: 1,
               borderColor: '#e3383530',
             }}>
-              <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 1 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, letterSpacing: 1 }}>
                 REKLAMA
               </Text>
             </View>
           </View>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2, letterSpacing: 1 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 2, letterSpacing: 1 }}>
             Treść sponsorowana
           </Text>
         </View>
@@ -201,7 +202,7 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
         gap: 8,
       }}>
         <MaterialIcons name="campaign" size={14} color={theme.textDim} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, flex: 1 }}>
           Sponsorowane
         </Text>
         <CallToActionView
@@ -212,9 +213,9 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
             paddingVertical: 8,
           }}
           textStyle={{
-            fontFamily: 'Orbitron',
+            fontFamily: 'Manrope_600SemiBold',
             color: '#fff',
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: '700',
           }}
           buttonAndroidStyle={{

@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, ActivityIndicator,
-  ScrollView, Image, Dimensions,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ActivityIndicator, ScrollView, Image, Dimensions } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -88,7 +86,7 @@ export function CampaignFlowModal({
           style={{ flex: 1 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim, letterSpacing: 2 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, letterSpacing: 1 }}>
               {stepIdx + 1} / {steps.length}
             </Text>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
@@ -107,14 +105,14 @@ export function CampaignFlowModal({
                 }}>
                   <Text style={{ fontSize: 56 }}>{giftClaimed ? '✅' : step.gift.icon || '🎁'}</Text>
                 </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', letterSpacing: 3, marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', letterSpacing: 1, marginBottom: 12 }}>
                   {giftClaimed ? 'ODEBRANO!' : 'MASZ PREZENT'}
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: t.text, fontWeight: '900', textAlign: 'center', marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: t.text, fontWeight: '900', textAlign: 'center', marginBottom: 12 }}>
                   {step.gift.title}
                 </Text>
                 {!!step.gift.description && (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: t.textDim, textAlign: 'center', lineHeight: 18, marginBottom: 28 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, textAlign: 'center', lineHeight: 18, marginBottom: 28 }}>
                     {step.gift.description}
                   </Text>
                 )}
@@ -125,7 +123,7 @@ export function CampaignFlowModal({
                     style={{ backgroundColor: '#f5c518', borderRadius: 16, paddingVertical: 16, paddingHorizontal: 32, minWidth: SCREEN_W * 0.7, alignItems: 'center' }}
                   >
                     {busy ? <ActivityIndicator color="#000" /> : (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#000', fontWeight: '800' }}>OTWÓRZ PREZENT</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#000', fontWeight: '800' }}>OTWÓRZ PREZENT</Text>
                     )}
                   </TouchableOpacity>
                 ) : (
@@ -133,7 +131,7 @@ export function CampaignFlowModal({
                     onPress={advance}
                     style={{ backgroundColor: t.surface2, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 32, minWidth: SCREEN_W * 0.7, alignItems: 'center', borderWidth: 1, borderColor: t.border }}
                   >
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: t.text, fontWeight: '700' }}>{isLast ? 'ZAKOŃCZ' : 'DALEJ'}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.text, fontWeight: '700' }}>{isLast ? 'ZAKOŃCZ' : 'DALEJ'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -141,10 +139,10 @@ export function CampaignFlowModal({
 
             {step.type === 'poll' && (
               <View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#a855f7', letterSpacing: 3, marginBottom: 16, textAlign: 'center' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#a855f7', letterSpacing: 1, marginBottom: 16, textAlign: 'center' }}>
                   ANKIETA
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '800', textAlign: 'center', marginBottom: 24, lineHeight: 26 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: t.text, fontWeight: '800', textAlign: 'center', marginBottom: 24, lineHeight: 26 }}>
                   {step.poll.question}
                 </Text>
                 {step.poll.options.map((opt, i) => {
@@ -162,7 +160,7 @@ export function CampaignFlowModal({
                         opacity: disabled && !selected ? 0.5 : 1,
                       }}
                     >
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: t.text }}>{opt}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.text }}>{opt}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -173,7 +171,7 @@ export function CampaignFlowModal({
                     style={{ marginTop: 20, backgroundColor: '#a855f7', borderRadius: 16, paddingVertical: 16, alignItems: 'center', opacity: pollSelected === null ? 0.4 : 1 }}
                   >
                     {busy ? <ActivityIndicator color="#fff" /> : (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '800' }}>GŁOSUJ</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '800' }}>GŁOSUJ</Text>
                     )}
                   </TouchableOpacity>
                 ) : (
@@ -181,7 +179,7 @@ export function CampaignFlowModal({
                     onPress={advance}
                     style={{ marginTop: 20, backgroundColor: t.surface2, borderRadius: 16, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: t.border }}
                   >
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: t.text, fontWeight: '700' }}>{isLast ? 'ZAKOŃCZ' : 'DALEJ'}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.text, fontWeight: '700' }}>{isLast ? 'ZAKOŃCZ' : 'DALEJ'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -198,10 +196,10 @@ export function CampaignFlowModal({
                 <Text style={{ fontSize: 48, marginBottom: 16 }}>
                   {step.type === 'custom' ? step.custom.icon : '📢'}
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: t.text, fontWeight: '900', textAlign: 'center', marginBottom: 16 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: t.text, fontWeight: '900', textAlign: 'center', marginBottom: 16 }}>
                   {step.type === 'announcement' ? step.announcement.title : step.custom.title}
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: t.textDim, textAlign: 'center', lineHeight: 20, marginBottom: 28 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, textAlign: 'center', lineHeight: 20, marginBottom: 28 }}>
                   {step.type === 'announcement' ? step.announcement.content : step.custom.body}
                 </Text>
                 <TouchableOpacity
@@ -210,7 +208,7 @@ export function CampaignFlowModal({
                   style={{ backgroundColor: '#e33835', borderRadius: 16, paddingVertical: 16, paddingHorizontal: 32, minWidth: SCREEN_W * 0.7, alignItems: 'center' }}
                 >
                   {busy ? <ActivityIndicator color="#fff" /> : (
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '800' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '800' }}>
                       {step.type === 'custom' ? step.custom.ctaLabel : (isLast ? 'ZAKOŃCZ' : 'DALEJ')}
                     </Text>
                   )}

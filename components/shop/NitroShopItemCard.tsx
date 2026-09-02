@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { CatalogItem } from '../../hooks/useProfileShop';
@@ -141,7 +142,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
   },
-  featuredText: { color: '#fff', fontSize: 7, fontWeight: '900', letterSpacing: 0.5 },
+  featuredText: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
   tagBadge: {
     position: 'absolute',
     top: 8,
@@ -151,7 +152,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
   },
-  tagText: { color: '#fff', fontSize: 7, fontWeight: '800' },
+  tagText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   preview: {
     height: 128,
     alignItems: 'center',
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
   },
   ownedPill: { backgroundColor: '#64748b18' },
   equippedPill: { backgroundColor: '#4ade8018' },
-  statusText: { fontSize: 9, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.3 },
+  statusText: { fontSize: 12, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.3 },
   equippedText: { color: '#4ade80' },
   pricePill: {
     flexDirection: 'row',
@@ -193,5 +194,5 @@ const styles = StyleSheet.create({
     borderColor: '#FFD70033',
   },
   price: { color: '#FFD700', fontWeight: '900', fontSize: 14 },
-  priceUnit: { color: '#FFD70099', fontSize: 9, fontWeight: '700' },
+  priceUnit: { color: '#FFD70099', fontSize: 12, fontWeight: '700' },
 });

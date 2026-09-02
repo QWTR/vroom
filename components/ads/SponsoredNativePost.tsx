@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Linking } from 'react-native';
+import { View, TouchableOpacity, Linking } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -55,14 +56,14 @@ export function SponsoredNativePost({ campaign, onPress }: Props) {
           </View>
           <View style={{ flex: 1, marginLeft: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>
                 {campaign.companyName || campaign.title}
               </Text>
               <View style={{ backgroundColor: '#e3383515', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#e3383530' }}>
-                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 }}>REKLAMA PARTNERA</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12 }}>REKLAMA PARTNERA</Text>
               </View>
             </View>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }}>Treść sponsorowana</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 2 }}>Treść sponsorowana</Text>
           </View>
         </View>
 
@@ -84,9 +85,9 @@ export function SponsoredNativePost({ campaign, onPress }: Props) {
 
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.border, gap: 8 }}>
           <MaterialIcons name="campaign" size={14} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>Sponsorowane</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, flex: 1 }}>Sponsorowane</Text>
           <View style={{ backgroundColor: '#e33835', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>
               {(campaign.ctaText || 'DOWIEDZ SIĘ').toUpperCase()}
             </Text>
           </View>

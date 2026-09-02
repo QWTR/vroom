@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -49,10 +40,10 @@ interface ArenaCardProps {
 function CarStat({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color, fontWeight: '900' }} numberOfLines={1}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color, fontWeight: '900' }} numberOfLines={1}>
         {value}
       </Text>
-      <Text style={{ fontSize: 8, color: '#ffffff88', letterSpacing: 1.4, marginTop: 2, textTransform: 'uppercase' }}>
+      <Text style={{ fontSize: 12, color: '#ffffff88', letterSpacing: 1, marginTop: 2, textTransform: 'uppercase' }}>
         {label}
       </Text>
     </View>
@@ -194,7 +185,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
             paddingHorizontal: 10,
             paddingVertical: 5,
           }}>
-            <Text style={{ fontFamily: 'Orbitron', color, fontSize: 8, fontWeight: '900', letterSpacing: 1.3 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color, fontSize: 12, fontWeight: '900', letterSpacing: 1 }}>
               {accentLabel}
             </Text>
           </View>
@@ -220,7 +211,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
         </View>
 
         <View style={{ padding: 16, gap: 10 }}>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 21, fontWeight: '900', lineHeight: 27 }} numberOfLines={2}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 21, fontWeight: '900', lineHeight: 27 }} numberOfLines={2}>
             {carDisplayLabel(car)}
           </Text>
           <Text style={{ color: '#ffffff99', fontSize: 13, lineHeight: 18 }} numberOfLines={2}>
@@ -237,7 +228,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
             style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
           >
             <MaterialIcons name="person" size={12} color={color} />
-            <PremiumName user={{ ...car.owner, username: `@${car.owner.username}` }} style={{ color, fontFamily: 'Orbitron', fontSize: 11 }} />
+            <PremiumName user={{ ...car.owner, username: `@${car.owner.username}` }} style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -263,7 +254,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
               ) : (
                 <>
                   <MaterialCommunityIcons name={selected ? 'check-decagram' : 'vote'} size={16} color="#050505" />
-                  <Text style={{ color: '#050505', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 }}>
+                  <Text style={{ color: '#050505', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 }}>
                     {selected ? 'TWÓJ WYBÓR' : `GŁOSUJ ${side}`}
                   </Text>
                 </>
@@ -409,10 +400,10 @@ export function DailyDuelVotePanel({
             </TouchableOpacity>
 
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ color: '#ffffff88', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 3 }}>
+              <Text style={{ color: '#ffffff88', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
                 VROOM ARENA
               </Text>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', letterSpacing: 2, marginTop: 4 }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '900', letterSpacing: 1, marginTop: 4 }}>
                 POJEDYNEK DNIA
               </Text>
             </View>
@@ -502,7 +493,7 @@ export function DailyDuelVotePanel({
                   end={{ x: 1, y: 1 }}
                   style={{ position: 'absolute', top: -2, left: -2, right: -2, bottom: -2, opacity: 0.28 }}
                 />
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 20, fontWeight: '900', fontStyle: 'italic' }}>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '900', fontStyle: 'italic' }}>
                   VS
                 </Text>
               </View>
@@ -532,11 +523,11 @@ export function DailyDuelVotePanel({
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <MaterialCommunityIcons name="eye-off-outline" size={18} color={gold} />
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900' }}>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>
                 {voted ? 'GŁOS ZAPISANY' : 'WYNIKI UKRYTE'}
               </Text>
             </View>
-            <Text style={{ color: '#ffffff70', fontSize: 10, textAlign: 'center', marginTop: 8, lineHeight: 15 }}>
+            <Text style={{ color: '#ffffff70', fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 16 }}>
               Liczba głosów i wynik będą widoczne dopiero po zakończeniu pojedynku w archiwum.
             </Text>
           </View>
@@ -554,18 +545,18 @@ export function DailyDuelVotePanel({
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <MaterialCommunityIcons name="car-sports" size={19} color={gold} />
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900' }}>
+            <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>
               ZGŁOŚ AUTO DO POJEDYNKU
             </Text>
           </View>
-          <Text style={{ color: '#ffffff88', fontSize: 11, lineHeight: 16 }}>
+          <Text style={{ color: '#ffffff88', fontSize: 12, lineHeight: 16 }}>
             Najpierw szukamy podobnego auta wśród innych zgłoszeń. Jeśli go nie ma, dobierzemy rywala z bazy.
           </Text>
 
           {submissionLoading ? (
             <ActivityIndicator color={gold} size="small" />
           ) : eligibleCars.length === 0 ? (
-            <Text style={{ color: '#ffad66', fontSize: 10, lineHeight: 15 }}>
+            <Text style={{ color: '#ffad66', fontSize: 12, lineHeight: 16 }}>
               Brak auta spełniającego warunki. Uzupełnij moc i dodaj przynajmniej jedno zdjęcie.
             </Text>
           ) : (
@@ -591,14 +582,14 @@ export function DailyDuelVotePanel({
                 >
                   <MaterialCommunityIcons name="car-sports" size={22} color={selected ? gold : '#ffffff88'} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '900' }} numberOfLines={1}>
+                    <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }} numberOfLines={1}>
                       {carDisplayLabel(car)}
                     </Text>
-                    <Text style={{ color: '#ffffff70', fontSize: 10, marginTop: 3 }}>
+                    <Text style={{ color: '#ffffff70', fontSize: 12, marginTop: 3 }}>
                       {car.power} KM
                     </Text>
                   </View>
-                  <Text style={{ color: selected ? gold : '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>
+                  <Text style={{ color: selected ? gold : '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>
                     {selected ? 'ZGŁOSZONE ✓' : 'ZGŁOŚ'}
                   </Text>
                 </TouchableOpacity>
@@ -612,7 +603,7 @@ export function DailyDuelVotePanel({
               disabled={submitting}
               style={{ alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 7 }}
             >
-              <Text style={{ color: red, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>
+              <Text style={{ color: red, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>
                 WYCOFAJ ZGŁOSZENIE
               </Text>
             </TouchableOpacity>

@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
@@ -79,6 +80,6 @@ const makeStyles = (t: typeof import('../../constants/theme').darkTheme) => Styl
     justifyContent: 'center',
     backgroundColor: t.bg,
   },
-  initials: { color: t.primary, fontFamily: 'Orbitron', fontWeight: '900', fontSize: 18 },
-  name: { flex: 1, color: t.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '800', marginTop: 24 },
+  initials: { color: t.primary, fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 18 },
+  name: { flex: 1, color: t.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '800', marginTop: 24 },
 });

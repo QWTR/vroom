@@ -1,9 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import {
-  View, ScrollView, TouchableOpacity,
-  Image, ActivityIndicator, Text, Animated,
-  StyleSheet, Modal, Alert,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Image, ActivityIndicator, Animated, StyleSheet, Modal, Alert } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
@@ -510,7 +507,7 @@ export default function PublicProfileScreen() {
       <View style={{ flex: 1, backgroundColor: '#090909', justifyContent: 'center', alignItems: 'center', gap: 14 }}>
         <MaterialCommunityIcons name="car-sports" size={44} color={RED} />
         <ActivityIndicator color={RED} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED + '80', letterSpacing: 4 }}>ŁADOWANIE PROFILU</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED + '80', letterSpacing: 1 }}>ŁADOWANIE PROFILU</Text>
       </View>
     );
   }
@@ -519,12 +516,12 @@ export default function PublicProfileScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: '#090909', justifyContent: 'center', alignItems: 'center', gap: 14 }}>
         <MaterialIcons name="person-off" size={52} color="#ffffff20" />
-        <Text style={{ fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 13 }}>Nie znaleziono profilu</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#ffffff40', fontSize: 13 }}>Nie znaleziono profilu</Text>
         <TouchableOpacity
           onPress={handleBack}
           style={{ backgroundColor: RED + '20', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: RED + '40' }}
         >
-          <Text style={{ fontFamily: 'Orbitron', color: RED, fontSize: 11 }}>← WRÓĆ</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: RED, fontSize: 12 }}>← WRÓĆ</Text>
         </TouchableOpacity>
       </View>
     );
@@ -559,7 +556,7 @@ export default function PublicProfileScreen() {
     border: palette.border,
     bg: palette.bg,
   };
-  const profileLabel = { fontFamily: 'Orbitron' as const, fontSize: 10, color: palette.textDim, letterSpacing: 1.5 };
+  const profileLabel = { fontFamily: 'Manrope_600SemiBold' as const, fontSize: 12, color: palette.textDim, letterSpacing: 1 };
   const widgetGlass = (extra?: Record<string, unknown>) => ({
     backgroundColor: glassSurface(palette.surface, 'cc'),
     borderRadius: 20,
@@ -601,7 +598,7 @@ export default function PublicProfileScreen() {
           ? <ActivityIndicator size="small" color={accent} />
           : <MaterialIcons name={icon} size={15} color={accent} />
         }
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: accent, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: accent, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>
           {label}
         </Text>
       </TouchableOpacity>
@@ -745,7 +742,7 @@ export default function PublicProfileScreen() {
                     }}>
                       {profile.avatarUrl
                         ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
-                        : <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
+                        : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
                       }
                     </View>
                   </LinearGradient>
@@ -763,7 +760,7 @@ export default function PublicProfileScreen() {
                   }}>
                     {profile.avatarUrl
                       ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
-                      : <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
+                      : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
                     }
                   </View>
                 )}
@@ -787,12 +784,12 @@ export default function PublicProfileScreen() {
                 )}
               </View>
 
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: palette.textDim, letterSpacing: 2.5, marginBottom: 6 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.textDim, letterSpacing: 1, marginBottom: 6 }}>
                 PROFIL GRACZA
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <Text
-                  style={{ fontFamily: 'Orbitron', fontSize: 22, color: resolvedNickColor || palette.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }}
+                  style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: resolvedNickColor || palette.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }}
                   numberOfLines={1}
                 >
                   {profile.username}
@@ -819,7 +816,7 @@ export default function PublicProfileScreen() {
                   gap: 6,
                 }}>
                   <MaterialCommunityIcons name="podium" size={14} color={palette.text} />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: palette.text, fontWeight: '900' }}>#{profile.position}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.text, fontWeight: '900' }}>#{profile.position}</Text>
                   <Text style={profileLabel}>RANKING</Text>
                 </View>
               )}
@@ -912,7 +909,7 @@ export default function PublicProfileScreen() {
                     {idx === 1 && <View style={{ width: 1, height: 32, backgroundColor: GLASS_BORDER, marginRight: 12 }} />}
                     <MaterialIcons name={item.icon} size={18} color={palette.textDim} />
                     <View>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: palette.text, fontWeight: '900' }}>{item.value}</Text>
                       <Text style={profileLabel}>{item.label}</Text>
                     </View>
                   </TouchableOpacity>
@@ -937,7 +934,7 @@ export default function PublicProfileScreen() {
                 >
                   <MaterialIcons name="straighten" size={22} color={palette.textDim} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
                       {Math.round(profile.totalDistance).toLocaleString('pl-PL')}
                     </Text>
                     <Text style={{ ...profileLabel, marginTop: 4 }}>Kilometry</Text>
@@ -950,7 +947,7 @@ export default function PublicProfileScreen() {
                 >
                   <MaterialCommunityIcons name="trophy" size={22} color={palette.textDim} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
                       {achievements.length}
                     </Text>
                     <Text style={{ ...profileLabel, marginTop: 4 }}>Osiągnięcia</Text>
@@ -961,7 +958,7 @@ export default function PublicProfileScreen() {
                 <TouchableOpacity onPress={() => router.push({ pathname: '/Community/Ranks/stats', params: { rankCategory: 'points', rankPeriod: 'all' } } as any)} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
                   <MaterialIcons name="leaderboard" size={22} color={palette.textDim} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
                       {profile.position ? `#${profile.position}` : '—'}
                     </Text>
                     <Text style={{ ...profileLabel, marginTop: 4 }}>Ranking</Text>
@@ -970,7 +967,7 @@ export default function PublicProfileScreen() {
                 <TouchableOpacity onPress={() => { setStatsMode('all'); setStatsModalVisible(true); }} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
                   <MaterialIcons name="bar-chart" size={22} color={palette.textDim} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
                       →
                     </Text>
                     <Text style={{ ...profileLabel, marginTop: 4 }}>Statystyki</Text>
@@ -983,7 +980,7 @@ export default function PublicProfileScreen() {
               <View style={{ ...widgetGlass(), padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <Text style={{ fontSize: 22 }}>🔥</Text>
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: palette.text, fontWeight: '900' }}>{profile.streak}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: palette.text, fontWeight: '900' }}>{profile.streak}</Text>
                   <Text style={profileLabel}>Streak dni</Text>
                 </View>
               </View>
@@ -995,7 +992,7 @@ export default function PublicProfileScreen() {
               style={{ ...widgetGlass(), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
             >
               <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
-              <View style={{ flex: 1 }}><Text style={{ color: palette.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>Ekwipunek @{profile.username}</Text><Text style={{ color: palette.textDim, fontSize: 10, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
+              <View style={{ flex: 1 }}><Text style={{ color: palette.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' }}>Ekwipunek @{profile.username}</Text><Text style={{ color: palette.textDim, fontSize: 12, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
               <MaterialIcons name="arrow-forward-ios" size={14} color={palette.textDim} />
             </TouchableOpacity>
 
@@ -1039,14 +1036,14 @@ export default function PublicProfileScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: palette.text, fontSize: 13, fontWeight: '700' }}>{car.brand}</Text>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.text, fontSize: 13, fontWeight: '700' }}>{car.brand}</Text>
                           {car.isMain && (
                             <View style={{ backgroundColor: glassSurface(palette.surface, '80'), paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1, borderColor: palette.border }}>
-                              <Text style={{ fontFamily: 'Orbitron', color: palette.textDim, fontSize: 7 }}>GŁÓWNE</Text>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.textDim, fontSize: 12 }}>GŁÓWNE</Text>
                             </View>
                           )}
                         </View>
-                        <Text style={{ fontFamily: 'Orbitron', color: palette.textDim, fontSize: 10 }}>{car.specs}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.textDim, fontSize: 12 }}>{car.specs}</Text>
                       </View>
                       <MaterialIcons name="arrow-forward-ios" size={13} color={palette.textDim} />
                     </TouchableOpacity>
@@ -1066,7 +1063,7 @@ export default function PublicProfileScreen() {
                   <View key={item.label} style={{ flex: 1, minHeight: 78, backgroundColor: glassSurface(palette.surface, '80'), borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: 10, justifyContent: 'space-between' }}>
                     <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
                     <View>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 17, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 17, color: item.color, fontWeight: '900' }}>{item.value}</Text>
                       <Text style={profileLabel}>{item.label}</Text>
                     </View>
                   </View>
@@ -1082,8 +1079,8 @@ export default function PublicProfileScreen() {
                   {fogOfWar!.topRegions.slice(0, 3).map(region => (
                     <View key={region.slug} style={{ gap: 6 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: palette.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: RED, fontWeight: '900' }}>{region.percentComplete}%</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED, fontWeight: '900' }}>{region.percentComplete}%</Text>
                       </View>
                       <View style={{ height: 7, borderRadius: 99, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.10)' }}>
                         <View style={{ width: `${Math.min(100, region.percentComplete)}%`, height: '100%', backgroundColor: RED, borderRadius: 99 }} />
@@ -1097,7 +1094,7 @@ export default function PublicProfileScreen() {
 
               {(turf?.crowns?.length ?? 0) > 0 && (
                 <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', fontWeight: '800', letterSpacing: 2, marginBottom: 8 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>
                     REWIRY NALEŻĄCE DO {profile.username.toUpperCase()}
                   </Text>
                   {turf!.crowns.slice(0, 3).map(crown => (
@@ -1112,7 +1109,7 @@ export default function PublicProfileScreen() {
 
               {(turf?.history?.length ?? 0) > 0 && (
                 <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: palette.textDim, fontWeight: '800', letterSpacing: 2, marginBottom: 8 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.textDim, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>
                     HISTORIA ZWYCIĘSTW
                   </Text>
                   {turf!.history!.slice(0, 5).map((crown, index) => (
@@ -1186,12 +1183,12 @@ export default function PublicProfileScreen() {
         <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#111', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 }}>
             <View style={{ width: 40, height: 4, backgroundColor: '#ffffff20', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 4, marginBottom: 16 }}>{statsMode === 'distance' ? 'STATYSTYKI DYSTANSU' : 'PEŁNE STATYSTYKI'}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED, letterSpacing: 1, marginBottom: 16 }}>{statsMode === 'distance' ? 'STATYSTYKI DYSTANSU' : 'PEŁNE STATYSTYKI'}</Text>
             <View style={{ backgroundColor: RED + '12', borderRadius: 18, borderWidth: 1, borderColor: RED + '30', padding: 20, marginBottom: 12, alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 48, color: RED, fontWeight: '900', letterSpacing: -2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 48, color: RED, fontWeight: '900', letterSpacing: -0.2 }}>
                 {Math.round(profile?.totalDistance ?? 0).toLocaleString('pl-PL')}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: RED + '80' }}>KM ŁĄCZNIE</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED + '80' }}>KM ŁĄCZNIE</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
               {[
@@ -1199,22 +1196,22 @@ export default function PublicProfileScreen() {
                 { label: 'TEN MIESIĄC', value: Math.round(profile?.monthlyDistance ?? 0), color: '#a855f7' },
               ].map(item => (
                 <View key={item.label} style={{ flex: 1, backgroundColor: item.color + '12', borderRadius: 14, borderWidth: 1, borderColor: item.color + '30', padding: 16, alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: item.color, fontWeight: '900' }}>{item.value}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: item.color + '80', letterSpacing: 1 }}>KM</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#ffffff40', letterSpacing: 1, marginTop: 4 }}>{item.label}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 24, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: item.color + '80', letterSpacing: 1 }}>KM</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff40', letterSpacing: 1, marginTop: 4 }}>{item.label}</Text>
                 </View>
               ))}
             </View>
             <View style={{ backgroundColor: '#ffffff08', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff10', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff60' }}>ŁĄCZNIE TRAS</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>{profile?.totalRides ?? 0}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff60' }}>ŁĄCZNIE TRAS</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: '#fff', fontWeight: '900' }}>{profile?.totalRides ?? 0}</Text>
             </View>
-            {statsMode === 'all' && <View style={{ marginTop: 12, gap: 10 }}><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#ff6b3512', borderRadius: 14, borderWidth: 1, borderColor: '#ff6b3530', padding: 14 }}><Text style={{ color: '#ff6b35', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.topSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Orbitron', fontSize: 7, marginTop: 4 }}>TOP SPEED KM/H</Text></View><View style={{ flex: 1, backgroundColor: '#268bff12', borderRadius: 14, borderWidth: 1, borderColor: '#268bff30', padding: 14 }}><Text style={{ color: '#268bff', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.avgSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Orbitron', fontSize: 7, marginTop: 4 }}>ŚREDNIA KM/H</Text></View></View><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#4de92612', borderRadius: 14, padding: 14 }}><Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 20 }}>{profile?.meetCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 8 }}>MEETY</Text></View><View style={{ flex: 1, backgroundColor: '#a855f712', borderRadius: 14, padding: 14 }}><Text style={{ color: '#a855f7', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 20 }}>{profile?.cityCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 8 }}>MIASTA</Text></View></View></View>}
+            {statsMode === 'all' && <View style={{ marginTop: 12, gap: 10 }}><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#ff6b3512', borderRadius: 14, borderWidth: 1, borderColor: '#ff6b3530', padding: 14 }}><Text style={{ color: '#ff6b35', fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.topSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4 }}>TOP SPEED KM/H</Text></View><View style={{ flex: 1, backgroundColor: '#268bff12', borderRadius: 14, borderWidth: 1, borderColor: '#268bff30', padding: 14 }}><Text style={{ color: '#268bff', fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.avgSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 4 }}>ŚREDNIA KM/H</Text></View></View><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#4de92612', borderRadius: 14, padding: 14 }}><Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 20 }}>{profile?.meetCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 12 }}>MEETY</Text></View><View style={{ flex: 1, backgroundColor: '#a855f712', borderRadius: 14, padding: 14 }}><Text style={{ color: '#a855f7', fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 20 }}>{profile?.cityCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 12 }}>MIASTA</Text></View></View></View>}
             <TouchableOpacity
               style={{ marginTop: 20, backgroundColor: RED + '18', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: RED + '30' }}
               onPress={() => setStatsModalVisible(false)}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: RED, fontWeight: '700' }}>ZAMKNIJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: RED, fontWeight: '700' }}>ZAMKNIJ</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1230,22 +1227,22 @@ export default function PublicProfileScreen() {
         <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#111', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 }}>
             <View style={{ width: 40, height: 4, backgroundColor: '#ffffff20', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff6b35', letterSpacing: 4, marginBottom: 16 }}>STATYSTYKI PRĘDKOŚCI</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff6b35', letterSpacing: 1, marginBottom: 16 }}>STATYSTYKI PRĘDKOŚCI</Text>
             <View style={{ backgroundColor: '#ff6b3512', borderRadius: 18, borderWidth: 1, borderColor: '#ff6b3530', padding: 20, marginBottom: 12, alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 72, color: '#ff6b35', fontWeight: '900', letterSpacing: -3, lineHeight: 78 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 72, color: '#ff6b35', fontWeight: '900', letterSpacing: -0.2, lineHeight: 78 }}>
                 {Math.round(profile?.topSpeed ?? 0)}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#ff6b3580' }}>KM/H REKORD</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: '#ff6b3580' }}>KM/H REKORD</Text>
             </View>
             <View style={{ backgroundColor: '#ffffff08', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff10', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff60' }}>ŚREDNIA PRĘDKOŚĆ</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>{Math.round(profile?.avgSpeed ?? 0)} km/h</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff60' }}>ŚREDNIA PRĘDKOŚĆ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: '#fff', fontWeight: '900' }}>{Math.round(profile?.avgSpeed ?? 0)} km/h</Text>
             </View>
             <TouchableOpacity
               style={{ marginTop: 8, backgroundColor: '#ff6b3518', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#ff6b3530' }}
               onPress={() => setTopSpeedModalVisible(false)}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ff6b35', fontWeight: '700' }}>ZAMKNIJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff6b35', fontWeight: '700' }}>ZAMKNIJ</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1273,7 +1270,7 @@ function SectionHeader({ title, count, icon, palette }: {
       }}>
         <MaterialIcons name={icon as any} size={14} color={palette.textDim} />
       </View>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: palette.text, fontWeight: '700', flex: 1, letterSpacing: 1 }}>{title}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: palette.text, fontWeight: '700', flex: 1, letterSpacing: 1 }}>{title}</Text>
       <View style={{
         backgroundColor: glassSurface(palette.surface, '80'),
         borderRadius: 8,
@@ -1282,7 +1279,7 @@ function SectionHeader({ title, count, icon, palette }: {
         borderWidth: 1,
         borderColor: palette.border,
       }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: palette.textDim }}>{count}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.textDim }}>{count}</Text>
       </View>
     </View>
   );
@@ -1302,7 +1299,7 @@ function EmptyState({ text, palette }: {
       alignItems: 'center',
       paddingVertical: 20,
     }}>
-      <Text style={{ fontFamily: 'Orbitron', color: palette.textDim, fontSize: 10, letterSpacing: 1.5 }}>{text}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.textDim, fontSize: 12, letterSpacing: 1 }}>{text}</Text>
     </View>
   );
 }

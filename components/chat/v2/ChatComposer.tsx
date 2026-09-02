@@ -1,7 +1,6 @@
 import React, { type ReactNode } from 'react';
-import {
-  View, TextInput, TouchableOpacity, StyleSheet, Platform, Keyboard, Text,
-} from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Platform, Keyboard } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../ui/AppText';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';

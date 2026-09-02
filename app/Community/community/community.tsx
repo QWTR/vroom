@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable,
-  StatusBar, ScrollView, Alert, Platform,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable, StatusBar, ScrollView, Alert, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -1027,7 +1024,7 @@ export default function CommunityScreen() {
             >
               <MaterialIcons name="arrow-back" size={20} color={theme.text} />
             </TouchableOpacity>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, letterSpacing: 2 }}>POST</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, letterSpacing: 1 }}>POST</Text>
             <View style={{ width: 38 }} />
           </View>
           <KeyboardAvoidingView
@@ -1062,7 +1059,7 @@ export default function CommunityScreen() {
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
                             <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
-                              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11 }}>{commentPost.author.username}</Text>
+                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12 }}>{commentPost.author.username}</Text>
                             </TouchableOpacity>
                             {commentPost.author.id !== myId && myId != null && (
                               <TouchableOpacity
@@ -1078,7 +1075,7 @@ export default function CommunityScreen() {
                                   ? <ActivityIndicator size="small" color={commentAuthorFollowing ? theme.textDim : '#fff'} />
                                   : (
                                     <Text style={{
-                                      fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
+                                      fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700',
                                       color: commentAuthorFollowing ? theme.textDim : '#fff',
                                     }}>
                                       {commentAuthorFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
@@ -1111,7 +1108,7 @@ export default function CommunityScreen() {
                                       paddingHorizontal: 9,
                                       paddingVertical: 4,
                                     }}>
-                                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+                                      <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                                         {`ZRODLO: ${getSystemNewsSourceLabel(commentPost)}`}
                                       </Text>
                                     </View>
@@ -1151,7 +1148,7 @@ export default function CommunityScreen() {
                                         borderColor: '#e3383530',
                                       }}
                                     >
-                                      <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, fontWeight: '800' }}>
+                                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, fontWeight: '800' }}>
                                         {commentPostExpanded ? 'ZWIN POST' : 'POKAZ CALY POST'}
                                       </Text>
                                     </TouchableOpacity>
@@ -1191,7 +1188,7 @@ export default function CommunityScreen() {
                       </View>
 
                       <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 12 }} />
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 10 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 10 }}>
                         KOMENTARZE
                       </Text>
                     </>
@@ -1208,9 +1205,9 @@ export default function CommunityScreen() {
                       }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                           <TouchableOpacity onPress={() => goToProfile(item.author.id)}>
-                            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>{item.author.username}</Text>
+                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>{item.author.username}</Text>
                           </TouchableOpacity>
-                          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}
                             {item.editedAt ? ' · edytowano' : ''}
                           </Text>
@@ -1249,7 +1246,7 @@ export default function CommunityScreen() {
                           <TouchableOpacity
                             onPress={() => setReplyTo({ id: item.id, username: item.author.username })}
                           >
-                            <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 }}>↩ odpowiedz</Text>
+                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12 }}>↩ odpowiedz</Text>
                           </TouchableOpacity>
                           <TouchableOpacity onPress={() => handleLikeComment(item.id)}>
                             <MaterialCommunityIcons
@@ -1259,14 +1256,14 @@ export default function CommunityScreen() {
                             />
                           </TouchableOpacity>
                           {(item.likesCount ?? 0) > 0 && (
-                            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>{item.likesCount}</Text>
+                            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>{item.likesCount}</Text>
                           )}
                           <TouchableOpacity onPress={() => setReactionPicker({ type: 'comment', id: item.id })}>
                             <Text style={{ fontSize: 12 }}>😀</Text>
                           </TouchableOpacity>
                         </View>
                         {item.replyTo && (
-                          <Text style={{ fontFamily: 'Orbitron', color: '#e3383555', fontSize: 8, marginBottom: 4 }}>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e3383555', fontSize: 12, marginBottom: 4 }}>
                             ↩ @{item.replyTo.username}
                           </Text>
                         )}
@@ -1305,7 +1302,7 @@ export default function CommunityScreen() {
                     </View>
                   )}
                   ListEmptyComponent={
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center', marginTop: 24 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, textAlign: 'center', marginTop: 24 }}>
                       BRAK KOMENTARZY · BĄDŹ PIERWSZY
                     </Text>
                   }
@@ -1331,7 +1328,7 @@ export default function CommunityScreen() {
                   paddingHorizontal: 12, paddingVertical: 7,
                   marginBottom: 8, borderWidth: 1, borderColor: '#e3383530',
                 }}>
-                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>↩ @{replyTo.username}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12 }}>↩ @{replyTo.username}</Text>
                   <TouchableOpacity onPress={() => setReplyTo(null)}>
                     <MaterialIcons name="close" size={14} color={theme.textDim} />
                   </TouchableOpacity>
@@ -1447,7 +1444,7 @@ export default function CommunityScreen() {
             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 12, borderBottomWidth: 1, borderColor: theme.border }}>
               <MaterialCommunityIcons name="map-marker-path" size={18} color="#e33835" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>WYŚLIJ TRASĘ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, flex: 1 }}>WYŚLIJ TRASĘ</Text>
               <TouchableOpacity style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }} onPress={() => setShareRoute(null)}>
                 <MaterialIcons name="close" size={16} color={theme.textDim} />
               </TouchableOpacity>
@@ -1458,12 +1455,12 @@ export default function CommunityScreen() {
                   <RouteMiniMap points={shareRoute.points} width={80} height={52} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{shareRoute.name}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 3 }}>{shareRoute.distance.toFixed(1)} km · {shareRoute.points.length} pkt</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{shareRoute.name}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 3 }}>{shareRoute.distance.toFixed(1)} km · {shareRoute.points.length} pkt</Text>
                 </View>
               </View>
             )}
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, marginBottom: 10 }}>WYBIERZ ROZMOWĘ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 10 }}>WYBIERZ ROZMOWĘ</Text>
             {shareLoading ? (
               <ActivityIndicator color="#e33835" style={{ marginVertical: 30 }} />
             ) : (
@@ -1471,7 +1468,7 @@ export default function CommunityScreen() {
                 data={shareConvs} keyExtractor={c => String(c.id)}
                 style={{ maxHeight: 320 }} contentContainerStyle={{ paddingBottom: 20 }}
                 showsVerticalScrollIndicator={false}
-                ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
+                ListEmptyComponent={<Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
                 renderItem={({ item: conv }) => {
                   const other  = conv.participants?.find((p: any) => p.id !== myId);
                   const name   = conv.isGroup ? conv.name : other?.username ?? '?';
@@ -1482,12 +1479,12 @@ export default function CommunityScreen() {
                       {avatar
                         ? <Image source={{ uri: avatar }} style={{ width: 42, height: 42, borderRadius: 21 }} />
                         : <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#e3383518', borderWidth: 1, borderColor: '#e3383530', justifyContent: 'center', alignItems: 'center' }}>
-                            <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
+                            <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
                           </View>
                       }
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '600' }} numberOfLines={1}>{name}</Text>
-                        {conv.isGroup && <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>{conv.participants?.length} uczestników</Text>}
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '600' }} numberOfLines={1}>{name}</Text>
+                        {conv.isGroup && <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>{conv.participants?.length} uczestników</Text>}
                       </View>
                       <TouchableOpacity
                         style={[{
@@ -1503,8 +1500,8 @@ export default function CommunityScreen() {
                         {shareSending === conv.id
                           ? <ActivityIndicator size={14} color="#fff" />
                           : isSent
-                            ? <><MaterialIcons name="check" size={13} color="#4de926" /><Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#4de926', fontWeight: '700' }}>WYSŁANO</Text></>
-                            : <><MaterialIcons name="send" size={13} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text></>
+                            ? <><MaterialIcons name="check" size={13} color="#4de926" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', fontWeight: '700' }}>WYSŁANO</Text></>
+                            : <><MaterialIcons name="send" size={13} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text></>
                         }
                       </TouchableOpacity>
                     </View>
@@ -1546,7 +1543,7 @@ export default function CommunityScreen() {
             }}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 14, textAlign: 'center' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 14, textAlign: 'center' }}>
               WYBIERZ REAKCJĘ
             </Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', gap: 8 }}>
@@ -1586,7 +1583,7 @@ export default function CommunityScreen() {
             }}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ POST</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ POST</Text>
             <TextInput
               style={{
                 minHeight: 100, maxHeight: 180, textAlignVertical: 'top',
@@ -1605,7 +1602,7 @@ export default function CommunityScreen() {
                 onPress={() => setEditingPost(null)}
                 disabled={savingEditPost}
               >
-                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>ANULUJ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>ANULUJ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 2, paddingVertical: 12, borderRadius: 12, backgroundColor: '#e33835', alignItems: 'center' }}
@@ -1614,7 +1611,7 @@ export default function CommunityScreen() {
               >
                 {savingEditPost
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>ZAPISZ</Text>}
+                  : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -1634,7 +1631,7 @@ export default function CommunityScreen() {
             }}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ KOMENTARZ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ KOMENTARZ</Text>
             <TextInput
               style={{
                 minHeight: 80, maxHeight: 160, textAlignVertical: 'top',
@@ -1653,7 +1650,7 @@ export default function CommunityScreen() {
                 onPress={() => setEditingComment(null)}
                 disabled={savingEditComment}
               >
-                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>ANULUJ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>ANULUJ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 2, paddingVertical: 12, borderRadius: 12, backgroundColor: '#e33835', alignItems: 'center' }}
@@ -1662,7 +1659,7 @@ export default function CommunityScreen() {
               >
                 {savingEditComment
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>ZAPISZ</Text>}
+                  : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>

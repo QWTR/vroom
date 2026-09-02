@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Modal, View, Text, ScrollView, TouchableOpacity,
-  ActivityIndicator, Image, Platform, StyleSheet, Dimensions,
-} from 'react-native';
+import { Modal, View, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform, StyleSheet, Dimensions } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type {
@@ -65,7 +63,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
       <View style={{ width: 28, alignItems: 'center', marginRight: 2 }}>
         {isTop3
           ? <MaterialIcons name="emoji-events" size={17} color={color} />
-          : <Text style={{ color, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{entry.position}</Text>
+          : <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{entry.position}</Text>
         }
       </View>
       <View style={{ marginHorizontal: 8 }}>
@@ -74,22 +72,22 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
       <View style={{ flex: 1 }}>
         <Text style={{
           color: entry.isMe ? theme.text : theme.textMuted,
-          fontFamily: 'Orbitron', fontSize: 10,
+          fontFamily: 'Manrope_600SemiBold', fontSize: 12,
           fontWeight: entry.isMe ? '700' : '400',
         }} numberOfLines={1}>
           {entry.username}{entry.isMe ? '  (Ty)' : ''}
         </Text>
         {!!entry.avgSpeed && (
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, marginTop: 1 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 1 }}>
             śr. {entry.avgSpeed.toFixed(0)} km/h
           </Text>
         )}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ color, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
+        <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>
           {formatTime(entry.duration)}
         </Text>
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, marginTop: 2 }}>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 }}>
           {formatDate(entry.createdAt)}
         </Text>
       </View>
@@ -111,11 +109,11 @@ function Podium({ entries }: { entries: LeaderboardEntry[] }) {
           <View key={entry.userId} style={{ alignItems: 'center', width: 95 }}>
             <Avatar uri={entry.avatarUrl} color={color} size={labels[i] === 1 ? 50 : 40} />
             <Text style={{
-              color: theme.text, fontFamily: 'Orbitron',
+              color: theme.text, fontFamily: 'Manrope_600SemiBold',
               fontSize: labels[i] === 1 ? 9 : 8, fontWeight: '700',
               textAlign: 'center', marginTop: 5, marginBottom: 3,
             }} numberOfLines={1}>{entry.username}</Text>
-            <Text style={{ color, fontFamily: 'Orbitron', fontSize: labels[i] === 1 ? 11 : 9, fontWeight: '900' }}>
+            <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: labels[i] === 1 ? 11 : 9, fontWeight: '900' }}>
               {formatTime(entry.duration)}
             </Text>
             <View style={{
@@ -125,7 +123,7 @@ function Podium({ entries }: { entries: LeaderboardEntry[] }) {
               borderTopLeftRadius: 6, borderTopRightRadius: 6,
               marginTop: 6, alignItems: 'center', paddingTop: 8,
             }}>
-              <Text style={{ color, fontFamily: 'Orbitron', fontSize: 15, fontWeight: '900' }}>{labels[i]}</Text>
+              <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '900' }}>{labels[i]}</Text>
               <MaterialIcons name="emoji-events" size={13} color={color} style={{ marginTop: 3 }} />
             </View>
           </View>
@@ -152,21 +150,21 @@ function RunRow({ run }: { run: RunEntry; index: number }) {
       <View style={{ flex: 1 }}>
         <Text style={{
           color: run.isMe ? theme.text : theme.textMuted,
-          fontFamily: 'Orbitron', fontSize: 9,
+          fontFamily: 'Manrope_600SemiBold', fontSize: 12,
           fontWeight: run.isMe ? '700' : '400',
         }} numberOfLines={1}>
           {run.username}{run.isMe ? ' (Ty)' : ''}
         </Text>
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, marginTop: 1 }}>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 1 }}>
           {formatDateTime(run.createdAt)}
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ color: run.isMe ? theme.primary : theme.textMuted, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
+        <Text style={{ color: run.isMe ? theme.primary : theme.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
           {formatTime(run.duration)}
         </Text>
         {!!run.avgSpeed && (
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, marginTop: 1 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 1 }}>
             śr. {run.avgSpeed.toFixed(0)} km/h
           </Text>
         )}
@@ -192,10 +190,10 @@ function StatsBar({ stats }: { stats: RunsData['stats'] }) {
           paddingVertical: 8, alignItems: 'center',
         }}>
           <MaterialIcons name={item.icon as any} size={14} color={theme.primary} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', marginTop: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', marginTop: 4 }}>
             {item.value}
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, marginTop: 2, letterSpacing: 0.5 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2, letterSpacing: 0.5 }}>
             {item.label}
           </Text>
         </View>
@@ -255,8 +253,8 @@ export function RouteLeaderboardModal({
               <MaterialIcons name="leaderboard" size={20} color={theme.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>RANKING TRASY</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }} numberOfLines={1}>{routeName.toUpperCase()}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>RANKING TRASY</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }} numberOfLines={1}>{routeName.toUpperCase()}</Text>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
@@ -278,12 +276,12 @@ export function RouteLeaderboardModal({
                   size={13}
                   color={activeTab === tab ? '#fff' : theme.textDim}
                 />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', color: activeTab === tab ? '#fff' : theme.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', color: activeTab === tab ? '#fff' : theme.textDim }}>
                   {tab === 'ranking' ? 'RANKING' : 'PRZEBIEGI'}
                 </Text>
                 {tab === 'runs' && runsData && (
                   <View style={{ backgroundColor: activeTab === 'runs' ? '#ffffff30' : theme.border2, borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: activeTab === 'runs' ? '#fff' : theme.textDim }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: activeTab === 'runs' ? '#fff' : theme.textDim }}>
                       {runsData.stats.totalAttempts}
                     </Text>
                   </View>
@@ -303,17 +301,17 @@ export function RouteLeaderboardModal({
             }}>
               <MaterialIcons name={isRecord ? 'emoji-events' : 'timer'} size={24} color={isRecord ? '#FFD700' : theme.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2, color: isRecord ? '#FFD700' : theme.primary }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, color: isRecord ? '#FFD700' : theme.primary }}>
                   {isRecord ? '🏆 NOWY REKORD TRASY!' : 'TWÓJ CZAS'}
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: theme.text, letterSpacing: 2, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '900', color: theme.text, letterSpacing: 1, marginTop: 2 }}>
                   {formatTime(newTime)}
                 </Text>
               </View>
               {myBest && (
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>POZYCJA</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, fontWeight: '700', color: theme.textMuted }}>#{myBest.position}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>POZYCJA</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '700', color: theme.textMuted }}>#{myBest.position}</Text>
                 </View>
               )}
             </View>
@@ -325,14 +323,14 @@ export function RouteLeaderboardModal({
             {loading ? (
               <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                 <ActivityIndicator size="large" color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, marginTop: 14 }}>ŁADOWANIE...</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 14 }}>ŁADOWANIE...</Text>
               </View>
             ) : activeTab === 'ranking' ? (
               !data?.leaderboard.length ? (
                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                   <MaterialIcons name="leaderboard" size={48} color={theme.border3} />
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, marginTop: 14 }}>BRAK WYNIKÓW</Text>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginTop: 6 }}>Bądź pierwszy na tej trasie!</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 14 }}>BRAK WYNIKÓW</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 6 }}>Bądź pierwszy na tej trasie!</Text>
                 </View>
               ) : (
                 <>
@@ -343,7 +341,7 @@ export function RouteLeaderboardModal({
                   {myBest && myBest.position > 50 && (
                     <>
                       <View style={{ alignItems: 'center', paddingVertical: 4 }}>
-                        <Text style={{ color: theme.border3, fontFamily: 'Orbitron', fontSize: 9 }}>• • •</Text>
+                        <Text style={{ color: theme.border3, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>• • •</Text>
                       </View>
                       <LeaderboardRow entry={{
                         position: myBest.position, userId: 0, username: 'Ty',
@@ -358,20 +356,20 @@ export function RouteLeaderboardModal({
               !runsData?.runs.length ? (
                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                   <MaterialIcons name="history" size={48} color={theme.border3} />
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, marginTop: 14 }}>BRAK PRZEJAZDÓW</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 14 }}>BRAK PRZEJAZDÓW</Text>
                 </View>
               ) : (
                 <>
                   <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginBottom: 8 }}>
-                    <Text style={{ width: 26, fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, textAlign: 'center' }}>#</Text>
-                    <Text style={{ flex: 1, marginLeft: 46, fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>UŻYTKOWNIK</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>CZAS</Text>
+                    <Text style={{ width: 26, fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center' }}>#</Text>
+                    <Text style={{ flex: 1, marginLeft: 46, fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>UŻYTKOWNIK</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>CZAS</Text>
                   </View>
                   {runsData.runs.map((run, i) => (
                     <RunRow key={run.id} run={run} index={i} />
                   ))}
                   {runsData.runs.length >= 100 && (
-                    <Text style={{ textAlign: 'center', fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 8 }}>
+                    <Text style={{ textAlign: 'center', fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 8 }}>
                       Wyświetlono ostatnie 100 przejazdów
                     </Text>
                   )}

@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  type ListRenderItem,
-} from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, TouchableOpacity, View, type ListRenderItem } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -417,8 +410,8 @@ const styles = StyleSheet.create({
   },
   competitionTitle: {
     flex: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 11,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '900',
   },
   competitionPrize: {
@@ -434,7 +427,7 @@ const styles = StyleSheet.create({
   seasonCard: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   rewardList: { gap: 7 },
   rewardPill: { minHeight: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rewardPlace: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', minWidth: 34 },
+  rewardPlace: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', minWidth: 34 },
   rewardName: { flex: 1, fontFamily: 'Satoshi', fontSize: 12, fontWeight: '700' },
   seasonStatsButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   periodRow: {
@@ -452,8 +445,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   periodText: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '800',
   },
   rangeBanner: {
@@ -479,14 +472,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rangeEyebrow: {
-    fontFamily: 'Orbitron',
-    fontSize: 6,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1,
   },
   rangeTitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '900',
     marginTop: 4,
   },
@@ -503,13 +496,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   myPositionText: {
-    fontFamily: 'Orbitron',
-    fontSize: 11,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '800',
   },
   sectionLabel: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '800',
     marginHorizontal: 16,
     marginTop: 18,
@@ -521,7 +514,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyTitle: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 13,
     fontWeight: '900',
     marginTop: 12,
@@ -544,8 +537,8 @@ const styles = StyleSheet.create({
   },
   retryText: {
     color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     fontWeight: '900',
   },
 });

@@ -1,7 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, StatusBar, Platform, Modal, Pressable, Dimensions,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, StatusBar, Platform, Modal, Pressable, Dimensions } from 'react-native';
+import { AppText as Text } from '../../../../components/ui/AppText';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -190,18 +189,18 @@ export default function MarketChatScreen() {
             <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={openPeerProfile} disabled={!chatPeer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                 <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700', letterSpacing: 1 }}>MARKET</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>MARKET</Text>
                 </View>
               </View>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }} numberOfLines={1}>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                 {conv.listing.title}
               </Text>
               {chatPeer && (
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, marginTop: 2 }} numberOfLines={1}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
                   {isSellerView ? 'Kupujący: ' : 'Sprzedający: '}@{chatPeer.username}
                 </Text>
               )}
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900', marginTop: 2 }}>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', marginTop: 2 }}>
                 {conv.listing.price.toLocaleString('pl-PL')} PLN
               </Text>
             </TouchableOpacity>

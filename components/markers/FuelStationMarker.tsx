@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, TouchableOpacity, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuelStation } from '../../hooks/useFuelStations';
@@ -62,16 +63,16 @@ export const FuelStationMarker = memo(({ station, onPress, compact = false, pref
               <>
                 <Text
                   numberOfLines={1}
-                  style={{ color: '#d8e9ff', fontSize: 9, fontWeight: '900', marginBottom: 1 }}
+                  style={{ color: '#d8e9ff', fontSize: 12, fontWeight: '900', marginBottom: 1 }}
                 >
                   {(brand || station.name || 'Stacja').toUpperCase()}
                 </Text>
                 {display ? (
-                  <Text style={{ color: '#7dd3fc', fontSize: 9, fontWeight: '900' }}>
+                  <Text style={{ color: '#7dd3fc', fontSize: 12, fontWeight: '900' }}>
                     {display.label} {display.value.toFixed(2)}
                   </Text>
                 ) : (
-                  <Text style={{ color: '#6b7280', fontSize: 9, fontWeight: '700' }}>
+                  <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '700' }}>
                     BRAK CENY
                   </Text>
                 )}

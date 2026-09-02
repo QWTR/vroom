@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import {
-  InteractionManager,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { InteractionManager, Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -129,7 +121,7 @@ export function MapFabActionsModal({
             marginBottom: 14,
           }} />
           <Text style={{
-            fontFamily: 'Orbitron',
+            fontFamily: 'Manrope_600SemiBold',
             fontSize: 12,
             color: theme.text,
             fontWeight: '900',
@@ -172,8 +164,8 @@ export function MapFabActionsModal({
                   />
                 )}
                 <Text style={{
-                  fontFamily: 'Orbitron',
-                  fontSize: 7,
+                  fontFamily: 'Manrope_600SemiBold',
+                  fontSize: 12,
                   color: theme.textDim,
                   marginTop: 6,
                   textAlign: 'center',
@@ -187,7 +179,7 @@ export function MapFabActionsModal({
             style={{ marginTop: 18, alignItems: 'center', paddingVertical: 12 }}
             onPress={closeWithoutAction}
           >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>ZAMKNIJ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>ZAMKNIJ</Text>
           </TouchableOpacity>
         </View>
       </View>

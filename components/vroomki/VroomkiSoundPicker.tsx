@@ -1,16 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-  Image,
-  StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, Pressable, ScrollView, ActivityIndicator, Image, StyleSheet } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -66,7 +56,7 @@ export function VroomkiSoundChip({
       ) : (
         <MaterialIcons name="music-note" size={16} color="#fff" />
       )}
-      <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Orbitron', flexShrink: 1 }} numberOfLines={1}>
+      <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Manrope_600SemiBold', flexShrink: 1 }} numberOfLines={1}>
         {label}
       </Text>
       <MaterialIcons name="chevron-right" size={16} color="#ffffffaa" />
@@ -193,8 +183,8 @@ export function VroomkiSoundPicker({
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }} numberOfLines={1}>{sound.title}</Text>
-          <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 3 }} numberOfLines={1}>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }} numberOfLines={1}>{sound.title}</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 3 }} numberOfLines={1}>
             {sound.artist || 'VROOM'}
             {sourceBadge(sound)}
             {!playable ? ' · brak audio' : ''}
@@ -211,8 +201,8 @@ export function VroomkiSoundPicker({
         <Pressable style={{ flex: 1 }} onPress={onClose} />
         <View style={{ maxHeight: '78%', backgroundColor: theme.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, paddingBottom: 28 }}>
           <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2, marginBottom: 12 }}>DŹWIĘK</Text>
-          <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 12, lineHeight: 16 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, letterSpacing: 1, marginBottom: 12 }}>DŹWIĘK</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginBottom: 12, lineHeight: 16 }}>
             Deezer + iTunes PL = polskie hity. Audius = pełne utwory. Spotify = 30s preview.
           </Text>
 
@@ -233,8 +223,8 @@ export function VroomkiSoundPicker({
             >
               <MaterialIcons name="mic" size={22} color="#e33835" />
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>Oryginalny dźwięk</Text>
-                <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 2 }}>Audio z Twojego filmu</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Oryginalny dźwięk</Text>
+                <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>Audio z Twojego filmu</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -251,7 +241,7 @@ export function VroomkiSoundPicker({
                   backgroundColor: tab === item ? '#e33835' : theme.surface2,
                 }}
               >
-                <Text style={{ color: tab === item ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>
+                <Text style={{ color: tab === item ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                   {item === 'trending' ? 'SUGEROWANE' : 'SZUKAJ'}
                 </Text>
               </TouchableOpacity>
@@ -290,7 +280,7 @@ export function VroomkiSoundPicker({
           )}
 
           <TouchableOpacity onPress={onClose} style={{ marginTop: 12, alignSelf: 'center' }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11 }}>GOTOWE</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>GOTOWE</Text>
           </TouchableOpacity>
         </View>
       </View>

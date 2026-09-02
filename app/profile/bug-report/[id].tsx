@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import {
-  View, Text, TouchableOpacity, StatusBar, Platform, Modal, Pressable, Dimensions, Image,
-} from 'react-native';
+import { View, TouchableOpacity, StatusBar, Platform, Modal, Pressable, Dimensions, Image } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -214,15 +213,15 @@ export default function BugReportThreadScreen() {
         <MaterialIcons name="arrow-back" size={22} color={theme.text} />
       </TouchableOpacity>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', color: theme.text }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '900', color: theme.text }}>
           SUPPORT
         </Text>
         {meta && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
             <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>SUPPORT</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>SUPPORT</Text>
             </View>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
               {meta.category?.toUpperCase()} · {meta.status?.toUpperCase()}
             </Text>
           </View>

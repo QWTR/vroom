@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Video } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { TrackStartScrubber } from '../shared/TrackStartScrubber';
@@ -56,13 +57,13 @@ export function VroomkiDurationPanel({
         />
       ) : null}
 
-      <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, letterSpacing: 1, marginBottom: 10 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, letterSpacing: 1, marginBottom: 10 }}>
         CZAS VROOMKI
       </Text>
 
       {!hasVideo && photoCount > 0 && (
         <>
-          <Text style={{ color: '#ffffffaa', fontSize: 11, marginBottom: 8 }}>
+          <Text style={{ color: '#ffffffaa', fontSize: 12, marginBottom: 8 }}>
             Czas na zdjęcie · łącznie ~{Math.round(totalPhotoMs / 1000)}s
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -77,7 +78,7 @@ export function VroomkiDurationPanel({
                   backgroundColor: photoDurationMs === ms ? '#e33835' : '#ffffff14',
                 }}
               >
-                <Text style={{ color: '#fff', fontSize: 11 }}>{ms / 1000}s</Text>
+                <Text style={{ color: '#fff', fontSize: 12 }}>{ms / 1000}s</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -86,7 +87,7 @@ export function VroomkiDurationPanel({
 
       {hasVideo && videoDurationMs && (
         <>
-          <Text style={{ color: '#ffffffaa', fontSize: 11, marginBottom: 4 }}>
+          <Text style={{ color: '#ffffffaa', fontSize: 12, marginBottom: 4 }}>
             Film {formatSec(videoDurationMs)} · odtwarzany fragment {formatSec(clipDurationMs ?? videoDurationMs - clipStartMs)}
           </Text>
           <TrackStartScrubber
@@ -102,7 +103,7 @@ export function VroomkiDurationPanel({
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}>
         <MaterialIcons name="info-outline" size={14} color="#ffffff88" />
-        <Text style={{ color: '#ffffff88', fontSize: 10, flex: 1 }}>
+        <Text style={{ color: '#ffffff88', fontSize: 12, flex: 1 }}>
           Muzykę przytniesz ikoną nożyczek przy wybranym utworze.
         </Text>
       </View>

@@ -1,5 +1,6 @@
 import React, { Component, type ReactNode } from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 
 function AdFallback() {
@@ -18,7 +19,7 @@ function AdFallback() {
       alignItems: 'center',
       minHeight: 40,
     }}>
-      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 1 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1 }}>
         REKLAMA NIEDOSTĘPNA
       </Text>
     </View>

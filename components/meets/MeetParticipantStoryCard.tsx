@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export const STORY_W = 1080;
@@ -55,7 +56,7 @@ function SpecPill({ label }: { label: string }) {
         backgroundColor: '#e3383520',
       }}
     >
-      <Text style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: 0.5 }}>
+      <Text style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: 0.5 }}>
         {label}
       </Text>
     </View>
@@ -83,7 +84,7 @@ export function MeetParticipantStoryCard({ meet, username, car, onCarImageLoad, 
             style={{ width: STORY_W, height: STORY_H * 0.58, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' }}
             onLayout={onCarImageLoad}
           >
-            <Text style={{ fontFamily: 'Orbitron', color: '#444', fontSize: 48 }}>VROOM</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#444', fontSize: 48 }}>VROOM</Text>
           </View>
         )}
         <LinearGradient
@@ -104,7 +105,7 @@ export function MeetParticipantStoryCard({ meet, username, car, onCarImageLoad, 
           resizeMode="contain"
         />
         <View style={{ backgroundColor: '#e33835', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 }}>
-          <Text style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 1 }}>
+          <Text style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 1 }}>
             STORY
           </Text>
         </View>
@@ -113,38 +114,38 @@ export function MeetParticipantStoryCard({ meet, username, car, onCarImageLoad, 
       {/* Treść */}
       <View style={{ flex: 1, justifyContent: 'flex-end', paddingHorizontal: 48, paddingBottom: 80 }}>
         <View style={{ alignSelf: 'flex-start', backgroundColor: '#e33835', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, marginBottom: 28 }}>
-          <Text style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 2 }}>
+          <Text style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 1 }}>
             OFICJALNY UCZESTNIK
           </Text>
         </View>
 
         <Text
           numberOfLines={3}
-          style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 52, fontWeight: '800', lineHeight: 60, letterSpacing: 1, marginBottom: 16 }}
+          style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 52, fontWeight: '800', lineHeight: 60, letterSpacing: 1, marginBottom: 16 }}
         >
           {meet.title.toUpperCase()}
         </Text>
 
-        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 24, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 24, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5 }}>
           {formatMeetDate(meet.date)}
         </Text>
-        <Text style={{ fontFamily: 'Orbitron', color: '#aaa', fontSize: 22, marginBottom: 36 }} numberOfLines={2}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#aaa', fontSize: 22, marginBottom: 36 }} numberOfLines={2}>
           📍 {meet.locationName}
         </Text>
 
         <View style={{ height: 2, backgroundColor: '#333', marginBottom: 32 }} />
 
-        <Text style={{ fontFamily: 'Orbitron', color: '#888', fontSize: 18, letterSpacing: 3, marginBottom: 8 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#888', fontSize: 18, letterSpacing: 1, marginBottom: 8 }}>
           AUTO NA EVENCIE
         </Text>
         <Text
           numberOfLines={2}
-          style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 64, fontWeight: '900', lineHeight: 72, marginBottom: 12 }}
+          style={{ fontFamily: 'Manrope_700Bold', color: '#fff', fontSize: 64, fontWeight: '900', lineHeight: 72, marginBottom: 12 }}
         >
           {car.brand}
         </Text>
         {!!specs && (
-          <Text numberOfLines={3} style={{ fontFamily: 'Orbitron', color: '#ccc', fontSize: 26, lineHeight: 36, marginBottom: 24 }}>
+          <Text numberOfLines={3} style={{ fontFamily: 'Manrope_600SemiBold', color: '#ccc', fontSize: 26, lineHeight: 36, marginBottom: 24 }}>
             {specs}
           </Text>
         )}
@@ -157,12 +158,12 @@ export function MeetParticipantStoryCard({ meet, username, car, onCarImageLoad, 
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
           <View style={{ width: 4, height: 48, backgroundColor: '#e33835', borderRadius: 2 }} />
-          <Text style={{ fontFamily: 'OrbitronBold', color: '#e33835', fontSize: 36, fontWeight: '800' }}>
+          <Text style={{ fontFamily: 'Manrope_700Bold', color: '#e33835', fontSize: 36, fontWeight: '800' }}>
             @{username}
           </Text>
         </View>
 
-        <Text style={{ fontFamily: 'Orbitron', color: '#555', fontSize: 18, marginTop: 40, letterSpacing: 2, textAlign: 'center' }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#555', fontSize: 18, marginTop: 40, letterSpacing: 1, textAlign: 'center' }}>
           vroom.app
         </Text>
       </View>

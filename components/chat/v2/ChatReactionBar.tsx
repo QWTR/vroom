@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { UnifiedChatReaction } from './types';
 import { VROOM_RED } from './constants';
@@ -55,5 +56,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   emoji: { fontSize: 12 },
-  count: { fontSize: 10, fontFamily: 'Orbitron', fontWeight: '700' },
+  count: { fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '700' },
 });

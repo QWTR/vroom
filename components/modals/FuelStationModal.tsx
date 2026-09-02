@@ -1,8 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity, Pressable,
-  Platform, TextInput, ActivityIndicator, InputAccessoryView, Keyboard, ScrollView,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Platform, ActivityIndicator, InputAccessoryView, Keyboard, ScrollView } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -212,11 +210,11 @@ export function FuelStationModal({
               <MaterialCommunityIcons name="gas-station" size={26} color="#00bfff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 15, color: theme.text, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>
                 {station.name}
               </Text>
               {station.brand && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', letterSpacing: 1, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff', letterSpacing: 1, marginTop: 2 }}>
                   {station.brand.toUpperCase()}
                 </Text>
               )}
@@ -242,11 +240,11 @@ export function FuelStationModal({
                   <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: row.color + '18', borderWidth: 1, borderColor: row.color + '30', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                     <MaterialCommunityIcons name={row.icon as any} size={16} color={row.color} />
                   </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700', flex: 1 }}>{row.label}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', flex: 1 }}>{row.label}</Text>
                   {editMode ? (
                     <TextInput
                       style={{
-                        color: theme.text, fontFamily: 'Orbitron', fontSize: 12,
+                        color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                         backgroundColor: isDark ? '#1a1a1a' : '#fff',
                         borderRadius: 8, borderWidth: 1, borderColor: isDark ? '#333' : '#ddd',
                         paddingHorizontal: 10, paddingVertical: 6, minWidth: 80, textAlign: 'right',
@@ -263,7 +261,7 @@ export function FuelStationModal({
                       selectionColor="#00bfff"
                     />
                   ) : (
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: val != null ? row.color : (isDark ? '#333' : '#ccc'), fontWeight: '700' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: val != null ? row.color : (isDark ? '#333' : '#ccc'), fontWeight: '700' }}>
                       {val != null ? `${val.toFixed(2)} zł` : '—'}
                     </Text>
                   )}
@@ -276,7 +274,7 @@ export function FuelStationModal({
           {latestPrice?.updatedAt && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 }}>
               <MaterialCommunityIcons name="clock-outline" size={12} color={isDark ? '#555' : '#aaa'} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: isDark ? '#555' : '#aaa' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isDark ? '#555' : '#aaa' }}>
                 {latestPrice.updatedBy
                   ? `Zaktualizował @${latestPrice.updatedBy.username} · ${timeAgo(latestPrice.updatedAt)}`
                   : `Zaktualizowano ${timeAgo(latestPrice.updatedAt)}`
@@ -304,7 +302,7 @@ export function FuelStationModal({
                 disabled={saving}
               >
                 <MaterialCommunityIcons name="line-scan" size={16} color="#00bfff" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#00bfff', fontWeight: '700' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff', fontWeight: '700' }}>
                   SKANUJ CENY ZE ZDJĘCIA
                 </Text>
               </TouchableOpacity>
@@ -314,7 +312,7 @@ export function FuelStationModal({
                   onPress={() => setEditMode(false)}
                   disabled={saving}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isDark ? '#555' : '#aaa', fontWeight: '700' }}>ANULUJ</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isDark ? '#555' : '#aaa', fontWeight: '700' }}>ANULUJ</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ flex: 2, paddingVertical: 13, borderRadius: 14, backgroundColor: '#00bfff', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
@@ -323,7 +321,7 @@ export function FuelStationModal({
                 >
                   {saving
                     ? <ActivityIndicator size="small" color="#fff" />
-                    : <><MaterialCommunityIcons name="check" size={16} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>
+                    : <><MaterialCommunityIcons name="check" size={16} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>
                   }
                 </TouchableOpacity>
               </View>
@@ -338,7 +336,7 @@ export function FuelStationModal({
                 onPress={handleEnterEdit}
               >
                 <MaterialCommunityIcons name="pencil-outline" size={16} color="#00bfff" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#00bfff', fontWeight: '700' }}>AKTUALIZUJ CENY</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#00bfff', fontWeight: '700' }}>AKTUALIZUJ CENY</Text>
               </TouchableOpacity>
 
               {onNavigate && (
@@ -347,7 +345,7 @@ export function FuelStationModal({
                   onPress={() => { onNavigate(station.lat, station.lng, station.name); onClose(); }}
                 >
                   <MaterialCommunityIcons name="navigation-outline" size={16} color="#e33835" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', fontWeight: '700' }}>NAWIGUJ</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>NAWIGUJ</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -368,7 +366,7 @@ export function FuelStationModal({
                 onPress={() => Keyboard.dismiss()}
                 style={{ paddingHorizontal: 12, paddingVertical: 6 }}
               >
-                <Text style={{ color: '#00bfff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                <Text style={{ color: '#00bfff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                   GOTOWE
                 </Text>
               </TouchableOpacity>

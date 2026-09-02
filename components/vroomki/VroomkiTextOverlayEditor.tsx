@@ -1,15 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, Pressable, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -110,7 +101,7 @@ export function VroomkiTextOverlayEditor({
           }}
           >
             <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 12 }} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2, marginBottom: 10 }}>TEKST</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, letterSpacing: 1, marginBottom: 10 }}>TEKST</Text>
 
             <View style={{
               height: 120,
@@ -163,7 +154,7 @@ export function VroomkiTextOverlayEditor({
                 )}
               </View>
 
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>STYL</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>STYL</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 12 }}>
                 {TEXT_STYLES.map((preset) => {
                   const active = selected
@@ -183,7 +174,7 @@ export function VroomkiTextOverlayEditor({
                         opacity: selected ? 1 : 0.5,
                       }}
                     >
-                      <Text style={{ color: active ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>{preset.label}</Text>
+                      <Text style={{ color: active ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{preset.label}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -191,7 +182,7 @@ export function VroomkiTextOverlayEditor({
 
               {selected && (
                 <>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>KOLOR TEKSTU</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>KOLOR TEKSTU</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 12 }}>
                     {VROOMKI_TEXT_COLORS.map((color) => (
                       <TouchableOpacity
@@ -209,7 +200,7 @@ export function VroomkiTextOverlayEditor({
                     ))}
                   </ScrollView>
 
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>OBWÓDKA</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>OBWÓDKA</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     {[0, 1, 2, 3, 4].map((width) => (
                       <TouchableOpacity
@@ -224,7 +215,7 @@ export function VroomkiTextOverlayEditor({
                           alignItems: 'center',
                         }}
                       >
-                        <Text style={{ color: (selected.strokeWidth ?? 0) === width ? '#fff' : theme.textDim, fontSize: 11 }}>{width === 0 ? 'OFF' : width}</Text>
+                        <Text style={{ color: (selected.strokeWidth ?? 0) === width ? '#fff' : theme.textDim, fontSize: 12 }}>{width === 0 ? 'OFF' : width}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -253,7 +244,7 @@ export function VroomkiTextOverlayEditor({
                       onPress={() => patchSelected({ bgColor: selected.bgColor ? null : '#000000aa' })}
                       style={{ flex: 1, padding: 10, borderRadius: 12, backgroundColor: selected.bgColor ? '#e3383520' : theme.surface2, alignItems: 'center' }}
                     >
-                      <Text style={{ color: theme.text, fontSize: 11 }}>{selected.bgColor ? 'Tło: ON' : 'Tło: OFF'}</Text>
+                      <Text style={{ color: theme.text, fontSize: 12 }}>{selected.bgColor ? 'Tło: ON' : 'Tło: OFF'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => patchSelected({ scale: Math.max(0.7, selected.scale - 0.1) })} style={{ padding: 10, backgroundColor: theme.surface2, borderRadius: 12 }}>
                       <MaterialIcons name="remove" size={20} color={theme.text} />
@@ -286,7 +277,7 @@ export function VroomkiTextOverlayEditor({
                       backgroundColor: selectedId === item.id ? '#e33835' : theme.surface2,
                     }}
                   >
-                    <Text style={{ color: selectedId === item.id ? '#fff' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
+                    <Text style={{ color: selectedId === item.id ? '#fff' : theme.textDim, fontSize: 12 }} numberOfLines={1}>
                       {item.text}
                     </Text>
                   </TouchableOpacity>
@@ -294,7 +285,7 @@ export function VroomkiTextOverlayEditor({
               </ScrollView>
 
               <TouchableOpacity onPress={onClose} style={{ marginTop: 16, alignSelf: 'center' }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11 }}>GOTOWE</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>GOTOWE</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

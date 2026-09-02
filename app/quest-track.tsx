@@ -1,12 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,14 +44,14 @@ export default function QuestTrackScreen() {
           <MaterialIcons name="arrow-back-ios-new" size={22} color={theme.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, fontWeight: '900' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 15, color: theme.text, fontWeight: '900' }}>
             TYGODNIOWY TOR
           </Text>
           <LiveCountdownText
             targetIso={data?.nextResetAt ?? null}
             prefix="RESET ZA: "
             fallback="RESET: BRAK DANYCH"
-            style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 4 }}
+            style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 4 }}
           />
         </View>
         <MaterialIcons name="emoji-events" size={25} color={RED} />
@@ -77,16 +71,16 @@ export default function QuestTrackScreen() {
         <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(227,56,53,0.25)', padding: 16, marginBottom: 14 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <View>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>TEN TYDZIEŃ</Text>
-              <Text style={{ fontFamily: 'Orbitron', color: RED, fontSize: 25, fontWeight: '900', marginTop: 4 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>TEN TYDZIEŃ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: RED, fontSize: 25, fontWeight: '900', marginTop: 4 }}>
                 {data?.summary.earnedPoints ?? 0} pkt
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, fontWeight: '800' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, fontWeight: '800' }}>
                 {completed}/{total}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 4 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 4 }}>
                 UKOŃCZONO
               </Text>
             </View>
@@ -102,10 +96,10 @@ export default function QuestTrackScreen() {
             />
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>
               DO ZDOBYCIA: {data?.summary.maxPoints ?? 0} PKT
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>
               MIESIĄC: {data?.monthlyRankPoints ?? 0} PKT
             </Text>
           </View>
@@ -117,7 +111,7 @@ export default function QuestTrackScreen() {
             style={{ borderRadius: 14, backgroundColor: `${RED}18`, borderWidth: 1, borderColor: `${RED}55`, padding: 13, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 9 }}
           >
             <MaterialIcons name="cloud-off" size={19} color={RED} />
-            <Text style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 9 }}>
+            <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12 }}>
               {error}. DOTKNIJ, ABY PONOWIĆ.
             </Text>
           </TouchableOpacity>
@@ -141,14 +135,14 @@ export default function QuestTrackScreen() {
                     color={task.done ? GREEN : `${RED}99`}
                   />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, lineHeight: 16, color: theme.text, fontWeight: '700' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, lineHeight: 16, color: theme.text, fontWeight: '700' }}>
                       {task.label}
                     </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 5 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 5 }}>
                       {formatQuestProgress(task)}
                     </Text>
                   </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: task.done ? GREEN : RED, fontWeight: '900' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: task.done ? GREEN : RED, fontWeight: '900' }}>
                     +{task.done ? task.earned : Math.round(reward)}
                   </Text>
                 </View>

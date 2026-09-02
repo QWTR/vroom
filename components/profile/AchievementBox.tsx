@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TouchableOpacity, Modal, Pressable,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import { CATEGORY_LABELS } from '../../constants/achievementLabels';
 import { GLASS_SHADOW, resolveProfileCardTheme, type ProfileCardTheme } from './profileCardTheme';
@@ -78,12 +77,12 @@ export default function AchievementBox({
 
         <Text
           style={{
-            fontFamily: 'Orbitron',
+            fontFamily: 'Manrope_600SemiBold',
             color: active ? theme.text : theme.textDim,
-            fontSize: 10,
+            fontSize: 12,
             letterSpacing: 0.5,
             textAlign: 'center',
-            lineHeight: 13,
+            lineHeight: 16,
           }}
           numberOfLines={2}
         >
@@ -91,7 +90,7 @@ export default function AchievementBox({
         </Text>
 
         {active && !!points && points > 0 && (
-          <Text style={{ fontFamily: 'Orbitron', color: '#f5c518', fontSize: 10 }}>+{points}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#f5c518', fontSize: 12 }}>+{points}</Text>
         )}
 
         {!active && progress > 0 && progress < 100 && (
@@ -140,14 +139,14 @@ export default function AchievementBox({
               {active && <View style={{ position: 'absolute', top: 6, right: 6, width: 10, height: 10, borderRadius: 5, backgroundColor: rc.dot }} />}
             </View>
 
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 1.5, borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, color: rc.labelColor, borderColor: rc.border }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, color: rc.labelColor, borderColor: rc.border }}>
               {rc.label}
             </Text>
 
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
 
             {!!description && (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, textAlign: 'center', lineHeight: 18 }}>{description}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center', lineHeight: 18 }}>{description}</Text>
             )}
 
             <View style={{ width: '100%', height: 1, backgroundColor: theme.border2, marginVertical: 4 }} />
@@ -155,20 +154,20 @@ export default function AchievementBox({
             <View style={{ width: '100%', gap: 8 }}>
               {!!category && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>KATEGORIA</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, flexShrink: 1, textAlign: 'right' }}>{CATEGORY_LABELS[category] ?? category}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>KATEGORIA</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, flexShrink: 1, textAlign: 'right' }}>{CATEGORY_LABELS[category] ?? category}</Text>
                 </View>
               )}
               {!!points && points > 0 && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>NAGRODA</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', flexShrink: 1, textAlign: 'right' }}>⭐ {points} punktów</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>NAGRODA</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', flexShrink: 1, textAlign: 'right' }}>⭐ {points} punktów</Text>
                 </View>
               )}
               {!active && conditionValue != null && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>POSTĘP</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, flexShrink: 1, textAlign: 'right' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>POSTĘP</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, flexShrink: 1, textAlign: 'right' }}>
                     {currentValue ?? 0} / {conditionValue}{'  '}
                     <Text style={{ color: theme.primary }}>({progress}%)</Text>
                   </Text>
@@ -176,20 +175,20 @@ export default function AchievementBox({
               )}
               {!!conditionField && conditionValue != null && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>WARUNEK</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, flexShrink: 1, textAlign: 'right' }}>{conditionField} ≥ {conditionValue}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>WARUNEK</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, flexShrink: 1, textAlign: 'right' }}>{conditionField} ≥ {conditionValue}</Text>
                 </View>
               )}
               {active && !!unlockedDate && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>ODBLOKOWANO</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#4de926', flexShrink: 1, textAlign: 'right' }}>✓ {unlockedDate}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>ODBLOKOWANO</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#4de926', flexShrink: 1, textAlign: 'right' }}>✓ {unlockedDate}</Text>
                 </View>
               )}
               {!active && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>STATUS</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, flexShrink: 1, textAlign: 'right' }}>🔒 Zablokowane</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>STATUS</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, flexShrink: 1, textAlign: 'right' }}>🔒 Zablokowane</Text>
                 </View>
               )}
             </View>
@@ -199,7 +198,7 @@ export default function AchievementBox({
                 <View style={{ width: '100%', height: 4, backgroundColor: theme.border2, borderRadius: 4, overflow: 'hidden' }}>
                   <View style={{ height: 4, backgroundColor: theme.primary, borderRadius: 4, width: `${progress}%` as any }} />
                 </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, textAlign: 'right' }}>{progress}% ukończone</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'right' }}>{progress}% ukończone</Text>
               </View>
             )}
 
@@ -215,7 +214,7 @@ export default function AchievementBox({
               }}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, letterSpacing: 1.5 }}>ZAMKNIJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, letterSpacing: 1 }}>ZAMKNIJ</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>

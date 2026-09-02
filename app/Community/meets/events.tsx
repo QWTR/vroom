@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  View, Text, TouchableOpacity,
-  FlatList, Image, RefreshControl, ActivityIndicator, StatusBar,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, Image, RefreshControl, ActivityIndicator, StatusBar } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -242,21 +240,21 @@ export default function EventsScreen() {
         <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', gap: 6, flexWrap: 'wrap', maxWidth: '85%' }}>
           {isPartner ? (
             <View style={{ backgroundColor: '#e33835dd', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>PARTNER</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>PARTNER</Text>
             </View>
           ) : isOfficial ? (
             <View style={{ backgroundColor: '#FFD700dd', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ color: '#000', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>⭐ OFICJALNE</Text>
+              <Text style={{ color: '#000', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>⭐ OFICJALNE</Text>
             </View>
           ) : null}
           {isHot && !isPartner && (
             <View style={{ backgroundColor: theme.primary, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>🔥 HOT</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>🔥 HOT</Text>
             </View>
           )}
           {badge && (
             <View style={{ backgroundColor: '#000000aa', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{badge}</Text>
+              <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{badge}</Text>
             </View>
           )}
         </View>
@@ -265,7 +263,7 @@ export default function EventsScreen() {
         <View style={{ padding: 14, gap: 10 }}>
           {/* Tytuł + join */}
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-            <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
+            <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
               {item.title}
             </Text>
             <TouchableOpacity
@@ -282,7 +280,7 @@ export default function EventsScreen() {
               ]}
             >
               <Text style={{
-                fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700',
+                fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700',
                 color: item.isJoined ? '#4de926' : isFull ? theme.textDim : theme.primary,
               }}>
                 {item.isJoined ? (isPartner ? '✓ ZAPISANO' : '✓ DOŁĄCZONO') : isFull ? 'PEŁNE' : (isPartner ? 'ZAPISZ SIĘ' : 'DOŁĄCZ')}
@@ -294,22 +292,22 @@ export default function EventsScreen() {
           <View style={{ gap: 6 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
               <MaterialIcons name="access-time" size={13} color={theme.primary} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>{formatDate(item.date)}</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{formatDate(item.date)}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
               <MaterialIcons name="location-on" size={13} color={theme.primary} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }} numberOfLines={1}>{item.locationName}</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }} numberOfLines={1}>{item.locationName}</Text>
             </View>
             {ticketLabel && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <MaterialIcons name="confirmation-number" size={13} color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>{ticketLabel}</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{ticketLabel}</Text>
               </View>
             )}
             {item.organizerName && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <MaterialIcons name="business" size={13} color={theme.primary} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }} numberOfLines={1}>{item.organizerName}</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }} numberOfLines={1}>{item.organizerName}</Text>
               </View>
             )}
           </View>
@@ -319,7 +317,7 @@ export default function EventsScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {item.tags.slice(0, 4).map((tag, i) => (
                 <View key={i} style={{ backgroundColor: theme.surface2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: theme.primaryBorder }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{tag}</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{tag}</Text>
                 </View>
               ))}
             </View>
@@ -337,18 +335,18 @@ export default function EventsScreen() {
                     {p.avatarUrl
                       ? <Image source={{ uri: p.avatarUrl }} style={{ width: '100%', height: '100%' }} />
                       : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700' }}>{(p.username || '?').charAt(0).toUpperCase()}</Text>
+                          <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{(p.username || '?').charAt(0).toUpperCase()}</Text>
                         </View>
                     }
                   </View>
                 ))}
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, marginLeft: item.participants.length > 0 ? 8 : 0 }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginLeft: item.participants.length > 0 ? 8 : 0 }}>
                   {item.hasCapacityLimit === false
                     ? item.participantsCount
                     : `${item.participantsCount}/${item.maxParticipants}`}
                 </Text>
               </View>
-              <Text style={{ color: isFull ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>
+              <Text style={{ color: isFull ? theme.primary : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                 {isFull
                   ? 'BRAK MIEJSC'
                   : isPartner
@@ -363,10 +361,10 @@ export default function EventsScreen() {
             <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               {item.creator.avatarUrl
                 ? <Image source={{ uri: item.creator.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700' }}>{(item.creator.username || '?').charAt(0).toUpperCase()}</Text>
+                : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{(item.creator.username || '?').charAt(0).toUpperCase()}</Text>
               }
             </View>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
               <Text style={{ color: theme.text }}>{isPartner ? item.creator.username : `@${item.creator.username}`}</Text>
             </Text>
           </View>
@@ -412,7 +410,7 @@ export default function EventsScreen() {
         />
         {loadError ? (
           <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#e3383520', borderWidth: 1, borderColor: '#e3383550' }}>
-            <Text style={{ color: '#ff6b72', fontSize: 11 }}>{loadError}</Text>
+            <Text style={{ color: '#ff6b72', fontSize: 12 }}>{loadError}</Text>
           </View>
         ) : null}
       </View>
@@ -442,10 +440,10 @@ export default function EventsScreen() {
           ) : (
             <View style={{ alignItems: 'center', paddingTop: 80, gap: 12 }}>
               <MaterialCommunityIcons name="car-off" size={52} color={theme.border3} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>
                 {category === 'official' ? 'Brak oficjalnych meetów' : 'Brak meetów'}
               </Text>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center' }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, textAlign: 'center' }}>
                 {category === 'unofficial' ? 'Bądź pierwszy i zorganizuj meet!' : 'Wkrótce pojawią się oficjalne wydarzenia'}
               </Text>
               {category === 'unofficial' && (
@@ -453,7 +451,7 @@ export default function EventsScreen() {
                   onPress={() => router.push('/Community/meets/createmeet' as any)}
                   style={{ marginTop: 8, backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 }}
                 >
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>+ UTWÓRZ MEET</Text>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>+ UTWÓRZ MEET</Text>
                 </TouchableOpacity>
               )}
             </View>

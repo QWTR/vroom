@@ -1,6 +1,6 @@
 import { Link, Stack } from 'expo-router';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { AppText as Text } from '../components/ui/AppText';
 
 // Icons
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -60,21 +60,21 @@ const styles = StyleSheet.create({
     filter: 'blur(20px)', // Dla web, w mobile zadziała shadow
   },
   errorCode: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 64,
     color: '#e33835',
     fontWeight: 'bold',
-    letterSpacing: 5,
+    letterSpacing: 1,
   },
   title: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 20,
     color: '#fff',
     marginBottom: 15,
     textAlign: 'center',
   },
   description: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 12,
     color: '#ffffff60',
     textAlign: 'center',
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   buttonText: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',

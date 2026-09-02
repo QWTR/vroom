@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import React, { memo, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { SpeedLimitResolution } from '../../hooks/useSpeedLimit';
@@ -105,16 +106,16 @@ const styles = StyleSheet.create({
   handle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sign: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', borderWidth: 4, borderColor: '#e53935', alignItems: 'center', justifyContent: 'center' },
-  title: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' },
-  road: { fontSize: 11, marginTop: 3 },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' },
+  road: { fontSize: 12, marginTop: 3 },
   close: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   candidate: { height: 44, borderRadius: 13, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, marginTop: 14 },
-  candidateText: { color: '#f59f00', flex: 1, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '900' },
-  label: { fontFamily: 'Orbitron', fontSize: 8, fontWeight: '800', letterSpacing: 1, marginTop: 16, marginBottom: 9 },
+  candidateText: { color: '#f59f00', flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' },
+  label: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 1, marginTop: 16, marginBottom: 9 },
   limits: { gap: 9, paddingRight: 12 },
   limitSign: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#fff', borderWidth: 4, borderColor: '#e53935', alignItems: 'center', justifyContent: 'center', opacity: 0.7 },
   limitSignActive: { opacity: 1, transform: [{ scale: 1.06 }], borderColor: '#ff1f1f' },
-  limitText: { color: '#111', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 14 },
+  limitText: { color: '#111', fontFamily: 'Manrope_600SemiBold', fontWeight: '900', fontSize: 14 },
   submit: { height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  submitText: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  submitText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
 });

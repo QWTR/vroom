@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 
 type Props = {
   isPremium?: boolean;
@@ -33,8 +34,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   pill: { borderRadius: 8, borderWidth: 1, paddingVertical: 2, flexShrink: 0 },
   adminPill: { backgroundColor: '#7C3AED20', borderColor: '#7C3AED50' },
-  adminText: { fontFamily: 'Orbitron', color: '#A78BFA', fontWeight: '700' },
+  adminText: { fontFamily: 'Manrope_600SemiBold', color: '#A78BFA', fontWeight: '700' },
   premiumPill: { backgroundColor: '#FFD70020', borderColor: '#FFD70040' },
-  premiumText: { fontFamily: 'Orbitron', color: '#FFD700', fontWeight: '700' },
+  premiumText: { fontFamily: 'Manrope_600SemiBold', color: '#FFD700', fontWeight: '700' },
   pillText: { letterSpacing: 0.5 },
 });

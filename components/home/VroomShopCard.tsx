@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { API_URL } from '../../constants/config';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 type Props = {
   theme: { text: string; textDim: string; primary: string; border: string; surface: string };
@@ -12,6 +14,9 @@ type Props = {
 
 export function VroomShopCard({ theme }: Props) {
   const [opening, setOpening] = useState(false);
+  const { textScale } = useReadability();
+  const { width, fontScale } = useWindowDimensions();
+  const expandedLayout = Math.min(2, textScale * fontScale) >= 1.2 || width < 370;
 
   async function openShop() {
     if (opening) return;
@@ -36,10 +41,38 @@ export function VroomShopCard({ theme }: Props) {
 
   return <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
     <TouchableOpacity onPress={openShop} disabled={opening} activeOpacity={0.86} accessibilityRole="button" accessibilityLabel="Otwórz Sklep VROOM">
-      <LinearGradient colors={['#2b070d', '#12070a', '#09090b']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ minHeight: 116, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: '#f2193355', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-        <View style={{ width: 54, height: 54, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f21933' }}><MaterialCommunityIcons name="shopping-outline" size={28} color="#fff" /></View>
-        <View style={{ flex: 1 }}><Text style={{ color: '#ff5368', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2.5, fontWeight: '900' }}>NOWY KANAŁ VROOM</Text><Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', marginTop: 5 }}>Sklep VROOM</Text><Text style={{ color: theme.textDim, fontSize: 11, marginTop: 5, lineHeight: 16 }}>Ubrania, akcesoria i cyfrowe itemy do Twojego ekwipunku.</Text></View>
-        {opening ? <ActivityIndicator color="#ff5368" /> : <MaterialCommunityIcons name="arrow-top-right" size={24} color="#ff5368" />}
+      <LinearGradient
+        colors={['#2b070d', '#12070a', '#09090b']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          minHeight: expandedLayout ? 190 : 116,
+          padding: 18,
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: '#f2193355',
+          overflow: 'hidden',
+          flexDirection: expandedLayout ? 'column' : 'row',
+          alignItems: expandedLayout ? 'stretch' : 'center',
+          gap: 16,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <View style={{ width: 54, height: 54, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f21933' }}>
+            <MaterialCommunityIcons name="shopping-outline" size={28} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#ff5368', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '900' }}>NOWY KANAŁ VROOM</Text>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '900', marginTop: 5 }}>Sklep VROOM</Text>
+          </View>
+          {!expandedLayout && (opening ? <ActivityIndicator color="#ff5368" /> : <MaterialCommunityIcons name="arrow-top-right" size={24} color="#ff5368" />)}
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
+          <Text style={{ flex: 1, color: theme.textDim, fontSize: 14, marginTop: expandedLayout ? 0 : 5, lineHeight: 21 }}>
+            Ubrania, akcesoria i cyfrowe itemy do Twojego ekwipunku.
+          </Text>
+          {expandedLayout && (opening ? <ActivityIndicator color="#ff5368" /> : <MaterialCommunityIcons name="arrow-top-right" size={28} color="#ff5368" />)}
+        </View>
       </LinearGradient>
     </TouchableOpacity>
   </View>;

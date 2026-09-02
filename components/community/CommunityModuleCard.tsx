@@ -1,7 +1,6 @@
 import React, { useRef } from 'react';
-import {
-  View, Text, TouchableOpacity, Animated, Platform, StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, Animated, Platform, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
@@ -85,7 +84,7 @@ function ModuleTag({ label }: { label: string }) {
       paddingVertical: 3,
     }}>
       <Text style={{
-        fontSize: 9,
+        fontSize: 12,
         color: isDark ? '#000000' : '#ffffff',
         fontWeight: '900',
         letterSpacing: 1,
@@ -154,8 +153,8 @@ export function CommunityModuleCardGrid({ item, style }: { item: CommunityModule
           </Text>
           <Text style={{
             color: theme.textDim,
-            fontSize: 11,
-            lineHeight: 15,
+            fontSize: 12,
+            lineHeight: 16,
             fontWeight: '500',
           }} numberOfLines={2}>
             {item.desc}
@@ -205,8 +204,8 @@ export function CommunityModuleCardList({ item }: { item: CommunityModuleItem })
             </View>
             <Text style={{
               color: theme.textDim,
-              fontSize: 11,
-              lineHeight: 15,
+              fontSize: 12,
+              lineHeight: 16,
               fontWeight: '500',
             }} numberOfLines={2}>
               {item.desc}

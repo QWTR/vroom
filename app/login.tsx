@@ -1,11 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  StyleSheet, View, Text, TextInput, TouchableOpacity,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Image, Dimensions, Animated, Easing, NativeModules, Linking, Keyboard,
-} from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Animated, Easing, NativeModules, Linking, Keyboard } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
@@ -388,7 +385,7 @@ export default function LoginScreen() {
 
   // ── SHARED: Hero header ─────────────────────────────────
   const renderHero = (title: string, sub: string) => (
-    <View style={{ height: height * 0.30, position: 'relative', overflow: 'hidden', marginBottom: -24 }}>
+    <View style={{ minHeight: Math.max(230, height * 0.28), position: 'relative', overflow: 'hidden', marginBottom: -24 }}>
       <LinearGradient
         colors={isDark ? ['#1a0404', '#0e0202', theme.bg] : [theme.bgAlt, theme.bg, theme.surface]}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -407,20 +404,20 @@ export default function LoginScreen() {
       <View style={[s.hudCorner, { top: 20, right: 20, alignItems: 'flex-end' }]}><View style={s.cH} /><View style={[s.cV, { left: undefined, right: 0 }]} /></View>
 
       {/* Content */}
-      <Animated.View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 56, justifyContent: 'center', opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+      <Animated.View style={{ paddingHorizontal: 28, paddingTop: 72, paddingBottom: 66, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         {/* Logo chip */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 }}>
           <View style={{ backgroundColor: RED, borderRadius: 8, padding: 5 }}>
             <MaterialCommunityIcons name="car-sports" size={14} color="#fff" />
           </View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '900', letterSpacing: 4 }}>VROOM</Text>
+          <Text variant="label" contrastBackground="#1a0404" style={{ color: '#fff', fontWeight: '800', letterSpacing: 1 }}>VROOM</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 8, backgroundColor: '#4de92612', borderWidth: 1, borderColor: '#4de92635', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 }}>
             <Animated.View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4de926', transform: [{ scale: pulseAnim }] }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#4de926', letterSpacing: 2 }}>ONLINE</Text>
+            <Text variant="micro" contrastBackground="#071a07" style={{ color: '#76f45a', letterSpacing: 0.6 }}>ONLINE</Text>
           </View>
         </View>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, letterSpacing: 4, marginBottom: 6 }}>{sub}</Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 32, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>{title}</Text>
+        <Text variant="label" contrastBackground="#0e0202" style={{ color: '#ff625f', letterSpacing: 0.6, marginBottom: 8 }}>{sub}</Text>
+        <Text variant="display" contrastBackground="#0e0202" style={{ color: '#fff' }}>{title}</Text>
       </Animated.View>
 
       {/* Bottom fade */}
@@ -452,12 +449,12 @@ export default function LoginScreen() {
       <Text style={s.fieldLabel}>{label}</Text>
       <View style={[s.inputRow, opts.error && { borderColor: RED + '60' }]}>
         <View style={s.inputIconWrap}>
-          <MaterialIcons name={icon as any} size={17} color={RED} />
+          <MaterialIcons name={icon as any} size={22} color={theme.primaryText} />
         </View>
         <TextInput
           style={s.input}
           placeholder={opts.placeholder ?? ''}
-          placeholderTextColor="#ffffff20"
+          placeholderTextColor={theme.textMuted}
           keyboardType={opts.keyboardType}
           autoCapitalize={opts.autoCapitalize ?? 'none'}
           autoCorrect={opts.autoCorrect ?? false}
@@ -471,12 +468,12 @@ export default function LoginScreen() {
         />
         {!!value && !opts.showToggle && (
           <TouchableOpacity onPress={() => onChange('')} style={s.eyeBtn}>
-            <MaterialIcons name="close" size={17} color="#ffffff25" />
+            <MaterialIcons name="close" size={22} color={theme.textMuted} />
           </TouchableOpacity>
         )}
         {opts.showToggle && (
           <TouchableOpacity onPress={opts.onToggle} style={s.eyeBtn}>
-            <MaterialIcons name={opts.secure ? 'visibility' : 'visibility-off'} size={17} color="#ffffff25" />
+            <MaterialIcons name={opts.secure ? 'visibility' : 'visibility-off'} size={22} color={theme.textMuted} />
           </TouchableOpacity>
         )}
       </View>
@@ -492,7 +489,7 @@ export default function LoginScreen() {
           <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <TouchableOpacity style={s.backRow} onPress={goToLogin}>
               <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: RED }}>POWRÓT DO LOGOWANIA</Text>
+              <Text variant="label" style={{ color: theme.link }}>Powrót do logowania</Text>
             </TouchableOpacity>
             <Text style={s.sectionTitle}>SPRAWDŹ SKRZYNKĘ E-MAIL</Text>
             <Text style={s.sectionSub}>Na <Text style={{ color: RED }}>{email}</Text> został wysłany link potwierdzający. Otwórz go, aby aktywować konto. Możesz też użyć kodu awaryjnego z wiadomości.</Text>
@@ -506,7 +503,7 @@ export default function LoginScreen() {
               style={{ alignItems: 'center', padding: 16 }}
               onPress={() => requestVerificationCode().catch((error) => Toast.show({ type: 'error', text1: 'BŁĄD', text2: error.message }))}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff50' }}>WYŚLIJ LINK PONOWNIE →</Text>
+              <Text variant="label" style={{ color: theme.link }}>Wyślij link ponownie →</Text>
             </TouchableOpacity>
           </Animated.View>
         </ScrollView>
@@ -527,7 +524,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
             {/* Wróć */}
             <TouchableOpacity style={s.backRow} onPress={goToLogin}>
               <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: RED }}>POWRÓT</Text>
+              <Text variant="label" style={{ color: theme.link }}>Powrót</Text>
             </TouchableOpacity>
 
             {/* Steps */}
@@ -566,7 +563,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
                 {renderField('6-CYFROWY KOD', 'pin', resetCode, setResetCode, { placeholder: '000000', keyboardType: 'number-pad', maxLength: 6 })}
                 <ActionButton label="WERYFIKUJ" icon="verified" onPress={handleVerifyCode} loading={loading} disabled={resetCode.length !== 6} />
                 <TouchableOpacity style={{ alignItems: 'center', padding: 12 }} onPress={handleForgot}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff30' }}>Wyślij ponownie →</Text>
+                  <Text variant="label" style={{ color: theme.link }}>Wyślij ponownie →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -612,9 +609,9 @@ enabled={Platform.OS === 'ios'} style={s.root}>
                 <MaterialIcons
                   name={sc === 'login' ? 'login' : 'person-add'}
                   size={13}
-                  color={screen === sc ? '#fff' : '#ffffff40'}
+                  color={screen === sc ? theme.onPrimary : theme.textMuted}
                 />
-                <Text style={[s.toggleText, screen === sc && { color: '#fff' }]}>
+                <Text contrastBackground={screen === sc ? theme.primary : theme.surface3} style={[s.toggleText, screen === sc && { color: theme.onPrimary }]}>
                   {sc === 'login' ? 'LOGOWANIE' : 'REJESTRACJA'}
                 </Text>
               </TouchableOpacity>
@@ -647,18 +644,18 @@ enabled={Platform.OS === 'ios'} style={s.root}>
                 error: !!confirmPass && password !== confirmPass,
               })}
               {!!confirmPass && password !== confirmPass && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, marginTop: -10, marginBottom: 12 }}>Hasła nie są identyczne</Text>
+                <Text variant="bodySmall" style={{ color: theme.danger, marginTop: -10, marginBottom: 12 }}>Hasła nie są identyczne</Text>
               )}
               {!!confirmPass && password === confirmPass && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', marginTop: -10, marginBottom: 12 }}>✓ Hasła są identyczne</Text>
+                <Text variant="bodySmall" style={{ color: theme.online, marginTop: -10, marginBottom: 12 }}>✓ Hasła są identyczne</Text>
               )}
             </>
           )}
 
           {screen === 'login' && (
             <TouchableOpacity style={s.forgotRow} onPress={() => { setScreen('forgot'); setForgotEmail(email); animateSwitch(); }}>
-              <MaterialIcons name="help-outline" size={12} color={RED} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED }}>Zapomniałeś hasła?</Text>
+              <MaterialIcons name="help-outline" size={20} color={theme.primaryText} />
+              <Text variant="label" style={{ color: theme.link }}>Zapomniałeś hasła?</Text>
             </TouchableOpacity>
           )}
 
@@ -671,7 +668,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
               accessibilityRole="checkbox"
               accessibilityState={{ checked: acceptedUgcTerms }}
             >
-              {acceptedUgcTerms ? <MaterialIcons name="check" size={14} color="#fff" /> : null}
+              {acceptedUgcTerms ? <MaterialIcons name="check" size={20} color={theme.onPrimary} /> : null}
             </TouchableOpacity>
             <Text style={s.termsLegal}>
               Zaznacz pole po lewej — samo otwarcie linków nie wystarczy. Potwierdzam zapoznanie się z{' '}
@@ -777,7 +774,7 @@ function ActionButton({ label, icon, onPress, loading, disabled }: {
       activeOpacity={0.85}
     >
       <LinearGradient
-        colors={[RED, '#c02020']}
+        colors={[theme.primary, theme.primary]}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
         style={s.mainBtnGrad}
       >
@@ -808,7 +805,7 @@ function StrengthBar({ value }: { value: string }) {
       <View style={{ height: 3, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
         <View style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: 2 }} />
       </View>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: color + 'aa' }}>{label}</Text>
+      <Text variant="bodySmall" style={{ color }}>{label}</Text>
     </View>
   );
 }
@@ -823,24 +820,24 @@ function makeLoginStyles(t: AppTheme) {
     flex: 1,
     backgroundColor: t.surface,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    padding: 24, paddingTop: 32,
-    borderWidth: 1, borderColor: t.border,
+    paddingHorizontal: 20, paddingTop: 32, paddingBottom: 28,
+    borderWidth: 1, borderColor: t.controlBorder,
     minHeight: height * 0.72,
   },
 
   // Back
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24 },
+  backRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 },
 
   // Steps
   stepsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   stepDot:  { width: 34, height: 34, borderRadius: 17, backgroundColor: t.surface3, borderWidth: 1, borderColor: t.border2, justifyContent: 'center', alignItems: 'center' },
   stepDotActive: { borderColor: RED, backgroundColor: RED + '18' },
   stepDotDone:   { borderColor: t.online + '60', backgroundColor: t.online + '15' },
-  stepNum:  { fontFamily: 'Orbitron', fontSize: 11, color: t.textFaint },
+  stepNum:  { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textFaint },
   stepLine: { flex: 1, height: 1, backgroundColor: t.border2, marginHorizontal: 10 },
 
-  sectionTitle: { fontFamily: 'Orbitron', fontSize: 16, color: t.text, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
-  sectionSub:   { fontFamily: 'Orbitron', fontSize: 9, color: t.textDim, marginBottom: 22, lineHeight: 15 },
+  sectionTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: t.text, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
+  sectionSub:   { fontSize: 14, color: t.textMuted, marginBottom: 22, lineHeight: 21 },
 
   // Toggle
   toggle: {
@@ -848,43 +845,43 @@ function makeLoginStyles(t: AppTheme) {
     backgroundColor: t.surface3,
     borderRadius: 14, padding: 4,
     marginBottom: 24,
-    borderWidth: 1, borderColor: t.border,
+    borderWidth: 1, borderColor: t.controlBorder,
   },
-  toggleBtn: { flex: 1, paddingVertical: 12, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
-  toggleBtnActive: { backgroundColor: RED },
-  toggleText: { fontFamily: 'Orbitron', color: t.textDim, fontSize: 9, letterSpacing: 1 },
+  toggleBtn: { flex: 1, minHeight: 52, paddingHorizontal: 8, paddingVertical: 12, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
+  toggleBtnActive: { backgroundColor: t.primary },
+  toggleText: { color: t.textMuted, fontSize: 14, letterSpacing: 0.3, fontWeight: '600' },
 
   // Field
-  fieldLabel: { fontFamily: 'Orbitron', fontSize: 8, color: t.textFaint, letterSpacing: 2, marginBottom: 8 },
-  inputRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: t.surface3, borderRadius: 14, borderWidth: 1, borderColor: t.border, marginBottom: 0 },
-  inputIconWrap: { width: 44, alignItems: 'center', justifyContent: 'center' },
-  input:      { flex: 1, color: t.text, fontFamily: 'Orbitron', fontSize: 12, paddingVertical: 15, paddingRight: 14 },
-  eyeBtn:     { padding: 14 },
+  fieldLabel: { fontSize: 14, color: t.textSecondary, fontWeight: '600', letterSpacing: 0.2, marginBottom: 8 },
+  inputRow:   { minHeight: 58, flexDirection: 'row', alignItems: 'center', backgroundColor: t.surface3, borderRadius: 14, borderWidth: 1.5, borderColor: t.controlBorder, marginBottom: 0 },
+  inputIconWrap: { width: 50, alignItems: 'center', justifyContent: 'center' },
+  input:      { flex: 1, color: t.text, fontSize: 16, paddingVertical: 16, paddingRight: 12 },
+  eyeBtn:     { minWidth: 48, minHeight: 48, padding: 12, alignItems: 'center', justifyContent: 'center' },
 
   // Forgot
-  forgotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end', marginBottom: 20, marginTop: -4 },
+  forgotRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-end', marginBottom: 18, marginTop: 0 },
 
   // Main button
   mainBtn: { borderRadius: 16, overflow: 'hidden', marginBottom: 20 },
   mainBtnGrad: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 10, height: 58, overflow: 'hidden',
+    gap: 10, minHeight: 58, paddingVertical: 16, paddingHorizontal: 18, overflow: 'hidden',
   },
-  mainBtnText: { fontFamily: 'Orbitron', color: t.onPrimary, fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  mainBtnText: { color: t.onPrimary, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
 
   // Divider
   divider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   divLine: { flex: 1, height: 1, backgroundColor: t.border },
-  divText: { fontFamily: 'Orbitron', fontSize: 8, color: t.textFaint, marginHorizontal: 14 },
+  divText: { fontSize: 13, color: t.textMuted, marginHorizontal: 14 },
 
   // Google
   googleBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-    height: 54, borderRadius: 16, borderWidth: 1, borderColor: t.border2,
+    minHeight: 58, paddingVertical: 14, borderRadius: 16, borderWidth: 1.5, borderColor: t.controlBorder,
     backgroundColor: t.surface3, marginBottom: 12,
   },
   googleIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#EA4335', alignItems: 'center', justifyContent: 'center' },
-  googleTxt:  { fontFamily: 'Orbitron', color: t.textMuted, fontSize: 12 },
+  googleTxt:  { color: t.text, fontSize: 16, fontWeight: '600' },
 
   appleButtonContainer: {
     height: 54,
@@ -906,10 +903,9 @@ function makeLoginStyles(t: AppTheme) {
     marginTop: 4,
     marginBottom: 8,
     paddingHorizontal: 4,
-    fontFamily: 'Orbitron',
-    fontSize: 8,
-    lineHeight: 14,
-    color: t.textDim,
+    fontSize: 14,
+    lineHeight: 21,
+    color: t.textMuted,
     textAlign: 'center',
     letterSpacing: 0.3,
   },
@@ -922,26 +918,25 @@ function makeLoginStyles(t: AppTheme) {
     paddingVertical: 4,
   },
   termsCheckBox: {
-    width: 22,
-    height: 22,
+    width: 28,
+    height: 28,
     borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: t.border3,
+    borderColor: t.controlBorder,
     marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: t.surface3,
   },
   termsCheckBoxOn: {
-    borderColor: RED,
-    backgroundColor: RED + '35',
+    borderColor: t.primaryText,
+    backgroundColor: t.primary,
   },
   termsLegal: {
     flex: 1,
-    fontFamily: 'Orbitron',
     color: t.textMuted,
-    fontSize: 8,
-    lineHeight: 14,
+    fontSize: 14,
+    lineHeight: 21,
     letterSpacing: 0.2,
   },
   termsLink: {
@@ -950,16 +945,15 @@ function makeLoginStyles(t: AppTheme) {
     fontWeight: '700',
   },
   termsHint: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
-    color: RED,
+    fontSize: 14,
+    color: t.danger,
     marginTop: -10,
     marginBottom: 14,
-    lineHeight: 13,
+    lineHeight: 20,
   },
 
   // Terms (legacy small line — unused)
-  terms: { fontFamily: 'Orbitron', color: t.textFaint, fontSize: 9, textAlign: 'center', lineHeight: 16 },
+  terms: { color: t.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
 
   // HUD corners
   hudCorner: { position: 'absolute' },

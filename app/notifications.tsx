@@ -1,14 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StatusBar,
-  DeviceEventEmitter,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StatusBar, DeviceEventEmitter, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import { useFocusEffect, useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Toast from 'react-native-toast-message';
@@ -180,7 +172,7 @@ export default function NotificationsScreen() {
       }}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-        <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{item.title}</Text>
+        <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.title}</Text>
         {!item.read && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary, marginTop: 4 }} />}
       </View>
       <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 6, lineHeight: 18 }}>{item.body}</Text>
@@ -191,18 +183,18 @@ export default function NotificationsScreen() {
             disabled={friendActionId === item.id}
             style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#4de92620', borderWidth: 1, borderColor: '#4de92645' }}
           >
-            {friendActionId === item.id ? <ActivityIndicator size="small" color="#4de926" /> : <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 10 }}>AKCEPTUJ</Text>}
+            {friendActionId === item.id ? <ActivityIndicator size="small" color="#4de926" /> : <Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>AKCEPTUJ</Text>}
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => void handleFriendAction(item, 'reject')}
             disabled={friendActionId === item.id}
             style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}
           >
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10 }}>ODRZUĆ</Text>
+            <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ODRZUĆ</Text>
           </TouchableOpacity>
         </View>
       )}
-      <Text style={{ color: theme.textFaint, fontSize: 9, marginTop: 8 }}>{new Date(item.createdAt).toLocaleString('pl-PL')}</Text>
+      <Text style={{ color: theme.textFaint, fontSize: 12, marginTop: 8 }}>{new Date(item.createdAt).toLocaleString('pl-PL')}</Text>
     </TouchableOpacity>
   );
 
@@ -213,7 +205,7 @@ export default function NotificationsScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <View style={{ paddingTop: headerTop, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.border }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 6 }}><MaterialIcons name="arrow-back" size={22} color={theme.text} /></TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700', color: theme.text }}>POWIADOMIENIA</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700', color: theme.text }}>POWIADOMIENIA</Text>
         <TouchableOpacity onPress={() => void markAll()} style={{ padding: 6 }}><MaterialIcons name="done-all" size={22} color={theme.primary} /></TouchableOpacity>
       </View>
       <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 7 }}>
@@ -225,7 +217,7 @@ export default function NotificationsScreen() {
             onPress={() => { setScope(id); setLoading(true); }}
             style={{ flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: scope === id ? theme.primary : theme.border, backgroundColor: scope === id ? theme.primaryBg : theme.surface }}
           >
-            <Text numberOfLines={1} style={{ color: scope === id ? theme.primary : theme.textDim, fontSize: 9, fontFamily: 'Orbitron' }}>{label}</Text>
+            <Text numberOfLines={1} style={{ color: scope === id ? theme.primary : theme.textDim, fontSize: 12, fontFamily: 'Manrope_600SemiBold' }}>{label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -247,8 +239,8 @@ export default function NotificationsScreen() {
       >
         <MaterialIcons name="inventory-2" size={22} color={theme.primary} />
         <View style={{ flex: 1 }}>
-          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '800' }}>MOJE ZRZUTY</Text>
-          <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 3 }}>Sprawdź zdobyte zrzuty i otrzymane nagrody</Text>
+          <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800' }}>MOJE ZRZUTY</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 3 }}>Sprawdź zdobyte zrzuty i otrzymane nagrody</Text>
         </View>
         <MaterialIcons name="chevron-right" size={22} color={theme.primary} />
       </TouchableOpacity>
@@ -264,7 +256,7 @@ export default function NotificationsScreen() {
           onEndReached={() => { if (hasMore && !loadingMore) { setLoadingMore(true); void load(page + 1, true); } }}
           onEndReachedThreshold={0.35}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.primary} style={{ margin: 16 }} /> : null}
-          ListEmptyComponent={<Text style={{ textAlign: 'center', color: theme.textDim, marginTop: 40, fontFamily: 'Orbitron' }}>Brak powiadomień</Text>}
+          ListEmptyComponent={<Text style={{ textAlign: 'center', color: theme.textDim, marginTop: 40, fontFamily: 'Manrope_600SemiBold' }}>Brak powiadomień</Text>}
         />
       )}
     </View>

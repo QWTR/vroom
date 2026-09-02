@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, memo } from 'react';
-import { View, Text, Animated, Platform } from 'react-native';
+import { View, Animated, Platform } from 'react-native';
+import { AppText as Text } from './AppText';
 import { MaterialCommunityIcons }         from '@expo/vector-icons';
 import type { SpeedCamera }               from '../../hooks/useSpeedCamera';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -82,17 +83,17 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
 
         <View style={{ flex: 1 }}>
           <Text style={{
-            fontFamily:    'Orbitron',
-            fontSize:      10,
+            fontFamily:    'Manrope_600SemiBold',
+            fontSize:      12,
             color:         color,
             fontWeight:    '700',
-            letterSpacing: 1.5,
+            letterSpacing: 1,
           }}>
             {isBump ? '🚧 PRÓG ZWALNIAJĄCY' : (isSpeeding ? '⚠️ ZA SZYBKO — FOTORADAR' : '📷 FOTORADAR')}
           </Text>
           <Text style={{
-            fontFamily: 'Orbitron',
-            fontSize:   9,
+            fontFamily: 'Manrope_600SemiBold',
+            fontSize:   12,
             color:      theme.textDim,
             marginTop:  3,
           }}>
@@ -118,7 +119,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
             elevation:       isSpeeding ? 8 : 4,
           }}>
             <Text style={{
-              fontFamily: 'Orbitron',
+              fontFamily: 'Manrope_600SemiBold',
               fontSize:   limit >= 100 ? 11 : 13,
               color:      theme.text,
               fontWeight: '900',

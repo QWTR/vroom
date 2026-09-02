@@ -1,11 +1,6 @@
 import React, { useCallback, useMemo, useRef } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Animated, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -15,6 +10,7 @@ import {
   useQuestTrack,
 } from '../../lib/questTrack';
 import { LiveCountdownText } from './LiveCountdownText';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 const VROOM_RED = '#e33835';
 const COMPLETE = '#4de926';
@@ -28,6 +24,9 @@ interface Props {
 export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
   const router = useRouter();
   const { isDark } = useTheme();
+  const { textScale } = useReadability();
+  const { width, fontScale } = useWindowDimensions();
+  const expandedLayout = Math.min(2, textScale * fontScale) >= 1.2 || width < 370;
   const { data, loading, error, refreshedAt, refresh } = useQuestTrack();
   const notifiedAtRef = useRef(0);
 
@@ -56,7 +55,7 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
     <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 18 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
         <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: VROOM_RED, marginRight: 8 }} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, letterSpacing: 1 }}>
           TYGODNIOWY TOR VROOM
         </Text>
       </View>
@@ -75,24 +74,25 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
           elevation: 4,
         }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: VROOM_RED, fontWeight: '900' }}>
+        <View style={{ flexDirection: expandedLayout ? 'column' : 'row', justifyContent: 'space-between', alignItems: expandedLayout ? 'stretch' : 'flex-start', gap: expandedLayout ? 12 : 0 }}>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: VROOM_RED, fontWeight: '900' }}>
               {data?.weeklyPoints ?? 0} pkt
             </Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim, marginTop: 3 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, marginTop: 3 }}>
               {completed}/{total} ZADAŃ UKOŃCZONYCH
             </Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
+          <View style={{ alignItems: expandedLayout ? 'flex-start' : 'flex-end' }}>
             <LiveCountdownText
               targetIso={data?.nextResetAt ?? null}
               prefix="RESET ZA: "
               fallback="RESET: BRAK DANYCH"
-              style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim }}
+              allowWrapping={expandedLayout}
+              style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim }}
             />
             {data?.isPremium ? (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', marginTop: 5 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', marginTop: 5 }}>
                 PREMIUM +{Math.round((data.pointsMultiplier - 1) * 100)}%
               </Text>
             ) : null}
@@ -119,7 +119,7 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
             style={{ paddingVertical: 18, alignItems: 'center' }}
           >
             <MaterialIcons name="cloud-off" size={24} color={VROOM_RED} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.text, marginTop: 8 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.text, marginTop: 8 }}>
               BRAK POŁĄCZENIA — SPRÓBUJ PONOWNIE
             </Text>
           </TouchableOpacity>
@@ -130,7 +130,7 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
                 key={task.key}
                 style={{
                   flexDirection: 'row',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
                   paddingVertical: 9,
                   borderTopWidth: 1,
                   borderTopColor: isDark ? 'rgba(227,56,53,0.16)' : 'rgba(227,56,53,0.10)',
@@ -143,14 +143,14 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
                   color={task.done ? COMPLETE : 'rgba(227,56,53,0.55)'}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.text, fontWeight: '600' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, lineHeight: 20, color: t.text, fontWeight: '600' }}>
                     {task.label}
                   </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, marginTop: 3 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, marginTop: 3 }}>
                     {formatQuestProgress(task)}
                   </Text>
                 </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: task.done ? COMPLETE : VROOM_RED, fontWeight: '800' }}>
+                <Text style={{ flexShrink: 0, fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: task.done ? COMPLETE : VROOM_RED, fontWeight: '800', paddingTop: 2 }}>
                   +{task.done
                     ? task.earned
                     : Math.round(data?.isPremium ? (task.premiumPoints ?? task.points) : task.points)}
@@ -172,9 +172,11 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
+            minHeight: 48,
+            gap: 10,
           }}
         >
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: VROOM_RED, fontWeight: '800' }}>
+          <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: VROOM_RED, fontWeight: '800' }}>
             POKAŻ WSZYSTKIE ZADANIA
           </Text>
           <MaterialIcons name="arrow-forward-ios" size={13} color={VROOM_RED} />

@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity, TextInput,
-  FlatList, ActivityIndicator, Pressable, StyleSheet,
-  KeyboardAvoidingView, Platform,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, FlatList, ActivityIndicator, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Toast                  from 'react-native-toast-message';
@@ -136,10 +133,10 @@ export function InviteModal({
                 <MaterialIcons name="person-add" size={18} color="#4de926" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', letterSpacing: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>
                   ZAPROŚ DO KLUBU
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 1 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 1 }}>
                   {invites.length} oczekujących zaproszeń
                 </Text>
               </View>
@@ -170,7 +167,7 @@ export function InviteModal({
                   <TextInput
                     style={{
                       flex: 1, color: theme.text,
-                      fontFamily: 'Orbitron', fontSize: 11,
+                      fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                       paddingVertical: 12,
                     }}
                     value={search}
@@ -216,7 +213,7 @@ export function InviteModal({
                   borderWidth: 1, borderColor: '#e3383530',
                 }}>
                   <MaterialIcons name="error-outline" size={13} color="#e33835" />
-                  <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, flex: 1 }}>{error}</Text>
+                  <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12, flex: 1 }}>{error}</Text>
                 </View>
               )}
               {!!success && (
@@ -227,7 +224,7 @@ export function InviteModal({
                   borderWidth: 1, borderColor: '#4de92630',
                 }}>
                   <MaterialIcons name="check-circle-outline" size={13} color="#4de926" />
-                  <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 8, flex: 1 }}>{success}</Text>
+                  <Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 12, flex: 1 }}>{success}</Text>
                 </View>
               )}
             </View>
@@ -236,7 +233,7 @@ export function InviteModal({
             <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                   OCZEKUJĄCE · {invites.length}
                 </Text>
                 <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
@@ -255,7 +252,7 @@ export function InviteModal({
                 ListEmptyComponent={
                   <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
                     <MaterialCommunityIcons name="account-clock-outline" size={36} color={theme.border3} />
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
                       BRAK OCZEKUJĄCYCH
                     </Text>
                   </View>
@@ -268,10 +265,10 @@ export function InviteModal({
                   }}>
                     <UAv uri={item.invited.avatarUrl} name={item.invited.username} size={38} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
                         {item.invited.username}
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                         przez {item.inviter.username}
                       </Text>
                     </View>
@@ -281,7 +278,7 @@ export function InviteModal({
                       paddingHorizontal: 8, paddingVertical: 4,
                       borderWidth: 1, borderColor: '#f5c51830',
                     }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#f5c518', fontWeight: '700' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', fontWeight: '700' }}>
                         OCZEKUJE
                       </Text>
                     </View>

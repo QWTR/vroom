@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  ActivityIndicator,
-  StyleSheet,
-  Dimensions,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, ActivityIndicator, StyleSheet, Dimensions } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -363,15 +356,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   title: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 13,
     fontWeight: '900',
     color: '#fff',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   subtitle: {
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.45)',
     marginTop: 4,
     textAlign: 'center',
@@ -391,8 +384,8 @@ const styles = StyleSheet.create({
   },
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   errorText: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
     paddingHorizontal: 20,
@@ -456,8 +449,8 @@ const styles = StyleSheet.create({
   },
   zoomHint: {
     flex: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 7,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
     letterSpacing: 0.5,
@@ -480,15 +473,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   btnGhostText: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: 'rgba(255,255,255,0.6)',
     fontWeight: '700',
   },
   btnPrimary: { backgroundColor: RED },
   btnPrimaryText: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#fff',
     fontWeight: '900',
   },

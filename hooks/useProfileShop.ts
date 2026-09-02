@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import type { ShopItemCategory, UserShopCosmetics, VehicleModelMeta } from '../constants/shopCosmetics';
 import { emitMapVehicleChanged } from '../lib/mapVehicleEvents';
+import { emitNitroWalletUpdate, subscribeNitroWallet } from '../lib/nitroWalletEvents';
 
 export interface CatalogItem {
   id: string;
@@ -72,7 +73,9 @@ export function useProfileShop() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data?.error, code: data?.code };
-    setNitroBalance(Number(data?.nitroBalance ?? 0));
+    const walletBalance = Number(data?.wallet?.nitroBalance ?? data?.nitroBalance ?? 0);
+    setNitroBalance(walletBalance);
+    emitNitroWalletUpdate({ nitroBalance: walletBalance });
     await loadCatalog();
     return {
       ok: true,
@@ -103,6 +106,10 @@ export function useProfileShop() {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => subscribeNitroWallet((update) => {
+    setNitroBalance(update.nitroBalance);
+  }), []);
 
   return {
     catalog,

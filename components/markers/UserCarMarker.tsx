@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useState } from 'react';
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { View, Image, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
@@ -55,13 +56,13 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
         borderWidth: 1, borderColor, minWidth: 72, alignItems: 'center',
       }}>
         <Text style={{
-          color: theme.mapLabelText, fontSize: 9, fontFamily: 'Orbitron',
+          color: theme.mapLabelText, fontSize: 12, fontFamily: 'Manrope_600SemiBold',
           letterSpacing: 0.3, textAlign: 'center',
         }} numberOfLines={1}>
           {user.name}
         </Text>
         <Text style={{
-          color, fontSize: 8, fontFamily: 'Orbitron',
+          color, fontSize: 12, fontFamily: 'Manrope_600SemiBold',
           textAlign: 'center', marginTop: 1,
         }}>
           {distance.toFixed(1)} km

@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  RefreshControl, ActivityIndicator, StatusBar, Modal,
-  ScrollView, Pressable, Platform, KeyboardAvoidingView,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, StatusBar, Modal, ScrollView, Pressable, Platform, KeyboardAvoidingView } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { Image } from 'expo-image';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -295,7 +292,7 @@ export default function MarketScreen() {
       {/* Category badge */}
       <View style={{ position: 'absolute', top: 10, left: 10 }}>
         <View style={{ backgroundColor: '#000000cc', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
             {CATEGORY_LABEL[String(item.category || '').toLowerCase()] || String(item.category || '').toUpperCase()}
           </Text>
         </View>
@@ -304,10 +301,10 @@ export default function MarketScreen() {
       <View style={{ padding: 14, gap: 8 }}>
         {/* Title + price */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', lineHeight: 18 }} numberOfLines={2}>
+          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', lineHeight: 18 }} numberOfLines={2}>
             {item.title}
           </Text>
-          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', flexShrink: 0 }}>
+          <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '900', flexShrink: 0 }}>
             {formatPrice(item.price)}
           </Text>
         </View>
@@ -315,7 +312,7 @@ export default function MarketScreen() {
         {!!item.location && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <MaterialCommunityIcons name="map-marker-outline" size={12} color={theme.textDim} />
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }} numberOfLines={1}>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }} numberOfLines={1}>
               {item.location}
             </Text>
           </View>
@@ -326,7 +323,7 @@ export default function MarketScreen() {
           {item.mileage != null && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <MaterialCommunityIcons name="speedometer" size={12} color={theme.textDim} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                 {item.mileage.toLocaleString('pl-PL')} km
               </Text>
             </View>
@@ -334,13 +331,13 @@ export default function MarketScreen() {
           {item.power != null && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <MaterialCommunityIcons name="engine-outline" size={12} color={theme.textDim} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>{item.power} KM</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{item.power} KM</Text>
             </View>
           )}
           {item.year != null && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <MaterialCommunityIcons name="calendar-outline" size={12} color={theme.textDim} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>{item.year}</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{item.year}</Text>
             </View>
           )}
         </View>
@@ -355,12 +352,12 @@ export default function MarketScreen() {
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {item.seller.avatarUrl
                 ? <Image source={{ uri: item.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-                : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700' }}>{item.seller.username.charAt(0).toUpperCase()}</Text>
+                : <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{item.seller.username.charAt(0).toUpperCase()}</Text>
               }
             </View>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>@{item.seller.username}</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>@{item.seller.username}</Text>
           </TouchableOpacity>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
             {item.isPromoted ? 'PROMOWANE · ' : ''}{formatDate(item.createdAt)}
           </Text>
         </View>
@@ -382,13 +379,13 @@ export default function MarketScreen() {
               onPress={() => router.push('/Community/market/orders' as any)}
               style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}
             >
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>ZAMÓWIENIA</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ZAMÓWIENIA</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push('/Community/market/wallet' as any)}
               style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}
             >
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>PORTFEL</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>PORTFEL</Text>
             </TouchableOpacity>
             {myListingsCount !== null ? (
               <TouchableOpacity
@@ -396,8 +393,8 @@ export default function MarketScreen() {
                 activeOpacity={effectivePremium ? 1 : 0.7}
               >
                 <View style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
-                  <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>OGŁOSZENIA</Text>
+                  <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? theme.primary : theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' }}>
                     {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
                   </Text>
                 </View>
@@ -429,7 +426,7 @@ export default function MarketScreen() {
             <MaterialCommunityIcons name="tune" size={20} color={activeFilterCount > 0 ? theme.onPrimary : theme.textDim} />
             {activeFilterCount > 0 && (
               <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: theme.surface, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>{activeFilterCount}</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }}>{activeFilterCount}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -456,8 +453,8 @@ export default function MarketScreen() {
           ) : (
             <View style={{ alignItems: 'center', paddingTop: 80, gap: 12 }}>
               <MaterialCommunityIcons name="tag-multiple-outline" size={52} color={theme.border3} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>Brak ogłoszeń</Text>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center' }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '700' }}>Brak ogłoszeń</Text>
+              <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, textAlign: 'center' }}>
                 Bądź pierwszy i dodaj ogłoszenie!
               </Text>
             </View>
@@ -498,7 +495,7 @@ export default function MarketScreen() {
           }}>
             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20, gap: 20 }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', letterSpacing: 1 }}>FILTRY</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700', letterSpacing: 1 }}>FILTRY</Text>
 
               {/* Category */}
               <FilterSection label="KATEGORIA">
@@ -513,7 +510,7 @@ export default function MarketScreen() {
                       }}
                       onPress={() => setPendingFilters(f => ({ ...f, category: opt }))}
                     >
-                      <Text style={{ color: pendingFilters.category === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                      <Text style={{ color: pendingFilters.category === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                         {opt.toUpperCase()}
                       </Text>
                     </TouchableOpacity>
@@ -563,7 +560,7 @@ export default function MarketScreen() {
                       }}
                       onPress={() => setPendingFilters(f => ({ ...f, drive: opt }))}
                     >
-                      <Text style={{ color: pendingFilters.drive === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                      <Text style={{ color: pendingFilters.drive === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                         {opt.toUpperCase()}
                       </Text>
                     </TouchableOpacity>
@@ -584,7 +581,7 @@ export default function MarketScreen() {
                       }}
                       onPress={() => setPendingFilters(f => ({ ...f, transmission: opt }))}
                     >
-                      <Text style={{ color: pendingFilters.transmission === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+                      <Text style={{ color: pendingFilters.transmission === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                         {opt.toUpperCase()}
                       </Text>
                     </TouchableOpacity>
@@ -597,7 +594,7 @@ export default function MarketScreen() {
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {FUEL_OPTIONS.map(opt => (
                     <TouchableOpacity key={opt} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: pendingFilters.fuel === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: pendingFilters.fuel === opt ? theme.primary : theme.border, }} onPress={() => setPendingFilters(f => ({ ...f, fuel: opt }))}>
-                      <Text style={{ color: pendingFilters.fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
+                      <Text style={{ color: pendingFilters.fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -610,13 +607,13 @@ export default function MarketScreen() {
                 style={{ flex: 1, paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
                 onPress={resetFilters}
               >
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>WYCZYŚĆ</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WYCZYŚĆ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, alignItems: 'center' }}
                 onPress={applyFilters}
               >
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>ZASTOSUJ</Text>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZASTOSUJ</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -638,7 +635,7 @@ function FilterSection({ label, children }: { label: string; children: React.Rea
   const { theme } = useTheme();
   return (
     <View style={{ gap: 10 }}>
-      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>{label}</Text>
+      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{label}</Text>
       {children}
     </View>
   );
@@ -648,7 +645,7 @@ function FilterInput({ placeholder, value, onChangeText, theme }: { placeholder:
   return (
     <TextInput
       style={{
-        flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12,
+        flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12,
         backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1,
         borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10,
       }}

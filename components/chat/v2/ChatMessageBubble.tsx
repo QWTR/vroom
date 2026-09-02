@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { UserBadges } from '../../user/UserBadges';
 import { ProvinceBadge } from '../../user/ProvinceBadge';
@@ -216,12 +217,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' },
+  avatarText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
   bubble: { maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4 },
   mediaBubble: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 8, gap: 8 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  name: { fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' },
-  pinned: { fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, marginBottom: 2 },
+  name: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
+  pinned: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 2 },
   replyQuote: {
     backgroundColor: '#00000020',
     borderRadius: 8,
@@ -231,12 +232,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 2,
   },
-  replyAuthor: { fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' },
-  replyText: { fontSize: 11 },
+  replyAuthor: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
+  replyText: { fontSize: 12 },
   body: { fontSize: 14, lineHeight: 20 },
   timeRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 6 },
-  edited: { fontSize: 8, fontStyle: 'italic' },
-  delivery: { fontSize: 8, fontStyle: 'italic' },
-  time: { fontSize: 9 },
-  timeStandalone: { fontSize: 9, alignSelf: 'flex-end', marginTop: 2 },
+  edited: { fontSize: 12, fontStyle: 'italic' },
+  delivery: { fontSize: 12, fontStyle: 'italic' },
+  time: { fontSize: 12 },
+  timeStandalone: { fontSize: 12, alignSelf: 'flex-end', marginTop: 2 },
 });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, Linking, Text } from 'react-native';
+import { View, TouchableOpacity, Linking } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { SponsoredCampaign } from '../../hooks/useSponsoredAd';
@@ -45,13 +46,13 @@ export function SponsoredBanner({ campaign, onPress, aspectRatio = 728 / 90, onI
           />
         ) : (
           <View style={{ padding: 16, minHeight: 72, justifyContent: 'center' }}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, fontWeight: '700' }}>
               {campaign.title}
             </Text>
             {!!campaign.body && (
               <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>{campaign.body}</Text>
             )}
-            <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 8 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, marginTop: 8 }}>
               {(campaign.ctaText || 'Dowiedz się więcej').toUpperCase()}
             </Text>
           </View>

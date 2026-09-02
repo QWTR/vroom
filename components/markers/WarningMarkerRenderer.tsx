@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import ViewShot from 'react-native-view-shot';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LiveWarning, getWarningColor, getWarningIcon } from '../../hooks/useLiveMap';
@@ -41,7 +42,7 @@ export const WarningMarkerRenderer = ({ warning, onCapture }: WarningMarkerRende
               paddingHorizontal: 6, paddingVertical: 2,
               marginBottom: 4, minWidth: 24, alignItems: 'center',
             }}>
-              <Text style={{ color: '#000', fontSize: 9, fontWeight: '700' }}>
+              <Text style={{ color: '#000', fontSize: 12, fontWeight: '700' }}>
                 +{warning.confirmCount}
               </Text>
             </View>
@@ -58,7 +59,7 @@ export const WarningMarkerRenderer = ({ warning, onCapture }: WarningMarkerRende
             backgroundColor: theme.mapLabelBg, borderRadius: 6,
             paddingHorizontal: 6, paddingVertical: 2, marginTop: 4,
           }}>
-            <Text style={{ color, fontSize: 9, fontWeight: '700' }}>
+            <Text style={{ color, fontSize: 12, fontWeight: '700' }}>
               {Math.max(0, 15 - timeLeft)}min
             </Text>
           </View>

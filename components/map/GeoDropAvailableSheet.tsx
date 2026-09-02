@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import type { GeoDropNearby } from '../../lib/gamificationClient';
@@ -138,9 +139,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   eyebrow: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 1.6,
+    letterSpacing: 1,
   },
   rarityPill: {
     borderWidth: 1,
@@ -149,7 +150,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   rarityText: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '900',
     letterSpacing: 0.8,
   },
@@ -161,12 +162,12 @@ const styles = StyleSheet.create({
   },
   metaText: {
     color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   metaDot: {
     color: 'rgba(255,255,255,0.35)',
-    fontSize: 11,
+    fontSize: 12,
   },
   dismissBtn: {
     width: 26,
@@ -198,16 +199,16 @@ const styles = StyleSheet.create({
   },
   linkText: {
     color: 'rgba(255,255,255,0.72)',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
   },
   linkTextMuted: {
     color: 'rgba(255,255,255,0.45)',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
   },
   linkDot: {
     color: 'rgba(255,255,255,0.25)',
-    fontSize: 10,
+    fontSize: 12,
   },
 });

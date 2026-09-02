@@ -1,11 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-} from 'react-native';
+import { View, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -84,10 +79,10 @@ export default function AchievementsScreen() {
           <MaterialIcons name="arrow-back" size={22} color={theme.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
             OSIĄGNIĘCIA
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5, marginTop: 2 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginTop: 2 }}>
             {countLabel}
           </Text>
         </View>
@@ -102,7 +97,7 @@ export default function AchievementsScreen() {
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
             {([['global', 'OGÓLNE'], ['season', 'SEZONOWE']] as const).map(([key, label]) => (
               <TouchableOpacity key={key} onPress={() => setScope(key)} style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: scope === key ? theme.primary : theme.border, backgroundColor: scope === key ? `${theme.primary}18` : theme.surface, paddingVertical: 12, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '800', color: scope === key ? theme.primary : theme.textDim }}>{label}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', color: scope === key ? theme.primary : theme.textDim }}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -116,7 +111,7 @@ export default function AchievementsScreen() {
               alignItems: 'center',
               ...GLASS_SHADOW,
             }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                 Brak odblokowanych osiągnięć
               </Text>
             </View>
@@ -155,7 +150,7 @@ export default function AchievementsScreen() {
                 onPress={() => setShowLocked(v => !v)}
                 activeOpacity={0.75}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1.5 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                   {showLocked ? '▲  UKRYJ ZABLOKOWANE' : `▼  ZABLOKOWANE (${locked.length})`}
                 </Text>
               </TouchableOpacity>

@@ -1,17 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  FlatList,
-  ActivityIndicator,
-  Platform,
-  KeyboardAvoidingView,
-  StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, Modal, Pressable, FlatList, ActivityIndicator, Platform, KeyboardAvoidingView, StyleSheet } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -47,7 +36,7 @@ export function VroomkiCommentsModal({
   const [me, setMe] = useState<Author | null>(null);
   const pendingCommentLikesRef = useRef<Set<number>>(new Set());
   const pendingLikeOperationsRef = useRef(new Map<string, VroomkiComment>());
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   const pendingCommentsRef = useRef(new Map<string, number>());
 
   const isLegacyCarOnly = post != null && post.id < 0;
@@ -278,8 +267,8 @@ export function VroomkiCommentsModal({
           }}
           >
             <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2, marginBottom: 4 }}>KOMENTARZE</Text>
-            <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 12 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 13, letterSpacing: 1, marginBottom: 4 }}>KOMENTARZE</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, marginBottom: 12 }}>
               {comments.length} {comments.length === 1 ? 'komentarz' : 'komentarzy'}
             </Text>
 
@@ -293,7 +282,7 @@ export function VroomkiCommentsModal({
                 contentContainerStyle={{ gap: 10, paddingBottom: 10 }}
                 keyboardShouldPersistTaps="handled"
                 ListEmptyComponent={(
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginVertical: 28 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center', marginVertical: 28 }}>
                     Bądź pierwszy w komentarzach
                   </Text>
                 )}
@@ -301,9 +290,9 @@ export function VroomkiCommentsModal({
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <Avatar user={item.author} size={34} />
                     <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 12 }}>
-                      <PremiumName user={item.author} style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }} />
+                      <PremiumName user={item.author} style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }} />
                       {item.replyTo && (
-                        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10, marginTop: 5, opacity: 0.85 }}>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, marginTop: 5, opacity: 0.85 }}>
                           ↩ odpowiedź dla @{item.replyTo.username}
                         </Text>
                       )}
@@ -347,7 +336,7 @@ export function VroomkiCommentsModal({
               <View style={styles.replyBanner}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                   <MaterialIcons name="reply" size={18} color="#e33835" />
-                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                     Odpowiadasz @{replyTo.username}
                   </Text>
                 </View>
@@ -369,7 +358,7 @@ export function VroomkiCommentsModal({
                   borderColor: '#e3383540',
                 }}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, letterSpacing: 1, marginBottom: 6 }}>
                     PODGLĄD KOMENTARZA
                   </Text>
                   <Text style={{ color: theme.text, fontSize: 15, lineHeight: 22 }}>{trimmed}</Text>
@@ -411,7 +400,7 @@ export function VroomkiCommentsModal({
                   }}
                 />
                 {text.length > 0 && (
-                  <Text style={{ color: theme.textDim, fontSize: 10, textAlign: 'right', marginTop: 4 }}>
+                  <Text style={{ color: theme.textDim, fontSize: 12, textAlign: 'right', marginTop: 4 }}>
                     {text.length}/500
                   </Text>
                 )}
@@ -456,9 +445,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   actionBtnText: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     color: '#e33835',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
   },
   replyBanner: {

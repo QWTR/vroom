@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Text,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter }  from 'expo-router';
 import MaterialIcons  from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage   from '@react-native-async-storage/async-storage';
@@ -51,8 +49,8 @@ export default function ChangePasswordScreen() {
   };
 
   const inputBase = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border2 };
-  const inputStyle = { flex: 1, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 };
-  const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 };
+  const inputStyle = { flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold' as const, fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 };
+  const labelStyle = { fontFamily: 'Manrope_600SemiBold' as const, color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 4 };
   const { scrollPaddingBottom } = useFormKeyboardPadding(80);
 
   return (
@@ -61,16 +59,16 @@ export default function ChangePasswordScreen() {
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, letterSpacing: 2 }}>ZMIEŃ HASŁO</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 15, color: theme.text, letterSpacing: 1 }}>ZMIEŃ HASŁO</Text>
         <View style={{ width: 60 }} />
       </View>
 
       {/* INFO */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.primaryBg, borderRadius: 12, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: theme.primaryBorder }}>
         <MaterialIcons name="lock-outline" size={20} color={theme.primary} />
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textMuted, fontSize: 10, flex: 1 }}>Hasło musi mieć minimum 6 znaków.</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textMuted, fontSize: 12, flex: 1 }}>Hasło musi mieć minimum 6 znaków.</Text>
       </View>
 
       {/* FORMULARZ */}
@@ -102,7 +100,7 @@ export default function ChangePasswordScreen() {
             {[1, 2, 3, 4].map(i => (
               <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: newPassword.length >= i * 3 ? (newPassword.length >= 10 ? '#4CAF50' : newPassword.length >= 6 ? '#FF9800' : theme.primary) : theme.border2 }} />
             ))}
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginLeft: 6 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginLeft: 6 }}>
               {newPassword.length < 6 ? 'Za krótkie' : newPassword.length < 10 ? 'Słabe' : 'Silne'}
             </Text>
           </View>
@@ -119,10 +117,10 @@ export default function ChangePasswordScreen() {
           </TouchableOpacity>
         </View>
         {confirmPassword && newPassword !== confirmPassword && (
-          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Hasła nie są identyczne</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, marginTop: 4 }}>Hasła nie są identyczne</Text>
         )}
         {confirmPassword && newPassword === confirmPassword && (
-          <Text style={{ fontFamily: 'Orbitron', color: '#4CAF50', fontSize: 9, marginTop: 4 }}>✓ Hasła są identyczne</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#4CAF50', fontSize: 12, marginTop: 4 }}>✓ Hasła są identyczne</Text>
         )}
       </View>
 
@@ -133,7 +131,7 @@ export default function ChangePasswordScreen() {
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <><MaterialIcons name="lock" size={18} color="#fff" /><Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ HASŁO</Text></>
+          : <><MaterialIcons name="lock" size={18} color="#fff" /><Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ HASŁO</Text></>
         }
       </TouchableOpacity>
     </ScrollView>

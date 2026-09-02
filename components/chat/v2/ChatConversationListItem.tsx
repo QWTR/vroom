@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { formatConversationTime } from './helpers';
@@ -84,7 +85,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' },
+  avatarText: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' },
   onlineDot: {
     position: 'absolute',
     bottom: 2,
@@ -107,8 +108,8 @@ const styles = StyleSheet.create({
   },
   content: { flex: 1, gap: 5 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  name: { flex: 1, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
-  time: { fontSize: 10, flexShrink: 0 },
+  name: { flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  time: { fontSize: 12, flexShrink: 0 },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   preview: { flex: 1, fontSize: 12, lineHeight: 16 },
   badge: {
@@ -119,5 +120,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 });

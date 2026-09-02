@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  FlatList, ActivityIndicator, Image, Share, TextInput,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, FlatList, ActivityIndicator, Image, Share } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -32,7 +30,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState<number | null>(null);
   const [sent, setSent] = useState<number[]>([]);
-  const linkInputRef = React.useRef<TextInput>(null);
+  const linkInputRef = React.useRef<React.ElementRef<typeof TextInput>>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -103,7 +101,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
           <View style={{ width: 40, height: 4, backgroundColor: theme.border3, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8 }} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border }}>
             <MaterialIcons name="smart-display" size={18} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>UDOSTĘPNIJ VROOMKĘ</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, letterSpacing: 1, flex: 1 }}>UDOSTĘPNIJ VROOMKĘ</Text>
             <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
             </TouchableOpacity>
@@ -119,7 +117,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
                 </View>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} numberOfLines={1}>@{post.author.username}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>@{post.author.username}</Text>
                 {!!post.caption && (
                   <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }} numberOfLines={2}>{post.caption}</Text>
                 )}
@@ -135,7 +133,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
               selectTextOnFocus
               multiline
               style={{
-                fontSize: 11,
+                fontSize: 12,
                 color: theme.textDim,
                 backgroundColor: theme.surface2,
                 borderRadius: 10,
@@ -151,15 +149,15 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
             <TouchableOpacity onPress={handleCopyLink} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.surface2, borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: theme.border }}>
               <MaterialIcons name="link" size={16} color={theme.primary} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>KOPIUJ LINK</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>KOPIUJ LINK</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleSystemShare} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12 }}>
               <MaterialIcons name="share" size={16} color={theme.onPrimary} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.onPrimary, fontWeight: '700' }}>UDOSTĘPNIJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700' }}>UDOSTĘPNIJ</Text>
             </TouchableOpacity>
           </View>
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 1, marginBottom: 8 }}>WYŚLIJ DO CZATU</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 8 }}>WYŚLIJ DO CZATU</Text>
           {loading ? (
             <ActivityIndicator color={theme.primary} style={{ marginVertical: 30 }} />
           ) : (
@@ -167,7 +165,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
               data={convs}
               keyExtractor={c => String(c.id)}
               style={{ maxHeight: 280 }}
-              ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
+              ListEmptyComponent={<Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
               renderItem={({ item: conv }) => {
                 const other = conv.participants?.find(p => p.id !== myId);
                 const name = conv.isGroup ? conv.name : other?.username ?? '?';
@@ -179,10 +177,10 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
                       <Image source={{ uri: avatar }} style={{ width: 42, height: 42, borderRadius: 21 }} />
                     ) : (
                       <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center' }}>
-                        <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
+                        <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{name.slice(0, 2).toUpperCase()}</Text>
                       </View>
                     )}
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '600', flex: 1 }} numberOfLines={1}>{name}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '600', flex: 1 }} numberOfLines={1}>{name}</Text>
                     <TouchableOpacity
                       style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
                         isSent ? { backgroundColor: '#4de92615', borderWidth: 1, borderColor: '#4de92630' } : { backgroundColor: theme.primary }]}
@@ -194,7 +192,7 @@ export function ShareVroomkiModal({ visible, post, onClose, myId }: Props) {
                       ) : isSent ? (
                         <MaterialIcons name="check" size={13} color="#4de926" />
                       ) : (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>WYŚLIJ</Text>
                       )}
                     </TouchableOpacity>
                   </View>

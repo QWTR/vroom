@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity, Pressable, Platform, TextInput, ActivityIndicator,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Platform, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -80,8 +79,8 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <MaterialCommunityIcons name="gas-station" size={28} color="#00bfff" />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '700' }}>DODAJ STACJĘ</Text>
-              <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, fontWeight: '700' }}>DODAJ STACJĘ</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 4 }}>
                 {latitude.toFixed(5)}, {longitude.toFixed(5)}
               </Text>
             </View>
@@ -90,7 +89,7 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
             </TouchableOpacity>
           </View>
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>NAZWA *</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>NAZWA *</Text>
           <TextInput
             value={name}
             onChangeText={setName}
@@ -102,7 +101,7 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
             }}
           />
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>MARKA (OPCJONALNIE)</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>MARKA (OPCJONALNIE)</Text>
           <TextInput
             value={brand}
             onChangeText={setBrand}
@@ -114,7 +113,7 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
             }}
           />
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>ADRES (OPCJONALNIE)</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>ADRES (OPCJONALNIE)</Text>
           <TextInput
             value={address}
             onChangeText={setAddress}
@@ -135,7 +134,7 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
             }}
           >
             {saving ? <ActivityIndicator color="#fff" /> : (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ NA MAPIE</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ NA MAPIE</Text>
             )}
           </TouchableOpacity>
         </View>

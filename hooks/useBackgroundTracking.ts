@@ -51,7 +51,7 @@ import {
 } from '../lib/tripPersistenceCoordinator';
 import type { NavMode } from '../lib/navigationV3/types';
 import { sendLiveLocation } from '../lib/liveLocationBroker';
-import { evaluateSmartStart, initialSmartStartState, type SmartStartState } from '../lib/smartStart';
+import { evaluateSmartStart, initialSmartStartState, normalizeSmartStartState, type SmartStartState } from '../lib/smartStart';
 import { compactDriveTelemetry, type DriveTelemetryPoint } from '../lib/driveTelemetry';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -142,7 +142,7 @@ export const BG_ACTIVE_CONVOY_HOST_KEY = 'bg_active_convoy_host';
 /** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 export const SMART_START_ENABLED_KEY = 'smart_start_enabled';
-const SMART_START_STATE_KEY = 'smart_start_state_v1';
+const SMART_START_STATE_KEY = 'smart_start_state_v2';
 /** Destination mirrored for headless Smart Stop when the map screen is asleep. */
 export const BG_NAV_DESTINATION_KEY = 'bg_navigation_destination_v1';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
@@ -669,6 +669,22 @@ export async function continueDriveSessionAsNavigation(): Promise<string> {
   const tripSessionId = await ensureTripSessionId();
   if (await isBackgroundWorkAllowed()) {
     await BackgroundDriveController.start('navigation', tripSessionId);
+  }
+  return tripSessionId;
+}
+
+/** Switch navigation back to free drive while preserving the same trip ledger. */
+export async function continueDriveSessionAsFreeDrive(): Promise<string> {
+  await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false');
+  await AsyncStorage.setItem(BG_IS_DRIVING_KEY, 'true');
+  await AsyncStorage.removeItem(BG_NAV_DESTINATION_KEY);
+  const tripSessionId = await ensureTripSessionId();
+  const ledger = await loadTripSessionLedger();
+  if (ledger?.tripSessionId === tripSessionId && ledger.mode !== 'freeDrive') {
+    await saveTripSessionLedger({ ...ledger, mode: 'freeDrive', updatedAt: Date.now() });
+  }
+  if (await isBackgroundWorkAllowed()) {
+    await BackgroundDriveController.start('freeDrive', tripSessionId);
   }
   return tripSessionId;
 }
@@ -1243,7 +1259,9 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     try {
       const rawState = await AsyncStorage.getItem(SMART_START_STATE_KEY);
       const state = rawState ? JSON.parse(rawState) as SmartStartState : initialSmartStartState();
-      if (state.phase === 'driving') await finalizeTripSession({ reason: 'premium_expired', mode: 'freeDrive' });
+      if (state.phase === 'driving' || state.phase === 'paused') {
+        await finalizeTripSession({ reason: 'premium_expired', mode: 'freeDrive' });
+      }
       await AsyncStorage.removeItem(SMART_START_STATE_KEY);
     } catch { /* safe shutdown only */ }
     if (!activeConvoyId || activeConvoyHost !== 'true') return;
@@ -1265,42 +1283,56 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
     if (premiumStatus !== 'true') return;
 
-    const [smartStartEnabled, navigationFlag, manualDriveFlag, destinationRaw] = await Promise.all([
+    const [smartStartEnabled, navigationFlag, manualDriveFlag, destinationRaw, activeTripSessionId] = await Promise.all([
       AsyncStorage.getItem(SMART_START_ENABLED_KEY),
       AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
       AsyncStorage.getItem(BG_IS_DRIVING_KEY),
       AsyncStorage.getItem(BG_NAV_DESTINATION_KEY),
+      AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
     ]);
     const navigationSmartStopActive = navigationFlag === 'true' && manualDriveFlag === 'true' && destinationRaw != null;
     if (smartStartEnabled === 'true' || navigationSmartStopActive) {
       const rawState = await AsyncStorage.getItem(SMART_START_STATE_KEY);
       let smartState: SmartStartState;
-      try { smartState = rawState ? JSON.parse(rawState) as SmartStartState : initialSmartStartState(); } catch { smartState = initialSmartStartState(); }
+      try { smartState = normalizeSmartStartState(rawState ? JSON.parse(rawState) : null, activeTripSessionId); } catch { smartState = initialSmartStartState(activeTripSessionId); }
       // Smart Stop also protects a trip started manually. Previously the
       // manual-drive flag skipped the state machine entirely, so such a trip
       // could stay open for hours after parking.
       if (manualDriveFlag === 'true' && smartState.phase === 'idle') {
-        smartState = { ...initialSmartStartState(), phase: 'driving', lastReliableAt: fixAt };
+        smartState = { ...initialSmartStartState(activeTripSessionId), phase: 'driving', lastReliableAt: fixAt };
       }
       let destination: { latitude: number; longitude: number } | null = null;
+      let destinationKind: 'route' | 'drop' = 'route';
       try {
         const parsed = destinationRaw ? JSON.parse(destinationRaw) : null;
         if (Number.isFinite(Number(parsed?.latitude)) && Number.isFinite(Number(parsed?.longitude))) {
           destination = { latitude: Number(parsed.latitude), longitude: Number(parsed.longitude) };
+          destinationKind = parsed?.kind === 'drop' ? 'drop' : 'route';
         }
       } catch { destination = null; }
       const evaluated = evaluateSmartStart(smartState, {
         latitude, longitude, timestamp: fixAt, speedKmh: Math.max(0, Number(speed || 0) * 3.6), accuracyM: accuracy ?? null,
-      }, { navigating: navigationFlag === 'true', destination, now: Date.now() });
+      }, { navigating: navigationFlag === 'true', destination, destinationKind, tripSessionId: activeTripSessionId, now: Date.now() });
       await AsyncStorage.setItem(SMART_START_STATE_KEY, JSON.stringify(evaluated.state));
       if (evaluated.action === 'start' && smartStartEnabled === 'true') {
-        await startDriveSession('freeDrive');
+        const startedSessionId = await startDriveSession('freeDrive');
+        await AsyncStorage.setItem(SMART_START_STATE_KEY, JSON.stringify({ ...evaluated.state, tripSessionId: startedSessionId }));
         const bufferedRoute = evaluated.state.buffer.map((point) => ({
           latitude: point.latitude, longitude: point.longitude, recordedAt: new Date(point.timestamp).toISOString(), speedKmh: point.speedKmh, accuracyM: point.accuracyM,
         }));
         await AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(bufferedRoute));
         await Notifications.scheduleNotificationAsync({
           content: { title: 'Smart Start rozpoczął jazdę', body: 'VROOM wykrył ruch. Dotknij „Odrzuć”, jeśli to pomyłka.', categoryIdentifier: 'smart-start', data: { smartStart: true } },
+          trigger: null,
+        }).catch(() => {});
+      } else if (evaluated.action === 'pause') {
+        await Notifications.scheduleNotificationAsync({
+          content: { title: 'Smart Stop: jazda wstrzymana', body: 'Masz 30 minut na dalszą jazdę. Ruch wznowi tę samą trasę.', data: { smartStopPaused: true } },
+          trigger: null,
+        }).catch(() => {});
+      } else if (evaluated.action === 'resume') {
+        await Notifications.scheduleNotificationAsync({
+          content: { title: 'Jazda wznowiona', body: 'VROOM kontynuuje tę samą trasę i zachowuje dotychczasowy dystans.', data: { smartStopResumed: true } },
           trigger: null,
         }).catch(() => {});
       } else if (evaluated.action === 'finish') {

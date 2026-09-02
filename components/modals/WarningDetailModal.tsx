@@ -1,5 +1,6 @@
 import React, { memo, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Modal, View, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { makeMapStyles } from '../../styles/mapstyle';
@@ -97,7 +98,7 @@ export const WarningDetailModal = memo(function WarningDetailModal({
               borderWidth: 1, borderColor: theme.border2,
               marginBottom: 16,
             }}>
-              <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 0.5 }}>
+              <Text style={{ color: theme.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5 }}>
                 {warning.message}
               </Text>
             </View>
@@ -110,7 +111,7 @@ export const WarningDetailModal = memo(function WarningDetailModal({
               borderWidth: 1, borderColor: theme.border2, padding: 12, alignItems: 'center',
             }}>
               <MaterialIcons name="schedule" size={18} color={theme.textDim} />
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
                 {Math.max(0, 15 - timeLeft)}
               </Text>
               <Text style={styles.statLabel}>MIN TEMU</Text>
@@ -121,7 +122,7 @@ export const WarningDetailModal = memo(function WarningDetailModal({
               borderWidth: 1, borderColor: `${color}30`, padding: 12, alignItems: 'center',
             }}>
               <MaterialIcons name="thumb-up" size={18} color={color} />
-              <Text style={{ color, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
+              <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
                 {warning.confirmCount}
               </Text>
               <Text style={styles.statLabel}>POTWIERDZENIA</Text>
@@ -151,7 +152,7 @@ export const WarningDetailModal = memo(function WarningDetailModal({
               onPress={() => { onConfirm(warning.id); onClose(); }}
             >
               <MaterialIcons name="thumb-up" size={20} color={color} />
-              <Text style={{ color, fontFamily: 'Orbitron', fontWeight: '700', fontSize: 11, letterSpacing: 2 }}>
+              <Text style={{ color, fontFamily: 'Manrope_600SemiBold', fontWeight: '700', fontSize: 12, letterSpacing: 1 }}>
                 POTWIERDŹ OSTRZEŻENIE
               </Text>
             </TouchableOpacity>
@@ -169,7 +170,7 @@ export const WarningDetailModal = memo(function WarningDetailModal({
               {dismissing
                 ? <ActivityIndicator size="small" color={theme.textMuted} />
                 : <MaterialIcons name="not-interested" size={18} color={theme.textMuted} />}
-              <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontWeight: '700', fontSize: 9, letterSpacing: 1 }}>
+              <Text style={{ color: theme.textMuted, fontFamily: 'Manrope_600SemiBold', fontWeight: '700', fontSize: 12, letterSpacing: 1 }}>
                 NIEAKTUALNE
               </Text>
             </TouchableOpacity>
@@ -209,8 +210,8 @@ export const WarningDetailModal = memo(function WarningDetailModal({
                   <MaterialIcons name="delete-outline" size={20} color="#e33835" />
                 )}
                 <Text style={{
-                  color: '#e33835', fontFamily: 'Orbitron',
-                  fontWeight: '700', fontSize: 11, letterSpacing: 2,
+                  color: '#e33835', fontFamily: 'Manrope_600SemiBold',
+                  fontWeight: '700', fontSize: 12, letterSpacing: 1,
                 }}>
                   {cancelling ? 'ANULOWANIE...' : 'ANULUJ ZGŁOSZENIE'}
                 </Text>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { Text } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -27,7 +27,7 @@ export default function AvatarCircle({ initials, avatarUrl, uploading = false, o
         ) : avatarUrl ? (
           <Image key={avatarUrl} source={{ uri: avatarUrl }} style={{ width: 80, height: 80 }} />
         ) : (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: theme.primary }}>{initials}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 24, color: theme.primary }}>{initials}</Text>
         )}
       </View>
       {!!onCameraPress && !uploading && (

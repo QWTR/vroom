@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Modal, TextInput, FlatList, Dimensions,
-  RefreshControl,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, FlatList, Dimensions, RefreshControl } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -46,11 +43,11 @@ export default function NitroShopScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const {
-    catalog, nitroBalance, rankingPoints, spendablePoints, equippedIds, loading, reload, purchase, equip,
+    catalog, rankingPoints, spendablePoints, equippedIds, loading, reload, purchase, equip,
   } = useProfileShop();
   const { wallet, exchangeRankingPoints } = useNitroWallet();
 
-  const balance = nitroBalance || wallet?.nitroBalance || 0;
+  const balance = wallet?.nitroBalance ?? 0;
   const ranking = wallet?.rankingPoints ?? rankingPoints ?? 0;
   const points = wallet?.spendablePoints ?? spendablePoints ?? ranking;
   const pointsPerNitro = wallet?.exchange?.pointsPerNitro ?? wallet?.exchangeRate ?? 10;
@@ -479,9 +476,9 @@ const styles = StyleSheet.create({
   heroTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
   backBtn: { padding: 8, marginLeft: -8 },
   heroTitleWrap: { flex: 1 },
-  heroKicker: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 3, fontWeight: '800' },
-  heroTitle: { fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', marginTop: 2 },
-  heroSub: { fontSize: 11, lineHeight: 16, marginBottom: 14, paddingHorizontal: 2 },
+  heroKicker: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '800' },
+  heroTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  heroSub: { fontSize: 12, lineHeight: 16, marginBottom: 14, paddingHorizontal: 2 },
   heroBalance: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -501,9 +498,9 @@ const styles = StyleSheet.create({
     borderColor: '#FFD70028',
   },
   walletRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  walletLabel: { fontSize: 10, fontWeight: '600', marginBottom: 4 },
-  walletValue: { color: GOLD, fontFamily: 'Orbitron', fontSize: 28, fontWeight: '900' },
-  walletValueSm: { fontFamily: 'Orbitron', fontSize: 20, fontWeight: '800' },
+  walletLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  walletValue: { color: GOLD, fontFamily: 'Manrope_600SemiBold', fontSize: 28, fontWeight: '900' },
+  walletValueSm: { fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '800' },
   walletDivider: { width: 1, height: 36, backgroundColor: '#ffffff18', marginHorizontal: 20 },
   exchangeChip: {
     flexDirection: 'row',
@@ -545,7 +542,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
   },
   chipCountActive: { backgroundColor: '#ffffff30' },
-  chipCountText: { fontSize: 10, fontWeight: '800', color: '#aaa' },
+  chipCountText: { fontSize: 12, fontWeight: '800', color: '#aaa' },
   sections: { paddingTop: 8 },
   section: { marginBottom: 24 },
   sectionHead: {
@@ -563,17 +560,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sectionHeadText: { flex: 1 },
-  sectionTitle: { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900' },
-  sectionSub: { fontSize: 11, marginTop: 3, lineHeight: 15 },
+  sectionTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '900' },
+  sectionSub: { fontSize: 12, marginTop: 3, lineHeight: 16 },
   seeAll: { flexDirection: 'row', alignItems: 'center' },
-  seeAllText: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' },
+  seeAllText: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },
   carousel: { paddingHorizontal: PAD, gap: GAP },
   gridWrap: { paddingTop: 16 },
   gridHead: { paddingHorizontal: PAD, marginBottom: 14 },
-  gridHeadTitle: { fontFamily: 'Orbitron', fontSize: 16, fontWeight: '900' },
+  gridHeadTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '900' },
   gridHeadSub: { fontSize: 12, marginTop: 4, lineHeight: 17 },
   empty: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32, gap: 8 },
-  emptyTitle: { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '800' },
+  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 14, fontWeight: '800' },
   emptySub: { textAlign: 'center', fontSize: 12, lineHeight: 18 },
   sheetBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10 },
@@ -596,8 +593,8 @@ const styles = StyleSheet.create({
   sheetFrame: { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
   sheetFakeAvatar: { width: 100, height: 100, borderRadius: 50 },
   sheetPreviewImg: { width: '100%', height: '100%' },
-  sheetCat: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2, fontWeight: '800', marginBottom: 6 },
-  sheetName: { fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', marginBottom: 8 },
+  sheetCat: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '800', marginBottom: 6 },
+  sheetName: { fontFamily: 'Manrope_600SemiBold', fontSize: 18, fontWeight: '900', marginBottom: 8 },
   sheetDesc: { fontSize: 13, lineHeight: 19, marginBottom: 16 },
   sheetBtn: { borderRadius: 14, overflow: 'hidden' },
   sheetBtnGrad: {
@@ -620,8 +617,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
-  modalTitle: { fontFamily: 'Orbitron', fontSize: 17, fontWeight: '900', marginBottom: 6 },
-  modalSub: { fontSize: 11, textAlign: 'center', marginBottom: 8 },
+  modalTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 17, fontWeight: '900', marginBottom: 6 },
+  modalSub: { fontSize: 12, textAlign: 'center', marginBottom: 8 },
   modalPts: { fontSize: 12, marginBottom: 14 },
   input: {
     width: '100%',
@@ -632,7 +629,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
   },
-  previewExchange: { fontSize: 11, marginBottom: 16 },
+  previewExchange: { fontSize: 12, marginBottom: 16 },
   modalBtn: {
     width: '100%',
     backgroundColor: RED,

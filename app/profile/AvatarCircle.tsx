@@ -1,8 +1,6 @@
 import React from 'react';
-import {
-  View, Image, TouchableOpacity, ActivityIndicator,
-  Alert, ActionSheetIOS, Platform, Text,
-} from 'react-native';
+import { View, Image, TouchableOpacity, ActivityIndicator, Alert, ActionSheetIOS, Platform } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -69,7 +67,7 @@ export default function AvatarCircle({ initials, avatarUrl, uploading = false, o
           ? <ActivityIndicator color={theme.primary} size="large" />
           : avatarUrl
           ? <Image source={{ uri: avatarUrl }} style={{ width: 80, height: 80 }} onError={() => {}} />
-          : <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: theme.primary }}>{initials}</Text>
+          : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 24, color: theme.primary }}>{initials}</Text>
         }
       </View>
       {!!onCameraPress && !uploading && (

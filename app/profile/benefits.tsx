@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import QRCode from 'react-native-qrcode-svg';
@@ -46,8 +47,8 @@ export default function BenefitsScreen() {
           <MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} />
         </TouchableOpacity>
         <View>
-          <Text style={{ color: '#ff3b3f', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2 }}>PARTNER HUB</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 17, marginTop: 3 }}>MOJE KORZYŚCI</Text>
+          <Text style={{ color: '#ff3b3f', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>PARTNER HUB</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 17, marginTop: 3 }}>MOJE KORZYŚCI</Text>
         </View>
       </View>
 
@@ -70,7 +71,7 @@ export default function BenefitsScreen() {
                     <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{claim.offer.title}</Text>
                     <Text style={{ color: theme.textDim, marginTop: 4 }}>{claim.offer.businessLocation?.name}</Text>
                   </View>
-                  <Text style={{ color: claim.status === 'redeemed' ? theme.textDim : '#43d17b', fontWeight: '800', fontSize: 11 }}>
+                  <Text style={{ color: claim.status === 'redeemed' ? theme.textDim : '#43d17b', fontWeight: '800', fontSize: 12 }}>
                     {claim.status === 'redeemed' ? 'WYKORZYSTANY' : 'AKTYWNY'}
                   </Text>
                 </View>
@@ -80,7 +81,7 @@ export default function BenefitsScreen() {
                     <Text selectable style={{ color: '#111', fontWeight: '900', letterSpacing: 1 }}>{claim.displayCode || claim.claimToken}</Text>
                   </View>
                 )}
-                {claim.offer.endsAt && <Text style={{ color: theme.textDim, fontSize: 11 }}>Ważny do {new Date(claim.offer.endsAt).toLocaleDateString('pl-PL')}</Text>}
+                {claim.offer.endsAt && <Text style={{ color: theme.textDim, fontSize: 12 }}>Ważny do {new Date(claim.offer.endsAt).toLocaleDateString('pl-PL')}</Text>}
               </View>
             )) : <Empty text="Nie masz jeszcze pobranych kuponów." theme={theme} />}
           </Section>
@@ -98,7 +99,7 @@ export default function BenefitsScreen() {
                 {registration.qrToken ? (
                   <View style={{ marginTop: 12, padding: 12, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center' }}>
                     <QRCode value={registration.qrToken} size={110} />
-                    <Text selectable style={{ color: '#111', marginTop: 8, fontSize: 11, fontWeight: '700' }}>{registration.qrToken}</Text>
+                    <Text selectable style={{ color: '#111', marginTop: 8, fontSize: 12, fontWeight: '700' }}>{registration.qrToken}</Text>
                   </View>
                 ) : null}
               </TouchableOpacity>
@@ -131,7 +132,7 @@ function Section({ title, icon, theme, children }: any) {
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <MaterialCommunityIcons name={icon} size={18} color="#ff3b3f" />
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1.2 }}>{title}</Text>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{title}</Text>
       </View>
       {children}
     </View>

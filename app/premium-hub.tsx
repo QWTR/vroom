@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../components/ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -50,4 +51,4 @@ export default function PremiumHubScreen() {
   );
 }
 
-const styles = StyleSheet.create({ safe: { flex: 1 }, header: { height: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, title: { fontFamily: 'OrbitronBold', fontSize: 16, letterSpacing: 2 }, content: { padding: 18, gap: 12, paddingBottom: 40 }, lead: { marginBottom: 6, fontSize: 13 }, card: { minHeight: 82, borderWidth: 1, borderRadius: 18, flexDirection: 'row', alignItems: 'center', padding: 16, gap: 14 }, icon: { width: 48, height: 48, borderRadius: 15, backgroundColor: '#FFD44716', alignItems: 'center', justifyContent: 'center' }, cardTitle: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }, cardSub: { fontSize: 11, marginTop: 5, lineHeight: 16 }, coupon: { borderWidth: 1, borderRadius: 16, padding: 16, marginTop: 8 }, couponTitle: { color: '#4de926', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 1 } });
+const styles = StyleSheet.create({ safe: { flex: 1 }, header: { height: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, title: { fontFamily: 'Manrope_700Bold', fontSize: 16, letterSpacing: 1 }, content: { padding: 18, gap: 12, paddingBottom: 40 }, lead: { marginBottom: 6, fontSize: 13 }, card: { minHeight: 82, borderWidth: 1, borderRadius: 18, flexDirection: 'row', alignItems: 'center', padding: 16, gap: 14 }, icon: { width: 48, height: 48, borderRadius: 15, backgroundColor: '#FFD44716', alignItems: 'center', justifyContent: 'center' }, cardTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' }, cardSub: { fontSize: 12, marginTop: 5, lineHeight: 16 }, coupon: { borderWidth: 1, borderRadius: 16, padding: 16, marginTop: 8 }, couponTitle: { color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 } });

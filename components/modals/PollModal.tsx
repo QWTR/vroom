@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, Pressable,
-  ActivityIndicator, Animated,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, Pressable, ActivityIndicator, Animated } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { PollData } from '../../hooks/usePolls';
@@ -56,10 +54,10 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                 <Text style={{ fontSize: 22 }}>📊</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#a855f7', letterSpacing: 3 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#a855f7', letterSpacing: 1 }}>
                     ANKIETA VROOM
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, marginTop: 2 }}>
                     Zagłosuj raz · Wyniki na żywo
                 </Text>
                 </View>
@@ -70,7 +68,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
 
             {/* Pytanie */}
             <Text style={{
-                fontFamily: 'Orbitron', fontSize: 14, color: t.text,
+                fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: t.text,
                 fontWeight: '700', marginBottom: 20, lineHeight: 22,
             }}>
                 {poll.question}
@@ -121,7 +119,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                         )}
 
                         <Text style={{
-                        flex: 1, fontFamily: 'Orbitron', fontSize: 10,
+                        flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                         color: isMyVote ? t.text : t.textMuted,
                         fontWeight: isMyVote ? '700' : '400',
                         }}>
@@ -130,7 +128,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
 
                         {showResults && (
                         <Text style={{
-                            fontFamily: 'Orbitron', fontSize: 11,
+                            fontFamily: 'Manrope_600SemiBold', fontSize: 12,
                             color: isMyVote ? '#a855f7' : t.textDim, fontWeight: '700',
                         }}>
                             {pct}%
@@ -148,7 +146,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
             {/* Liczba głosów */}
             {showResults && (
                 <Text style={{
-                fontFamily: 'Orbitron', fontSize: 8, color: t.textDim,
+                fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim,
                 textAlign: 'center', marginBottom: 16, letterSpacing: 1,
                 }}>
                 {poll.totalVotes} głosów łącznie
@@ -171,7 +169,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <MaterialCommunityIcons name="vote" size={16} color="#fff" />
                 }
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
                     ZAGŁOSUJ
                 </Text>
                 </TouchableOpacity>
@@ -186,7 +184,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                 onPress={onClose}
                 activeOpacity={0.85}
                 >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: t.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim }}>
                     ZAMKNIJ
                 </Text>
                 </TouchableOpacity>

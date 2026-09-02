@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  View, Text, TextInput, FlatList, TouchableOpacity,
-  StatusBar, ActivityIndicator,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, StatusBar, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -80,14 +78,14 @@ export default function NewChatScreen() {
       >
         <PremiumAvatar user={item} size={46} />
         <View style={{ flex: 1 }}>
-          <PremiumName user={item} style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }} />
+          <PremiumName user={item} style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} />
           <View style={{
             flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 4,
             paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
             backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
           }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: item.online ? theme.online : theme.textDim }} />
-            <Text style={{ color: item.online ? theme.online : theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, fontWeight: '700' }}>
+            <Text style={{ color: item.online ? theme.online : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '700' }}>
               {item.online ? 'ONLINE' : 'OFFLINE'}
             </Text>
           </View>
@@ -117,7 +115,7 @@ export default function NewChatScreen() {
             {starting
               ? <ActivityIndicator size="small" color="#fff" />
               : <>
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                     {selected.length > 1 ? 'UTWÓRZ GRUPĘ' : 'ROZPOCZNIJ'}
                   </Text>
                   <Feather name="arrow-right" size={14} color="#fff" />
@@ -136,7 +134,7 @@ export default function NewChatScreen() {
               style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 }}
               onPress={() => toggleSelect(u)}
             >
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9 }}>{u.username}</Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{u.username}</Text>
               <Feather name="x" size={12} color={theme.primary} />
             </TouchableOpacity>
           ))}
@@ -147,7 +145,7 @@ export default function NewChatScreen() {
       {selected.length > 1 && (
         <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
           <TextInput
-            style={{ backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, color: theme.text, paddingHorizontal: 14, paddingVertical: 10, fontFamily: 'Orbitron', fontSize: 11 }}
+            style={{ backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, color: theme.text, paddingHorizontal: 14, paddingVertical: 10, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}
             value={groupName}
             onChangeText={setGroupName}
             placeholder="Nazwa grupy (opcjonalnie)"
@@ -180,7 +178,7 @@ export default function NewChatScreen() {
       </View>
 
       {!query && (
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, paddingHorizontal: 16, marginBottom: 8 }}>
+        <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, paddingHorizontal: 16, marginBottom: 8 }}>
           ZNAJOMI
         </Text>
       )}
@@ -191,7 +189,7 @@ export default function NewChatScreen() {
         renderItem={renderUser}
         ListEmptyComponent={
           query.length >= 2 && !loading
-            ? <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11, textAlign: 'center', paddingTop: 40 }}>Brak wyników</Text>
+            ? <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, textAlign: 'center', paddingTop: 40 }}>Brak wyników</Text>
             : null
         }
         contentContainerStyle={{ paddingBottom: 100 }}

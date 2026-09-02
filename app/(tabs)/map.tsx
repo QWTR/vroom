@@ -11,20 +11,8 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  InteractionManager,
-  Modal,
-  Platform,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, AppState, InteractionManager, Modal, Platform, Pressable, StatusBar, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
@@ -242,6 +230,7 @@ import {
   flushTracePendingKmToStorage,
   startDriveSession,
   continueDriveSessionAsNavigation,
+  continueDriveSessionAsFreeDrive,
   ensureTripSessionId,
   setDrivingFlag,
   setNavigatingFlag,
@@ -1726,6 +1715,8 @@ function MapScreenInner() {
   const arrivalCandidateHitsRef = useRef(0);
   const smartStopStationarySinceRef = useRef<number | null>(null);
   const smartStopOriginRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const smartStopPausedAtRef = useRef<number | null>(null);
+  const smartStopResumeFixesRef = useRef(0);
   const dropZoneClaimToastAtRef = useRef(0);
   const [routeInfo,    setRouteInfo]    = useState<(RouteInfo & { durationText?: string | null }) | null>(null);
 
@@ -4064,11 +4055,12 @@ function MapScreenInner() {
       AsyncStorage.setItem(BG_NAV_DESTINATION_KEY, JSON.stringify({
         latitude: endLocation.latitude,
         longitude: endLocation.longitude,
+        kind: dropNavigationTargetId != null ? 'drop' : 'route',
       })).catch(() => {});
       return;
     }
     AsyncStorage.removeItem(BG_NAV_DESTINATION_KEY).catch(() => {});
-  }, [isNavigating, endLocation?.latitude, endLocation?.longitude]);
+  }, [isNavigating, dropNavigationTargetId, endLocation?.latitude, endLocation?.longitude]);
 
   useEffect(() => {
     if (endLocation && !isNavigating) {
@@ -5022,14 +5014,15 @@ function MapScreenInner() {
     }));
   }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, finalizeTripSession, clearStats, finishTrip, deliverGamificationRewards, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
 
-  // Foreground Smart Stop. The headless location task runs the same rule when
-  // the app is backgrounded/killed, while this timer covers an app left open on
-  // the map. Ten minutes below 3 km/h inside a 100 m area ends a free drive.
+  // Foreground Smart Stop. Ten stationary minutes pause the trip; movement on
+  // two reliable samples resumes it, and only 30 more minutes finalize it.
   useEffect(() => {
     const enabled = settings.smartStartEnabled && isPremium && isDriving && !isNavigating;
     if (!enabled) {
       smartStopStationarySinceRef.current = null;
       smartStopOriginRef.current = null;
+      smartStopPausedAtRef.current = null;
+      smartStopResumeFixesRef.current = 0;
       return;
     }
 
@@ -5037,11 +5030,24 @@ function MapScreenInner() {
       if (!isDrivingRef.current || isNavigatingRef.current) return;
       const speedKmh = Math.max(0, Number(speedKmhRef.current) || 0);
       const location = currentLocRef.current ?? userLocation;
-      if (!location || speedKmh >= 3 || (Number((location as any).accuracy) || 0) > 65) {
+      if (!location || (Number((location as any).accuracy) || 0) > 65) return;
+      if (speedKmh >= 3) {
+        if (smartStopPausedAtRef.current != null) {
+          smartStopResumeFixesRef.current += 1;
+          if (smartStopResumeFixesRef.current < 2) return;
+          Toast.show({
+            type: 'success',
+            text1: 'JAZDA WZNOWIONA',
+            text2: 'Kontynuujemy tę samą trasę i zachowujemy dystans.',
+          });
+        }
         smartStopStationarySinceRef.current = null;
         smartStopOriginRef.current = null;
+        smartStopPausedAtRef.current = null;
+        smartStopResumeFixesRef.current = 0;
         return;
       }
+      smartStopResumeFixesRef.current = 0;
 
       const point = { latitude: location.latitude, longitude: location.longitude };
       const origin = smartStopOriginRef.current;
@@ -5060,8 +5066,21 @@ function MapScreenInner() {
       smartStopStationarySinceRef.current = stationarySince;
       if (Date.now() - stationarySince < 10 * 60_000) return;
 
+      if (smartStopPausedAtRef.current == null) {
+        smartStopPausedAtRef.current = Date.now();
+        Toast.show({
+          type: 'info',
+          text1: 'SMART STOP: JAZDA WSTRZYMANA',
+          text2: 'Masz 30 minut na dalszą jazdę. Ruch wznowi tę samą trasę.',
+        });
+        return;
+      }
+      if (Date.now() - smartStopPausedAtRef.current < 30 * 60_000) return;
+
       smartStopStationarySinceRef.current = null;
       smartStopOriginRef.current = null;
+      smartStopPausedAtRef.current = null;
+      smartStopResumeFixesRef.current = 0;
       Toast.show({
         type: 'success',
         text1: 'JAZDA ZAKOŃCZONA AUTOMATYCZNIE',
@@ -5079,6 +5098,22 @@ function MapScreenInner() {
   const exportNavDriveTrace = useCallback(() => {
     void shareNavTraceLog();
   }, []);
+
+  const warnIfBackgroundTrackingUnavailable = useCallback(async () => {
+    if (!isPremium) return;
+    const readiness = await BackgroundDriveController.getReadiness();
+    if (readiness.ready) return;
+    Toast.show({
+      type: 'info',
+      text1: 'JAZDA DZIAŁA, ALE NIE W PEŁNYM TLE',
+      text2: readiness.reason === 'setting_disabled'
+        ? 'Włącz „Pracę w tle” w ustawieniach, aby liczyć trasę po zablokowaniu telefonu.'
+        : readiness.reason === 'background_permission'
+          ? 'Zezwól na lokalizację „Zawsze”, aby liczyć trasę po zablokowaniu telefonu.'
+          : 'Śledzenie po zamknięciu aplikacji nie jest teraz dostępne.',
+      visibilityTime: 6500,
+    });
+  }, [isPremium]);
 
   // Ręczny przełącznik trybu jazdy (przycisk w UI) — wejście natychmiastowe,
   // dopasowanie drogi dogrywane asynchronicznie w tle (bez "poczekaj").
@@ -5104,6 +5139,7 @@ function MapScreenInner() {
       exitDrivingMode({ reason: 'manual_toggle_off' });
       setFollowMode('idleBrowse');
     } else {
+      await warnIfBackgroundTrackingUnavailable();
       let nativeSeedFix: BackgroundDriveFix | null = null;
       if (!currentLocRef.current && !userLocation && !lastGoodLocRef.current && !lastSetLocRef.current) {
         try {
@@ -5353,7 +5389,7 @@ function MapScreenInner() {
 
       console.log('[DrivingMode] Manually entered — snap-first entry');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, setFollowMode, recenterTo, getMatchedPoints, bumpMatchedFreshness, mapMatchCoord, startTrip, recordDrivingTracePoint, applyRoadMatchPoints, resyncSnapAfterRoadGeometry, tripBootstrapPose, touchProgrammaticCameraApply, setTripCameraActive, cameraV3, getLocalSnapTarget]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, setFollowMode, recenterTo, getMatchedPoints, bumpMatchedFreshness, mapMatchCoord, startTrip, recordDrivingTracePoint, applyRoadMatchPoints, resyncSnapAfterRoadGeometry, tripBootstrapPose, touchProgrammaticCameraApply, setTripCameraActive, cameraV3, getLocalSnapTarget, warnIfBackgroundTrackingUnavailable]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -8954,6 +8990,60 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           tripSessionId: ledger?.tripSessionId ?? activeSessionId,
           maxAgeMs: NAV_SESSION_MAX_AGE_MS,
         });
+        const resumeRecoveredTrip = async () => {
+          if (!ledger) return;
+          await AsyncStorage.setItem(TRIP_SESSION_ID_KEY, ledger.tripSessionId);
+          passiveTripStartedRef.current = true;
+          restoreTripSnapshot(recovery ?? {
+            tripSessionId: ledger.tripSessionId,
+            distanceKm: ledger.distanceKm,
+            trackedPoints: ledger.routePoints,
+            speedSamples: ledger.speedSamples,
+            startTimeMs: new Date(ledger.startedAt).getTime(),
+            estimatedSec: routeDurationMinutesToSeconds(navSession?.routeInfo?.duration),
+            floorKm: ledger.distanceKm,
+            savedAt: ledger.updatedAt || Date.now(),
+          });
+          tripCheckpointActiveRef.current = true;
+          if (ledger.mode === 'navigation' && freshNavigation && navSession) {
+            setIsOffroadRoute(navSession.isOffroadRoute);
+            setStartLocation(navSession.startLocation);
+            setEndLocation(navSession.endLocation);
+            setNavStartLoc(navSession.navStartLoc ?? navSession.startLocation);
+            setRouteInfo(navSession.routeInfo);
+            setCurrentStep(navSession.currentStep);
+            currentStepRef.current = navSession.currentStep;
+            offroadLoadedPointsRef.current = navSession.offroadPoints;
+            if (navSession.routeSnapshot?.points?.length) {
+              setNavRouteOverride(navSession.routeSnapshot);
+              routePointsRef.current = navSession.routeSnapshot.points;
+              navV3.setRoutePolyline(navSession.routeSnapshot.points.map((point) => ({ lat: point.latitude, lng: point.longitude })));
+            }
+            isNavigatingRef.current = true;
+            isDrivingRef.current = false;
+            setIsNavigating(true);
+            setIsDriving(false);
+            await startDriveSession('navigation');
+          } else {
+            await AsyncStorage.removeItem(NAV_SESSION_KEY);
+            await setNavigatingFlag(false);
+            isNavigatingRef.current = false;
+            isDrivingRef.current = true;
+            setIsNavigating(false);
+            setIsDriving(true);
+            await startDriveSession('freeDrive');
+          }
+          setTripCameraActive(true);
+          setFollowMode('drivingFollow');
+          foregroundGpsIntentionallyStoppedRef.current = false;
+          startGPS();
+        };
+        let nativeMatchesOpenLedger = Boolean(
+          ledger?.active
+          && ledger.finalization.state === 'open'
+          && nativeState?.active === true
+          && nativeState.tripSessionId === ledger.tripSessionId
+        );
         if (
           ledger?.active
           && hadActiveFlag
@@ -8962,13 +9052,19 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         ) {
           // Older iOS binaries stopped Core Location after ten stationary
           // minutes. Keep the same ledger/session instead of finalizing it.
-          await BackgroundDriveController.start(ledger.mode, ledger.tripSessionId);
+          nativeMatchesOpenLedger = await BackgroundDriveController.start(ledger.mode, ledger.tripSessionId);
           vroomGpsLog('LEGACY_IOS_IDLE_RECOVERED', {
             tripSessionId: ledger.tripSessionId,
             distanceKm: Number((recovery?.distanceKm ?? ledger.distanceKm).toFixed(3)),
           }, 0);
         }
-        if (
+        if (nativeMatchesOpenLedger && ledger?.active && ledger.finalization.state === 'open') {
+          await resumeRecoveredTrip();
+          vroomGpsLog('ACTIVE_NATIVE_TRIP_RESUMED', {
+            tripSessionId: ledger.tripSessionId,
+            distanceKm: Number((recovery?.distanceKm ?? ledger.distanceKm).toFixed(3)),
+          }, 0);
+        } else if (
           ledger?.active
           && ledger.finalization.state === 'open'
           && !crashRecoveryPromptedRef.current
@@ -12546,6 +12642,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       : null;
     const pose = livePose ?? fallbackLoc;
     if (!pose) return;
+    void warnIfBackgroundTrackingUnavailable();
 
     // Nie wołaj pełnego exitDrivingMode (finishTrip + reset silnika) — to kasowało trip
     // i mogło crashować przy przejściu jazda → nawigacja.
@@ -12748,7 +12845,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     });
   }, [userLocation, routeInfo, navigationVoice.clearSessionDedupe, navigationVoice.enqueue, onNavigationStart, startTimer, setFollowMode,
       activeRoute, startGPS, navV3, driveMarker, readLiveTripPose, tripBootstrapPose,
-      startTrip, updateTripEstimate]);
+      startTrip, updateTripEstimate, warnIfBackgroundTrackingUnavailable]);
 
   // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
@@ -12894,6 +12991,67 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   const stopNavigationRef = useRef(stopNavigation);
   stopNavigationRef.current = stopNavigation;
 
+  const continueTripWithoutNavigation = useCallback(async (reason: 'drop_claimed' | 'native_free_drive') => {
+    if (!isNavigatingRef.current && isDrivingRef.current) return;
+    driveTraceSession('nav_end', { reason, tripContinues: true });
+    navigationBootstrapTokenRef.current += 1;
+    isNavigatingRef.current = false;
+    isDrivingRef.current = true;
+    setNavigationUiReady(false);
+    await continueDriveSessionAsFreeDrive().catch(() => {});
+
+    stopSimulation();
+    setIsSimulating(false);
+    setIsNavigating(false);
+    setIsDriving(true);
+    setTripCameraActive(true);
+    navV3.setRoutePolyline(null);
+    routePointsRef.current = [];
+    setOffRoute(false);
+    v3SnapToRouteSuppressedRef.current = false;
+    offRouteSinceRef.current = 0;
+    offRouteStreakRef.current = 0;
+    setArrived(false);
+    setNavStartLoc(null);
+    setNavRouteOverride(null);
+    setRerouteOrigin(null);
+    setDistToTurnM(null);
+    setRemainingDistKm(null);
+    remainingDurationMinRef.current = null;
+    setRemainingDurationMin(null);
+    lastRemainingRouteHeadRef.current = null;
+    lastManeuverDistanceRef.current = null;
+    notifThrottleRef.current = 0;
+    dismissNavigationNotification();
+    navigationVoice.stop();
+    clearTimeout(rerouteTimerRef.current);
+    clearDropNavigationTarget();
+    pendingDropAutoStartRef.current = false;
+    approachingRouteStartRef.current = false;
+    autoStartRouteAfterApproachRef.current = false;
+    endLocationRef.current = null;
+    setEndLocation(null);
+    setRouteInfo(null);
+    setRouteEndpointImages({});
+    if (userLocation) {
+      startIsMyLocationRef.current = true;
+      setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+    }
+    setFollowMode('drivingFollow');
+  }, [
+    clearDropNavigationTarget,
+    dismissNavigationNotification,
+    navV3,
+    navigationVoice.stop,
+    setFollowMode,
+    setTripCameraActive,
+    stopSimulation,
+    userLocation,
+  ]);
+
+  const continueTripWithoutNavigationRef = useRef(continueTripWithoutNavigation);
+  continueTripWithoutNavigationRef.current = continueTripWithoutNavigation;
+
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     let cancelled = false;
@@ -12909,7 +13067,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         if (cancelled) return;
 
         if (isNavigatingRef.current) {
-          await stopNavigationRef.current({ silent: true, clearRoute: true });
+          await continueTripWithoutNavigationRef.current('native_free_drive');
           vroomGpsLog('NAV_DROPPED_AFTER_TASK_REMOVED', {
             nativeMode: state.mode,
             hasLastFix: Boolean(state.lastFix),
@@ -12946,7 +13104,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         setDistToTurnM(null);
         setArrived(false);
         endLocationRef.current = null;
-        void stopNavigationRef.current({ silent: true, clearRoute: true });
+        void continueTripWithoutNavigationRef.current('drop_claimed');
       }
 
       purgeGamificationDrop(dropId);
@@ -13264,7 +13422,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   if (Platform.OS === 'web') {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg }}>
-        <Text style={{ color: theme.text, fontFamily: 'Orbitron' }}>Tylko mobilne</Text>
+        <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold' }}>Tylko mobilne</Text>
       </View>
     );
   }
@@ -13463,10 +13621,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           }}>
             <MaterialCommunityIcons name="map-marker-path" size={22} color="#fff" />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', letterSpacing: 2, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', letterSpacing: 1, fontWeight: '700' }}>
                 TWORZENIE TRASY
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff90', marginTop: 3 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff90', marginTop: 3 }}>
                 {pins.length === 0
                   ? 'Dotknij mapę aby dodać punkt startowy'
                   : pins.length === 1
@@ -13479,7 +13637,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               backgroundColor: '#ffffff25', borderRadius: 20,
               paddingHorizontal: 12, paddingVertical: 5, minWidth: 32, alignItems: 'center',
             }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '900' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: '#fff', fontWeight: '900' }}>
                 {pins.length}
               </Text>
             </View>
@@ -13961,7 +14119,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               ) : (
                 <MaterialIcons name="check" size={20} color="#fff" />
               )}
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', color: '#fff' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700', color: '#fff' }}>
                 Zatwierdź trasę
               </Text>
             </TouchableOpacity>
@@ -14030,8 +14188,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           >
             <MaterialCommunityIcons name="car-multiple" size={18} color="#FFD447" />
             <View style={{ flexShrink: 1 }}>
-              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 9, fontFamily: 'Orbitron', fontWeight: '900' }}>{activeConvoy.convoy.name}</Text>
-              <Text style={{ color: '#FFD447', fontSize: 8, marginTop: 2 }}>LIVE · {activeConvoy.participants.length}/50 · DOTKNIJ, ABY OTWORZYĆ</Text>
+              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '900' }}>{activeConvoy.convoy.name}</Text>
+              <Text style={{ color: '#FFD447', fontSize: 12, marginTop: 2 }}>LIVE · {activeConvoy.participants.length}/50 · DOTKNIJ, ABY OTWORZYĆ</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -14113,7 +14271,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                   paddingHorizontal: 10, paddingVertical: 6, marginBottom: 12,
                 }}>
                   <MaterialCommunityIcons name="terrain" size={14} color="#ff922b" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff922b', letterSpacing: 2 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ff922b', letterSpacing: 1 }}>
                     TRASA OFFROAD — LINIA PROSTA
                   </Text>
                 </View>
@@ -14164,7 +14322,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                     {!isOffroadRoute && previewLoading
                       ? <ActivityIndicator size="small" color="#e33835ce" style={{ marginTop: 2 }} />
                       : isOffroadRoute
-                        ? <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#ff922b', fontWeight: '700' }}>—</Text>
+                        ? <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: '#ff922b', fontWeight: '700' }}>—</Text>
                         : routeInfo
                           ? <Text style={styles.statValue}>{formatDuration(routeInfo.duration)}</Text>
                           : <Text style={[styles.statValue, { color: '#7f7f7f' }]}>--</Text>
@@ -14187,18 +14345,18 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                         borderColor: selectedRouteIndex === i ? '#e33835' : (isDark ? '#ffffff15' : '#00000015'),
                       }}
                     >
-                      <Text style={{ color: selectedRouteIndex === i ? '#e33835' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
+                      <Text style={{ color: selectedRouteIndex === i ? '#e33835' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>
                         TRASA {i + 1}
                       </Text>
-                      <Text style={{ color: selectedRouteIndex === i ? '#fff' : theme.textMuted, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', marginTop: 3 }}>
+                      <Text style={{ color: selectedRouteIndex === i ? '#fff' : theme.textMuted, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', marginTop: 3 }}>
                         {r.durationText}
                       </Text>
-                      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginTop: 2 }}>
+                      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 }}>
                         {r.distanceText}
                       </Text>
                       {i === 0 && (
                         <View style={{ marginTop: 4, backgroundColor: '#e3383520', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                          <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 7 }}>NAJSZYBSZA</Text>
+                          <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>NAJSZYBSZA</Text>
                         </View>
                       )}
                     </TouchableOpacity>

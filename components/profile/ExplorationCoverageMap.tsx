@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -41,7 +42,7 @@ export function ExplorationCoverageMap({ userId, height = 170, interactive = fal
   return <TouchableOpacity activeOpacity={interactive ? 0.86 : 1} disabled={!interactive || loading} onPress={error ? () => void refresh() : open} style={{ height, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: error ? '#ef4444' : theme.border, backgroundColor: isDark ? '#0b0b0d' : '#17171a', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
     <View style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.primarySoft, borderWidth: 1, borderColor: theme.primaryBorder }}><MaterialCommunityIcons name="map-marker-radius-outline" size={31} color={theme.primary} /></View>
     <Text style={{ color: theme.text, fontSize: 15, fontWeight: '900', marginTop: 10 }}>Mapa odkryć</Text>
-    <Text style={{ color: error ? '#ef4444' : theme.textMuted, fontSize: 11, fontWeight: '800', marginTop: 4, textAlign: 'center' }}>{error || label}</Text>
-    {loading ? <ActivityIndicator color={theme.primary} style={{ marginTop: 10 }} /> : interactive ? <View style={{ marginTop: 10, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: '#000000aa', borderWidth: 1, borderColor: theme.primaryBorder, flexDirection: 'row', alignItems: 'center', gap: 6 }}><MaterialCommunityIcons name="map-search-outline" size={16} color={theme.primary} /><Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{error ? 'SPRÓBUJ PONOWNIE' : 'OTWÓRZ MAPĘ'}</Text></View> : null}
+    <Text style={{ color: error ? '#ef4444' : theme.textMuted, fontSize: 12, fontWeight: '800', marginTop: 4, textAlign: 'center' }}>{error || label}</Text>
+    {loading ? <ActivityIndicator color={theme.primary} style={{ marginTop: 10 }} /> : interactive ? <View style={{ marginTop: 10, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: '#000000aa', borderWidth: 1, borderColor: theme.primaryBorder, flexDirection: 'row', alignItems: 'center', gap: 6 }}><MaterialCommunityIcons name="map-search-outline" size={16} color={theme.primary} /><Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>{error ? 'SPRÓBUJ PONOWNIE' : 'OTWÓRZ MAPĘ'}</Text></View> : null}
   </TouchableOpacity>;
 }

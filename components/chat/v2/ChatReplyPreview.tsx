@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { VROOM_RED } from './constants';
@@ -45,8 +46,8 @@ const styles = StyleSheet.create({
   },
   accent: { width: 3, borderRadius: 2, alignSelf: 'stretch' },
   content: { flex: 1 },
-  label: { fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 },
-  preview: { fontSize: 11 },
+  label: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', marginBottom: 2 },
+  preview: { fontSize: 12 },
   close: {
     width: 22,
     height: 22,

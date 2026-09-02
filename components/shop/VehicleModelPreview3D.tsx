@@ -1,11 +1,6 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  PanResponder,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, PanResponder, StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber/native';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -286,8 +281,8 @@ const styles = StyleSheet.create({
   },
   fallbackText: {
     color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 8,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     letterSpacing: 1,
     fontWeight: '800',
   },

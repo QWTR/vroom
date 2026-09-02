@@ -1,10 +1,6 @@
 import React from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -40,8 +36,8 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
         }}
       >
         <Text style={{
-          fontFamily: 'Orbitron',
-          fontSize: 9,
+          fontFamily: 'Manrope_600SemiBold',
+          fontSize: 12,
           color: theme.mapOverlayText,
           textAlign: 'center',
           letterSpacing: 0.5,
@@ -81,7 +77,7 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
             ANULUJ
           </Text>
         </TouchableOpacity>
@@ -95,7 +91,7 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.onPrimary, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700' }}>
             DODAJ
           </Text>
         </TouchableOpacity>

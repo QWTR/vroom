@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { COMMUNITY_ACCENTS } from './communityTheme';
@@ -43,7 +44,7 @@ export function DailyDuelHistorySection({ history, loading }: Props) {
     }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <MaterialCommunityIcons name="history" size={18} color={gold} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '800', letterSpacing: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '800', letterSpacing: 1 }}>
           ARCHIWUM POJEDYNKÓW
         </Text>
       </View>
@@ -51,7 +52,7 @@ export function DailyDuelHistorySection({ history, loading }: Props) {
       {loading ? (
         <ActivityIndicator color={gold} size="small" />
       ) : history.length === 0 ? (
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
           Brak zakończonych pojedynków.
         </Text>
       ) : (
@@ -77,23 +78,23 @@ export function DailyDuelHistorySection({ history, loading }: Props) {
                 gap: 4,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                 {formatDuelDay(item.duelDate)}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textMuted }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>
                 {carDisplayLabel(item.carA)} vs {carDisplayLabel(item.carB)}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: winnerColor, fontWeight: '800' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: winnerColor, fontWeight: '800' }}>
                 {isTie ? winnerLabel : `Zwycięzca: ${winnerLabel}`}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
                 A: {percentA}% ({formatDuelCount(votesA)}) · B: {percentB}% ({formatDuelCount(votesB)})
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                 Łącznie: {formatDuelCount(totalVotes)} głosów
               </Text>
               {item.myVoteCarId != null && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                   Twój głos: {item.myVoteCarId === item.carA.id ? 'A' : 'B'}
                 </Text>
               )}

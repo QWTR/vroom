@@ -1,6 +1,7 @@
 import { DeviceEventEmitter, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 import { API_URL } from '../constants/mapConfig';
 import type { DriveTelemetryPoint } from './driveTelemetry';
 
@@ -16,6 +17,15 @@ export type BackgroundDriveRuntimeState = {
   lastFixTimestampMs?: number;
   lastFixAgeMs?: number;
   retryAttempt?: number;
+};
+
+export type BackgroundDriveReadiness = {
+  ready: boolean;
+  settingEnabled: boolean;
+  foregroundPermission: string;
+  backgroundPermission: string;
+  nativeModuleAvailable: boolean;
+  reason: 'ready' | 'setting_disabled' | 'foreground_permission' | 'background_permission' | 'native_module_missing';
 };
 
 export type BackgroundDriveFix = {
@@ -188,6 +198,32 @@ async function dismissIosDriveNotification(): Promise<void> {
 }
 
 export const BackgroundDriveController = {
+  async getReadiness(): Promise<BackgroundDriveReadiness> {
+    const settingEnabled = (await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY).catch(() => null)) === 'true';
+    const [foreground, background] = await Promise.all([
+      Location.getForegroundPermissionsAsync().catch(() => ({ status: 'undetermined' } as any)),
+      Location.getBackgroundPermissionsAsync().catch(() => ({ status: 'undetermined' } as any)),
+    ]);
+    const nativeModuleAvailable = Boolean(nativeModule()?.startDriveTracking);
+    const reason = !settingEnabled
+      ? 'setting_disabled'
+      : foreground.status !== 'granted'
+        ? 'foreground_permission'
+        : background.status !== 'granted'
+          ? 'background_permission'
+          : !nativeModuleAvailable
+            ? 'native_module_missing'
+            : 'ready';
+    return {
+      ready: reason === 'ready',
+      settingEnabled,
+      foregroundPermission: foreground.status,
+      backgroundPermission: background.status,
+      nativeModuleAvailable,
+      reason,
+    };
+  },
+
   async start(mode: BackgroundDriveMode, tripSessionId?: string | null): Promise<boolean> {
     if ((await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY)) !== 'true') return false;
 

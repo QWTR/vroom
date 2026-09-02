@@ -1,8 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity,
-  RefreshControl, Alert, ActivityIndicator, ScrollView, Platform,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, RefreshControl, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
@@ -208,7 +206,7 @@ const PostCard = React.memo(({
               <PremiumName
                 user={post.author}
                 style={{
-                  fontFamily: 'Orbitron',
+                  fontFamily: 'Manrope_600SemiBold',
                   color: post.author.nickColor || theme.text,
                   fontSize: 13,
                   fontWeight: '700',
@@ -226,11 +224,11 @@ const PostCard = React.memo(({
                 paddingHorizontal: 7, paddingVertical: 3, flexShrink: 0,
               }}>
                 <MaterialIcons name="bolt" size={10} color={theme.primary} />
-                <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9 }}>{post.author.points}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>{post.author.points}</Text>
               </View>
             </View>
 
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 6, letterSpacing: 1 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 6, letterSpacing: 1 }}>
               {time}{editedSuffix}
             </Text>
 
@@ -241,7 +239,7 @@ const PostCard = React.memo(({
                 backgroundColor: isDark ? '#e3383520' : '#e3383510', paddingHorizontal: 8, paddingVertical: 3,
               }}>
                 <MaterialIcons name={categoryMeta.icon as any} size={10} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
+                <Text style={{ color: theme.primary, fontSize: 12, fontFamily: 'Manrope_600SemiBold' }}>{categoryMeta.label}</Text>
               </View>
               {isSystemNews && (
                 <View style={{
@@ -252,7 +250,7 @@ const PostCard = React.memo(({
                   paddingVertical: 3,
                 }}>
                   <MaterialIcons name="newspaper" size={10} color="#fff" />
-                  <Text style={{ color: '#fff', fontSize: 8, fontFamily: 'Orbitron', fontWeight: '700' }}>VROOM NEWS</Text>
+                  <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '700' }}>VROOM NEWS</Text>
                 </View>
               )}
             </View>
@@ -274,7 +272,7 @@ const PostCard = React.memo(({
                   ? <ActivityIndicator size="small" color={isFollowing ? theme.textDim : '#fff'} />
                   : (
                     <Text style={{
-                      fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700',
+                      fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700',
                       color: isFollowing ? theme.textDim : '#fff',
                     }}>
                       {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
@@ -332,7 +330,7 @@ const PostCard = React.memo(({
                   paddingVertical: 4,
                   marginBottom: 4,
                 }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 }}>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
                     {`ZRODLO: ${getSystemNewsSourceLabel(post)}`}
                   </Text>
                 </View>
@@ -379,7 +377,7 @@ const PostCard = React.memo(({
                 onPress={() => onComment(post)}
                 style={{ alignSelf: 'flex-start', marginHorizontal: 16, marginTop: -2 }}
               >
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                   CZYTAJ WIECEJ
                 </Text>
               </TouchableOpacity>
@@ -402,11 +400,11 @@ const PostCard = React.memo(({
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <MaterialCommunityIcons name="shield-crown" size={16} color="#e33835" />
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', flex: 1 }} numberOfLines={1}>
                     {clubInviteData.clubName}
                   </Text>
                 </View>
-                <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
+                <Text style={{ color: theme.textDim, fontSize: 12, marginBottom: 10 }}>
                   {clubInviteData.memberCount ? `Członków: ${clubInviteData.memberCount}` : 'Zaproszenie do klubu'}
                 </Text>
                 <TouchableOpacity
@@ -414,7 +412,7 @@ const PostCard = React.memo(({
                   onPress={handleJoinClub}
                   disabled={joiningClub}
                 >
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
                     {joiningClub ? 'DOŁĄCZANIE...' : 'DOŁĄCZ DO KLUBU'}
                   </Text>
                 </TouchableOpacity>
@@ -424,7 +422,7 @@ const PostCard = React.memo(({
               <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
                 {!!linkUrl && <LinkPreviewCard url={linkUrl} isMe={isOwn} theme={theme} />}
                 {!(post.photos?.length || post.videos?.length) && (
-                  <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim, marginTop: linkUrl ? 6 : 0 }}>
+                  <Text style={{ fontSize: 12, alignSelf: 'flex-end', color: theme.textDim, marginTop: linkUrl ? 6 : 0 }}>
                     {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 )}
@@ -435,7 +433,7 @@ const PostCard = React.memo(({
           {(post.photos?.length > 0 || post.videos?.length > 0) && (
             <View>
               <MediaGrid photos={post.photos ?? []} videos={post.videos ?? []} />
-              <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim, marginRight: 16, marginTop: 4 }}>
+              <Text style={{ fontSize: 12, alignSelf: 'flex-end', color: theme.textDim, marginRight: 16, marginTop: 4 }}>
                 {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
               </Text>
             </View>
@@ -456,7 +454,7 @@ const PostCard = React.memo(({
         {post.isReposted && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginHorizontal: 14, marginBottom: 8 }}>
             <MaterialCommunityIcons name="repeat" size={11} color="#4de926" />
-            <Text style={{ fontFamily: 'Orbitron', color: '#4de926', fontSize: 8, letterSpacing: 1 }}>ZREPOSTOWANE PRZEZ CIEBIE</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#4de926', fontSize: 12, letterSpacing: 1 }}>ZREPOSTOWANE PRZEZ CIEBIE</Text>
           </View>
         )}
 
@@ -634,8 +632,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
                 >
                   <Text style={{
                     color: active ? theme.primary : theme.textDim,
-                    fontSize: 10,
-                    fontFamily: 'Orbitron',
+                    fontSize: 12,
+                    fontFamily: 'Manrope_600SemiBold',
                     fontWeight: active ? '700' : '500',
                     letterSpacing: 0.3,
                   }}>

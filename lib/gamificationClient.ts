@@ -67,6 +67,8 @@ export type GeoDropHistoryItem = {
     label: string;
     previewUrl?: string | null;
   };
+  grantStatus: 'granted' | 'repaired' | 'requires_review' | 'not_applicable';
+  balanceAfter?: number | null;
 };
 
 export type GeoDropHistoryPage = {
@@ -314,6 +316,7 @@ export async function claimGeoDrop(
   wonReward?: GeoDropRewardPreview;
   rewardPool?: GeoDropRewardPreview[];
   rollSeed?: string | null;
+  wallet?: { nitroBalance: number };
 }> {
   try {
     const data = await apiRequest<Record<string, unknown>>(`/gamification/drops/${dropId}/claim`, {
@@ -336,6 +339,7 @@ export async function claimGeoDrop(
       wonReward?: GeoDropRewardPreview;
       rewardPool?: GeoDropRewardPreview[];
       rollSeed?: string | null;
+      wallet?: { nitroBalance: number };
     };
   } catch (error) {
     return {

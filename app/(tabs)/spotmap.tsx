@@ -1,10 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
-import {
-  View, Text, TouchableOpacity,
-  ActivityIndicator, ScrollView,
-} from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
 import { resolveStandardMapStyle, MAPBOX_STYLE_SATELLITE } from '../../constants/mapConfig';
@@ -169,8 +167,8 @@ export default function SpotMap() {
         <SpotCategorySpriteGenerator onReady={setCategorySprites} />
         <View style={{ alignItems: 'center', gap: 12, backgroundColor: theme.surface, borderRadius: 20, padding: 32, borderWidth: 1, borderColor: theme.border }}>
           <ActivityIndicator size="large" color="#e33835" />
-          <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 4, fontFamily: 'Orbitron' }}>Ładowanie mapy</Text>
-          <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Orbitron' }}>
+          <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 4, fontFamily: 'Manrope_600SemiBold' }}>Ładowanie mapy</Text>
+          <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Manrope_600SemiBold' }}>
             {!region ? 'Pobieranie lokalizacji...' : 'Przygotowywanie markerów...'}
           </Text>
         </View>
@@ -268,7 +266,7 @@ export default function SpotMap() {
               <View style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' }}>
                 <MaterialIcons name="radar" size={14} color="#e33835" />
               </View>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{maxDistance} km</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{maxDistance} km</Text>
               <MaterialIcons name="keyboard-arrow-down" size={16} color={theme.textDim} />
             </TouchableOpacity>
 
@@ -278,10 +276,10 @@ export default function SpotMap() {
               onPress={() => setListVisible(true)} activeOpacity={0.8}
             >
               <MaterialIcons name="format-list-bulleted" size={16} color="#e33835" />
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '600' }}>Spoty</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '600' }}>Spoty</Text>
               {visibleSpots.length > 0 && (
                 <View style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 }}>
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{visibleSpots.length}</Text>
+                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{visibleSpots.length}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -328,14 +326,14 @@ export default function SpotMap() {
                 onPress={clearCategories} activeOpacity={0.8}
               >
                 <MaterialIcons name="layers" size={13} color={activeCategories.length === 0 ? '#e33835' : theme.textDim} />
-                <Text style={{ color: activeCategories.length === 0 ? '#e33835' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                <Text style={{ color: activeCategories.length === 0 ? '#e33835' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                   WSZYSTKIE
                 </Text>
               </TouchableOpacity>
 
               {/* Divider OFFROAD */}
               <View style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700', letterSpacing: 2 }}>OFFROAD</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>OFFROAD</Text>
               </View>
 
               {OFFROAD_CATEGORIES.map(cat => {
@@ -352,14 +350,14 @@ export default function SpotMap() {
                     onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
                   >
                     <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
-                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{cat}</Text>
+                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{cat}</Text>
                   </TouchableOpacity>
                 );
               })}
 
               {/* Divider INNE */}
               <View style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700', letterSpacing: 2 }}>INNE</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>INNE</Text>
               </View>
 
               {CATEGORIES.filter(c => !OFFROAD_CATEGORIES.includes(c)).map(cat => {
@@ -376,7 +374,7 @@ export default function SpotMap() {
                     onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
                   >
                     <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
-                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{cat}</Text>
+                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{cat}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -397,7 +395,7 @@ export default function SpotMap() {
           <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialIcons name="touch-app" size={18} color="#e33835" />
           </View>
-          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 0.5 }}>
+          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5 }}>
             Dotknij mapę aby ustawić lokalizację
           </Text>
           <TouchableOpacity
@@ -446,7 +444,7 @@ export default function SpotMap() {
           <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialIcons name="add-location-alt" size={20} color="#fff" />
           </View>
-          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
+          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
             DODAJ SPOT
           </Text>
         </TouchableOpacity>

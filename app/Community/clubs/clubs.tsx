@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Alert,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
@@ -402,7 +400,7 @@ export default function ClubsScreen() {
                     backgroundColor: theme.primary,
                     alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.onPrimary, fontWeight: '700' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700' }}>
                       {inviteCount}
                     </Text>
                   </View>
@@ -431,7 +429,7 @@ export default function ClubsScreen() {
                 }}
               >
                 <MaterialIcons name="add" size={15} color={theme.onPrimary} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.onPrimary, fontWeight: '700' }}>NOWY</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700' }}>NOWY</Text>
               </TouchableOpacity>
             </View>
           }
@@ -451,7 +449,7 @@ export default function ClubsScreen() {
         activeOpacity={0.88}
       >
         <MaterialCommunityIcons name="shield-account" size={18} color="#e33835" />
-        <Text style={{ flex: 1, fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
+        <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
           MOJE KLUBY
         </Text>
         <View style={{
@@ -459,7 +457,7 @@ export default function ClubsScreen() {
           paddingHorizontal: 8, paddingVertical: 3,
           borderWidth: 1, borderColor: '#e3383540',
         }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '700' }}>
             {myOwnedClubs.length + myMemberClubs.length}
           </Text>
         </View>
@@ -479,8 +477,8 @@ export default function ClubsScreen() {
           ListHeaderComponent={(
             <View style={{ marginBottom: 10 }}>
               <Text style={{
-                fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim,
-                letterSpacing: 2, marginBottom: 8,
+                fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim,
+                letterSpacing: 1, marginBottom: 8,
               }}>
                 WSZYSTKIE KLUBY
               </Text>
@@ -502,7 +500,7 @@ export default function ClubsScreen() {
                       }}
                     >
                       <Text style={{
-                        fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
+                        fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700',
                         color: active ? '#fff' : theme.textDim,
                         letterSpacing: 0.5,
                       }}>
@@ -554,7 +552,7 @@ export default function ClubsScreen() {
           ListEmptyComponent={
             <View style={{ alignItems: 'center', marginTop: 80, gap: 14 }}>
               <MaterialCommunityIcons name="shield-crown-outline" size={52} color={theme.border3} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1 }}>
                 {search ? 'BRAK WYNIKÓW' : 'BRAK KLUBÓW'}
               </Text>
               {!search && (
@@ -573,7 +571,7 @@ export default function ClubsScreen() {
                   }}
                 >
                   <MaterialIcons name="add" size={15} color="#fff" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>
                     STWÓRZ PIERWSZY KLUB
                   </Text>
                 </TouchableOpacity>

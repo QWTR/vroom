@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, TouchableOpacity, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -47,7 +48,7 @@ export function VroomkiMessageCard({ data, isMe }: Props) {
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, paddingBottom: 6 }}>
         <MaterialIcons name="smart-display" size={14} color={theme.primary} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: isMe ? '#ffffff80' : theme.textDim, letterSpacing: 2, flex: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isMe ? '#ffffff80' : theme.textDim, letterSpacing: 1, flex: 1 }}>
           VROOMKI
         </Text>
       </View>
@@ -66,7 +67,7 @@ export function VroomkiMessageCard({ data, isMe }: Props) {
         </View>
       )}
       {!!data.authorUsername && (
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isMe ? '#ffffffcc' : theme.text, fontWeight: '700', marginHorizontal: 10, marginTop: 8 }} numberOfLines={1}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isMe ? '#ffffffcc' : theme.text, fontWeight: '700', marginHorizontal: 10, marginTop: 8 }} numberOfLines={1}>
           @{data.authorUsername}
         </Text>
       )}
@@ -77,7 +78,7 @@ export function VroomkiMessageCard({ data, isMe }: Props) {
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.primary, margin: 8, marginTop: 4, borderRadius: 10, paddingVertical: 9 }}>
         <MaterialIcons name="smart-display" size={13} color={theme.onPrimary} />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>OBEJRZYJ</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>OBEJRZYJ</Text>
       </View>
     </TouchableOpacity>
   );

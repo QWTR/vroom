@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, ActivityIndicator, StatusBar, Image,
-} from 'react-native';
+import { View, ScrollView, ActivityIndicator, StatusBar, Image } from 'react-native';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -101,8 +100,8 @@ export default function MeetTicketScreen() {
               }
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>ZATWIERDZONE AUTO</Text>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', marginTop: 4 }}>
+              <Text style={{ color: '#4de926', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>ZATWIERDZONE AUTO</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '700', marginTop: 4 }}>
                 {ticket.car.brand} {ticket.car.specs}
               </Text>
             </View>
@@ -116,7 +115,7 @@ export default function MeetTicketScreen() {
           <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 16 }}>
             <QRCode value={ticket.qrPayload} size={220} />
           </View>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, textAlign: 'center' }}>
+          <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, textAlign: 'center' }}>
             {isParticipant
               ? 'KOD UCZESTNIKA Z AUTEM — INNY NIŻ BILET GOŚCIA'
               : 'POKAŻ TEN KOD ORGANIZATOROWI NA MIEJSCU'}
@@ -156,8 +155,8 @@ export default function MeetTicketScreen() {
 function Row({ label, value, theme, accent }: { label: string; value: string; theme: any; accent?: string }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>{label}</Text>
-      <Text style={{ color: accent || theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', textAlign: 'right', flex: 1 }}>{value}</Text>
+      <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>{label}</Text>
+      <Text style={{ color: accent || theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', textAlign: 'right', flex: 1 }}>{value}</Text>
     </View>
   );
 }

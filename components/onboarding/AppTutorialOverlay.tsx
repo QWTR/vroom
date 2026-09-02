@@ -1,13 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  StyleSheet,
-  Animated,
-  AccessibilityInfo,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, StyleSheet, Animated, AccessibilityInfo } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -163,14 +156,14 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   progress: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#ffffff88',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   skip: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     color: '#ffffff66',
     letterSpacing: 1,
   },
@@ -196,10 +189,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 20,
     fontWeight: '900',
-    letterSpacing: 3,
+    letterSpacing: 1,
     textAlign: 'center',
     marginBottom: 14,
   },
@@ -238,8 +231,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnGhostText: {
-    fontFamily: 'Orbitron',
-    fontSize: 11,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
     letterSpacing: 1,
   },
   btnPrimary: {
@@ -251,10 +244,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnPrimaryText: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 12,
     fontWeight: '900',
     color: '#fff',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
 });

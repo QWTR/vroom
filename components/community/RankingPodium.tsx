@@ -1,12 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Animated,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { AccessibilityInfo, Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -288,16 +282,16 @@ const styles = StyleSheet.create({
   crown: { marginBottom: -2, textShadowColor: '#FFD44788', textShadowRadius: 10 },
   avatarRing: { alignItems: 'center', justifyContent: 'center', padding: 3.5 },
   avatar: { overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  initials: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' },
+  initials: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },
   positionBadge: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginTop: -14 },
-  positionBadgeText: { fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900' },
-  podiumName: { width: '100%', textAlign: 'center', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '800', marginTop: 8 },
-  winnerName: { fontSize: 10 },
-  podiumScore: { fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900', marginTop: 5, marginBottom: 10 },
-  podiumUnit: { fontSize: 8 },
+  positionBadgeText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' },
+  podiumName: { width: '100%', textAlign: 'center', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', marginTop: 8 },
+  winnerName: { fontSize: 12 },
+  podiumScore: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', marginTop: 5, marginBottom: 10 },
+  podiumUnit: { fontSize: 12 },
   tower: { borderWidth: 1, borderBottomWidth: 0, borderTopLeftRadius: 13, borderTopRightRadius: 13, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', shadowOpacity: 0.35, shadowRadius: 12, elevation: 7 },
-  towerNumber: { fontFamily: 'Orbitron', fontSize: 30, fontWeight: '900', opacity: 0.95 },
-  towerLabel: { color: '#FFFFFFB8', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '800', letterSpacing: 0.7, marginTop: 2 },
+  towerNumber: { fontFamily: 'Manrope_600SemiBold', fontSize: 30, fontWeight: '900', opacity: 0.95 },
+  towerLabel: { color: '#FFFFFFB8', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 0.7, marginTop: 2 },
   skeletonShell: { marginHorizontal: 16, height: 300, borderWidth: 1, borderRadius: 24, flexDirection: 'row', alignItems: 'flex-end', gap: 7, paddingHorizontal: 10 },
   skeletonPlace: { flex: 1, alignItems: 'center' },
   skeletonAvatar: { width: 54, height: 54, borderRadius: 27, marginBottom: 10 },
@@ -305,14 +299,14 @@ const styles = StyleSheet.create({
   skeletonTower: { width: '94%', borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   row: { borderWidth: 1, borderRadius: 15, paddingVertical: 11, paddingHorizontal: 11, marginBottom: 9, flexDirection: 'row', alignItems: 'center', gap: 10, shadowOpacity: 0.12, shadowRadius: 9, elevation: 2 },
   rowPositionBox: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  rowPosition: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' },
+  rowPosition: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900' },
   rowMain: { flex: 1, minWidth: 0 },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  username: { flexShrink: 1, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '800' },
+  username: { flexShrink: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800' },
   premiumPill: { borderRadius: 7, borderWidth: 1, borderColor: '#FFD70040', backgroundColor: '#FFD70018', paddingHorizontal: 5, paddingVertical: 2 },
-  premiumText: { fontFamily: 'Orbitron', fontSize: 6, color: '#FFD700', fontWeight: '800' },
-  sub: { fontSize: 11, marginTop: 4 },
+  premiumText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '800' },
+  sub: { fontSize: 12, marginTop: 4 },
   scoreBox: { alignItems: 'flex-end', minWidth: 58 },
-  score: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' },
-  scoreUnit: { fontSize: 9, marginTop: 2, textTransform: 'uppercase' },
+  score: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },
+  scoreUnit: { fontSize: 12, marginTop: 2, textTransform: 'uppercase' },
 });

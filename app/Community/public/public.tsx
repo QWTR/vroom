@@ -3,7 +3,7 @@ import {
   View, FlatList, TouchableOpacity,
   Image, StatusBar, Platform, Modal, Pressable, Dimensions,
 } from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { AppText as Text } from '../../../components/ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -619,7 +619,7 @@ export default function PublicChatScreen() {
               ? <Image source={{ uri: u.avatarUrl }} style={{ width: 24, height: 24, borderRadius: 12 }} />
               : (
                 <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>{u.username.slice(0, 1).toUpperCase()}</Text>
+                  <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{u.username.slice(0, 1).toUpperCase()}</Text>
                 </View>
               )
           ) : (
@@ -752,7 +752,7 @@ export default function PublicChatScreen() {
           <Pressable onPress={e => e.stopPropagation()}>
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border, alignSelf: 'center', marginBottom: 14 }} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, letterSpacing: 1.5, paddingHorizontal: 20, marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, letterSpacing: 1, paddingHorizontal: 20, marginBottom: 8 }}>
                 POWIADOMIENIA CZATU
               </Text>
               {([
@@ -772,8 +772,8 @@ export default function PublicChatScreen() {
                 >
                   <MaterialIcons name={opt.icon as any} size={20} color={notifMode === opt.mode ? theme.primary : theme.textDim} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>{opt.title.toUpperCase()}</Text>
-                    <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 2 }}>{opt.desc}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>{opt.title.toUpperCase()}</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>{opt.desc}</Text>
                   </View>
                   {notifMode === opt.mode && <MaterialIcons name="check" size={18} color={theme.primary} />}
                 </TouchableOpacity>

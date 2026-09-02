@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 
@@ -30,7 +31,7 @@ export function ChatTypingIndicator({ text, position = 'composer' }: Props) {
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  headerText: { fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' },
+  headerText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontStyle: 'italic' },
   composerBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -42,5 +43,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  composerText: { fontFamily: 'Orbitron', fontSize: 9 },
+  composerText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12 },
 });

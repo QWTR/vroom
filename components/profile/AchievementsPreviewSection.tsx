@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { Achievement } from '../../hooks/useAchievements';
 import {
@@ -27,7 +28,7 @@ interface Props {
 }
 
 function profileLabel(t: ProfileSurface) {
-  return { fontFamily: 'Orbitron' as const, fontSize: 10, color: t.textDim, letterSpacing: 1.5 };
+  return { fontFamily: 'Manrope_600SemiBold' as const, fontSize: 12, color: t.textDim, letterSpacing: 1 };
 }
 
 function glassCard(t: ProfileSurface, extra?: Record<string, unknown>) {
@@ -64,12 +65,12 @@ function RarityDivider({
         borderColor: meta.border,
         backgroundColor: surfaceTheme.bg ?? '#090909',
       }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2, color: meta.color }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, color: meta.color }}>
           {meta.label}
         </Text>
       </View>
       <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: meta.color }}>{count}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: meta.color }}>{count}</Text>
     </View>
   );
 }
@@ -77,7 +78,7 @@ function RarityDivider({
 function EmptyState({ text, surfaceTheme }: { text: string; surfaceTheme: ProfileSurface }) {
   return (
     <View style={{ ...glassCard(surfaceTheme, { alignItems: 'center', paddingVertical: 24 }) }}>
-      <Text style={{ fontFamily: 'Orbitron', color: surfaceTheme.textDim, fontSize: 10, letterSpacing: 1.5 }}>{text}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: surfaceTheme.textDim, fontSize: 12, letterSpacing: 1 }}>{text}</Text>
     </View>
   );
 }

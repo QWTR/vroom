@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useState } from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { normalizeMediaUri } from '../../lib/mediaUri';
@@ -124,7 +125,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
             numberOfLines={1}
             style={{
               color: data.premiumVisual?.nickColor ?? '#ffffff',
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: '700',
               textAlign: 'center',
               letterSpacing: 0.3,
@@ -152,7 +153,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
             <Text
               style={{
                 color: accent,
-                fontSize: 8,
+                fontSize: 12,
                 fontWeight: '700',
                 textAlign: 'center',
                 letterSpacing: 0.5,

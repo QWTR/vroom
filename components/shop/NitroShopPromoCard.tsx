@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -94,19 +95,19 @@ const styles = StyleSheet.create({
   },
   copy: { flex: 1 },
   kicker: {
-    fontFamily: 'Orbitron',
-    fontSize: 7,
-    letterSpacing: 2.5,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 12,
+    letterSpacing: 1,
     fontWeight: '800',
     marginBottom: 3,
   },
   title: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
-  sub: { fontSize: 11, marginTop: 4, lineHeight: 15 },
+  sub: { fontSize: 12, marginTop: 4, lineHeight: 16 },
   right: { alignItems: 'flex-end', gap: 6 },
   balanceChip: {
     flexDirection: 'row',

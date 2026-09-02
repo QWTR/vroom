@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity, ScrollView,
-  StatusBar,
-} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Modal, View, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import ColorPicker from 'react-native-wheel-color-picker';
 import { useTheme } from '../../contexts/ThemeContext';
-import { AppTheme } from '../../constants/theme';
+import { AppTheme, normalizeAccessibleTheme } from '../../constants/theme';
 
 interface Props {
   visible: boolean;
@@ -104,6 +102,15 @@ const GROUPS: { title: string; keys: ColorKey[] }[] = [
 export function CustomThemeEditor({ visible, onClose }: Props) {
   const { theme, customTheme, setCustomColor, resetCustomTheme } = useTheme();
   const insets = useSafeAreaInsets();
+  const accessibleCustomTheme = useMemo(() => normalizeAccessibleTheme(customTheme), [customTheme]);
+  const correctedColorCount = useMemo(() => GROUPS
+    .flatMap(group => group.keys)
+    .filter(({ key }) => {
+      const requested = customTheme[key];
+      const rendered = accessibleCustomTheme[key];
+      return typeof requested === 'string' && typeof rendered === 'string'
+        && requested.toLowerCase() !== rendered.toLowerCase();
+    }).length, [accessibleCustomTheme, customTheme]);
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [activeKey,     setActiveKey]     = useState<keyof AppTheme | null>(null);
@@ -137,7 +144,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
           }}>
             <MaterialIcons name="palette" size={20} color={theme.primary} />
           </View>
-          <Text style={{ flex: 1, fontFamily: 'Orbitron', fontSize: 14, color: theme.text, letterSpacing: 2 }}>
+          <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, letterSpacing: 1 }}>
             WŁASNY MOTYW
           </Text>
           <TouchableOpacity
@@ -151,12 +158,35 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
 
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
 
+          <View style={{
+            flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+            backgroundColor: theme.surface, borderRadius: 14, padding: 14,
+            borderWidth: 1.5, borderColor: correctedColorCount > 0 ? theme.focusRing : theme.controlBorder,
+            marginBottom: 22,
+          }}>
+            <MaterialIcons
+              name={correctedColorCount > 0 ? 'visibility' : 'verified'}
+              size={24}
+              color={correctedColorCount > 0 ? theme.focusRing : theme.success}
+            />
+            <View style={{ flex: 1 }}>
+              <Text variant="label" style={{ color: theme.text }}>
+                {correctedColorCount > 0
+                  ? `Skorygowano ${correctedColorCount} ${correctedColorCount === 1 ? 'kolor' : 'kolory'}`
+                  : 'Kontrast motywu jest czytelny'}
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.textMuted, marginTop: 4 }}>
+                VROOM zachowuje Twój wybór, ale podczas wyświetlania może rozjaśnić lub przyciemnić tekst, ikony i obramowania, aby pozostały czytelne.
+              </Text>
+            </View>
+          </View>
+
           {GROUPS.map(group => (
             <View key={group.title} style={{ marginBottom: 24 }}>
               {/* Tytuł sekcji */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <View style={{ flex: 1, height: 1, backgroundColor: theme.border2 }} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 3 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                   {group.title}
                 </Text>
                 <View style={{ flex: 1, height: 1, backgroundColor: theme.border2 }} />
@@ -167,36 +197,47 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
                 backgroundColor: theme.surface, borderRadius: 14,
                 borderWidth: 1, borderColor: theme.border2, overflow: 'hidden',
               }}>
-                {group.keys.map((item, idx) => (
-                  <TouchableOpacity
-                    key={item.key}
-                    onPress={() => openPicker(item.key)}
-                    activeOpacity={0.7}
-                    style={[{
-                      flexDirection: 'row', alignItems: 'center',
-                      paddingHorizontal: 16, paddingVertical: 14, gap: 14,
-                    }, idx > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}
-                  >
+                {group.keys.map((item, idx) => {
+                  const requestedColor = customTheme[item.key] as string;
+                  const renderedColor = accessibleCustomTheme[item.key] as string;
+                  const wasCorrected = requestedColor.toLowerCase() !== renderedColor.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      onPress={() => openPicker(item.key)}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`${item.label}, wybrany kolor ${requestedColor}${wasCorrected ? `, wyświetlany jako ${renderedColor} dla lepszego kontrastu` : ''}`}
+                      style={[{
+                        flexDirection: 'row', alignItems: 'center', minHeight: 64,
+                        paddingHorizontal: 16, paddingVertical: 12, gap: 14,
+                      }, idx > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}
+                    >
                     {/* Swatch */}
                     <View style={{
                       width: 34, height: 34, borderRadius: 10,
-                      backgroundColor: customTheme[item.key] as string,
+                      backgroundColor: requestedColor,
                       borderWidth: 2, borderColor: theme.border3,
                     }} />
 
                     {/* Nazwa */}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
                         {item.label}
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2, letterSpacing: 1 }}>
-                        {(customTheme[item.key] as string).toUpperCase()}
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2, letterSpacing: 1 }}>
+                        {requestedColor.toUpperCase()}
                       </Text>
+                      {wasCorrected ? (
+                        <Text variant="caption" style={{ color: theme.primaryText, marginTop: 3 }}>
+                          Wyświetlany jako {renderedColor.toUpperCase()} dla czytelności
+                        </Text>
+                      ) : null}
                     </View>
 
-                    <MaterialIcons name="chevron-right" size={16} color={theme.textDim} />
-                  </TouchableOpacity>
-                ))}
+                    <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           ))}
@@ -212,7 +253,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
             }}
           >
             <MaterialIcons name="refresh" size={18} color={theme.danger} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.danger, letterSpacing: 2 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.danger, letterSpacing: 1 }}>
               RESETUJ DO DOMYŚLNYCH
             </Text>
           </TouchableOpacity>
@@ -234,10 +275,10 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
               {/* Tytuł */}
               <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginBottom: 20 }}>
                 <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: tempColor, borderWidth: 2, borderColor: theme.border3, marginRight: 12 }} />
-                <Text style={{ flex: 1, fontFamily: 'Orbitron', fontSize: 12, color: theme.text, letterSpacing: 1 }}>
+                <Text style={{ flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, letterSpacing: 1 }}>
                   {activeKey ? GROUPS.flatMap(g => g.keys).find(k => k.key === activeKey)?.label.toUpperCase() : ''}
                 </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                   {tempColor.toUpperCase()}
                 </Text>
               </View>
@@ -263,7 +304,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
                   }}
                   onPress={() => setPickerVisible(false)}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim }}>ANULUJ</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>ANULUJ</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{
@@ -272,7 +313,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
                   }}
                   onPress={confirmColor}
                 >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>
                     ZASTOSUJ
                   </Text>
                 </TouchableOpacity>

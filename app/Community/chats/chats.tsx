@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  StatusBar, RefreshControl, ActivityIndicator, Modal,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, StatusBar, RefreshControl, ActivityIndicator, Modal } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -221,7 +219,7 @@ export default function ChatsIndex() {
         }}>
           <Feather name="search" size={16} color={theme.textDim} />
           <TextInput
-            style={{ flex: 1, color: theme.text, fontSize: 13, fontFamily: 'Orbitron' }}
+            style={{ flex: 1, color: theme.text, fontSize: 13, fontFamily: 'Manrope_600SemiBold' }}
             value={search}
             onChangeText={setSearch}
             placeholder="Szukaj konwersacji..."
@@ -249,7 +247,7 @@ export default function ChatsIndex() {
               >
                 <Text style={{
                   color: active ? theme.primary : theme.textDim,
-                  fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 0.5, fontWeight: '700',
+                  fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5, fontWeight: '700',
                 }}>
                   {s.label}
                 </Text>
@@ -305,7 +303,7 @@ export default function ChatsIndex() {
       >
         <View style={{ flex: 1, backgroundColor: '#00000088', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <View style={{ width: '100%', maxWidth: 360, backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border2, padding: 18, gap: 14 }}>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 0.8 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.8 }}>
               BŁĄD ŁADOWANIA CZATÓW
             </Text>
             <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }}>
@@ -316,7 +314,7 @@ export default function ChatsIndex() {
                 style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.border2, backgroundColor: theme.surface2 }}
                 onPress={() => setErrorModalVisible(false)}
               >
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ZAMKNIJ</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZAMKNIJ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.primary }}
@@ -329,7 +327,7 @@ export default function ChatsIndex() {
                   }
                 }}
               >
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
                   {authError ? 'ZALOGUJ PONOWNIE' : 'SPRÓBUJ PONOWNIE'}
                 </Text>
               </TouchableOpacity>

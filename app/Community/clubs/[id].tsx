@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import {
-  View, Text, FlatList, TextInput, TouchableOpacity,
-  Image, ActivityIndicator, KeyboardAvoidingView, Keyboard,
-  Platform, Modal, Pressable, ScrollView, Dimensions, Alert,
-} from 'react-native';
+import { View, FlatList, TouchableOpacity, Image, ActivityIndicator, KeyboardAvoidingView, Keyboard, Platform, Modal, Pressable, ScrollView, Dimensions, Alert } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -527,7 +524,7 @@ export default function ClubChatScreen() {
           <View>
             <Text style={{ color: theme.text, fontSize: 12 }}>@{u.tag}</Text>
             {u.kind === 'province' && (
-              <Text style={{ color: theme.textDim, fontSize: 9 }}>{u.label}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12 }}>{u.label}</Text>
             )}
           </View>
         </TouchableOpacity>
@@ -707,11 +704,11 @@ export default function ClubChatScreen() {
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialCommunityIcons name="shield-crown" size={14} color={theme.primary} />
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                   {clubName}
                 </Text>
               </View>
-              <Text style={{ color: theme.textDim, fontSize: 9, fontFamily: 'Orbitron', marginTop: 3 }}>
+              <Text style={{ color: theme.textDim, fontSize: 12, fontFamily: 'Manrope_600SemiBold', marginTop: 3 }}>
                 {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRanks.length > 0 ? myRanks.map(rank => rank.name).join(' · ').toUpperCase() : 'CZAT KLUBU'}
               </Text>
             </View>
@@ -772,7 +769,7 @@ export default function ClubChatScreen() {
           >
             <MaterialIcons name="menu" size={18} color={theme.primary} />
             <MaterialCommunityIcons name="pound" size={15} color={theme.textDim} />
-            <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+            <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               {channels.find((c: any) => c.id === activeChannelId)?.name ?? 'Wybierz kanał'}
             </Text>
             {!!channels.find((c: any) => c.id === activeChannelId)?.isReadOnly && <MaterialIcons name="lock" size={14} color={theme.gold} />}
@@ -795,14 +792,14 @@ export default function ClubChatScreen() {
           <View style={{ flex: 1 }}>
             {showPinned && pinned.length > 0 && (
               <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 4 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', letterSpacing: 1, marginBottom: 4 }}>
                   📌 PRZYPIĘTE ({pinned.length})
                 </Text>
                 {pinned.map(p => (
                   <View key={p.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                     <UAv uri={p.sender.avatarUrl} name={p.sender.username} size={22} user={p.sender as any} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>{p.sender.username}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '700' }}>{p.sender.username}</Text>
                       <Text style={{ color: theme.textMuted, fontSize: 12 }} numberOfLines={1}>{p.content || '📷 Zdjęcie'}</Text>
                     </View>
                     {canPin && (
@@ -842,7 +839,7 @@ export default function ClubChatScreen() {
         {channels.find((c: any) => c.id === activeChannelId)?.isReadOnly && !canWriteReadOnly ? (
           <View style={{ margin: 10, borderRadius: 12, borderWidth: 1, borderColor: `${theme.gold}55`, backgroundColor: `${theme.gold}12`, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
             <MaterialIcons name="lock" size={17} color={theme.gold} />
-            <Text style={{ flex: 1, color: theme.textDim, fontSize: 11 }}>Ten kanał jest tylko do odczytu. Wiadomości mogą wysyłać właściciel i uprawnione role.</Text>
+            <Text style={{ flex: 1, color: theme.textDim, fontSize: 12 }}>Ten kanał jest tylko do odczytu. Wiadomości mogą wysyłać właściciel i uprawnione role.</Text>
           </View>
         ) : (
           <ChatComposer
@@ -886,15 +883,15 @@ export default function ClubChatScreen() {
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginVertical: 12 }} />
               <View style={{ paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '800' }}>{clubName}</Text>
-                  <Text style={{ color: theme.textDim, fontSize: 9, marginTop: 2 }}>KANAŁY KLUBU</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800' }}>{clubName}</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 2 }}>KANAŁY KLUBU</Text>
                 </View>
                 <TouchableOpacity onPress={() => setChannelsOpen(false)}><MaterialIcons name="close" size={20} color={theme.textDim} /></TouchableOpacity>
               </View>
               <ScrollView contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 16 }}>
                 {categorySections.map((cat: any) => (
                   <View key={cat.id} style={{ marginBottom: 12 }}>
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2, paddingHorizontal: 8, marginBottom: 5 }}>{cat.name.toUpperCase()}</Text>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, paddingHorizontal: 8, marginBottom: 5 }}>{cat.name.toUpperCase()}</Text>
                     {cat.channels.map((ch: any) => {
                       const active = ch.id === activeChannelId;
                       return (
@@ -933,13 +930,13 @@ export default function ClubChatScreen() {
             <View style={{ height: '82%', backgroundColor: sidebarBg, borderTopLeftRadius: 26, borderTopRightRadius: 26, borderTopWidth: 1, borderColor: theme.border2, paddingBottom: Math.max(insets.bottom, 14), overflow: 'hidden' }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginVertical: 12 }} />
               <View style={{ paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '800' }}>CZŁONKOWIE · {members.length}</Text>
+                <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800' }}>CZŁONKOWIE · {members.length}</Text>
                 <TouchableOpacity onPress={() => setMembersOpen(false)}><MaterialIcons name="close" size={20} color={theme.textDim} /></TouchableOpacity>
               </View>
               <ScrollView contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 16 }}>
                 {[{ title: 'WŁAŚCICIEL', data: ownerGroup }, ...rankSections, { title: 'CZŁONKOWIE', data: memberGroup }].map(section => section.data.length > 0 && (
                   <View key={section.title} style={{ marginBottom: 12 }}>
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2, paddingHorizontal: 8, marginBottom: 5 }}>{section.title} · {section.data.length}</Text>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, paddingHorizontal: 8, marginBottom: 5 }}>{section.title} · {section.data.length}</Text>
                     {section.data.map((m: any) => (
                       <TouchableOpacity
                         key={m.id}
@@ -950,10 +947,10 @@ export default function ClubChatScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{m.username}</Text>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                            {m.role === 'owner' && <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7 }}>OWNER</Text>}
+                            {m.role === 'owner' && <Text style={{ color: theme.primary, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>OWNER</Text>}
                             {memberRanks(m).map((rank: any) => (
                               <View key={rank.id} style={{ borderRadius: 999, borderWidth: 1, borderColor: `${rank.color}66`, backgroundColor: `${rank.color}18`, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                <Text style={{ color: rank.color, fontSize: 9 }}>{rank.name}</Text>
+                                <Text style={{ color: rank.color, fontSize: 12 }}>{rank.name}</Text>
                               </View>
                             ))}
                           </View>
@@ -1023,10 +1020,10 @@ export default function ClubChatScreen() {
           <Pressable onPress={e => e.stopPropagation()}>
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: shareSheetPadding, borderTopWidth: 1, borderColor: theme.border2 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, marginBottom: 4 }}>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginBottom: 4 }}>
                 UDOSTĘPNIJ KLUB W DYSKUSJACH
               </Text>
-              <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
+              <Text style={{ color: theme.textDim, fontSize: 12, marginBottom: 10 }}>
                 Dodaj opcjonalny tekst do zaproszenia.
               </Text>
 
@@ -1056,7 +1053,7 @@ export default function ClubChatScreen() {
                   onPress={() => setShareVisible(false)}
                   disabled={sharing}
                 >
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>ANULUJ</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>ANULUJ</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#e3383560', backgroundColor: '#e33835', alignItems: 'center', paddingVertical: 11 }}
@@ -1066,7 +1063,7 @@ export default function ClubChatScreen() {
                   {sharing ? (
                     <ActivityIndicator size={14} color="#fff" />
                   ) : (
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>UDOSTĘPNIJ</Text>
+                    <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>UDOSTĘPNIJ</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -1084,20 +1081,20 @@ export default function ClubChatScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <UAv uri={memberModal?.avatarUrl} name={memberModal?.username ?? '?'} size={36} user={memberModal ? ({ id: memberModal.userId, ...memberModal } as any) : null} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>{memberModal?.username}</Text>
+                  <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{memberModal?.username}</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
-                    {memberModal && memberRanks(memberModal).map((rank: any) => <Text key={rank.id} style={{ color: rank.color, fontSize: 10 }}>{rank.name}</Text>)}
+                    {memberModal && memberRanks(memberModal).map((rank: any) => <Text key={rank.id} style={{ color: rank.color, fontSize: 12 }}>{rank.name}</Text>)}
                   </View>
                 </View>
               </View>
 
               <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => { if (memberModal) router.push(`/profile/${memberModal.userId}` as any); setMemberModal(null); }}>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11 }}>Wyświetl profil</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Wyświetl profil</Text>
               </TouchableOpacity>
 
               {myRole === 'owner' && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
                 <View style={{ marginTop: 6, marginBottom: 8 }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginBottom: 6 }}>ROLE · WYBIERZ WIELE</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginBottom: 6 }}>ROLE · WYBIERZ WIELE</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {(clubData?.ranks ?? []).map((r: any) => (
                       <TouchableOpacity
@@ -1105,12 +1102,12 @@ export default function ClubChatScreen() {
                         onPress={() => setSelectedRankIds(prev => prev.includes(r.id) ? prev.filter(id => id !== r.id) : [...prev, r.id])}
                         style={{ borderWidth: 1, borderColor: r.color, backgroundColor: selectedRankIds.includes(r.id) ? `${r.color}30` : 'transparent', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}
                       >
-                        <Text style={{ color: r.color, fontSize: 11 }}>{r.name}</Text>
+                        <Text style={{ color: r.color, fontSize: 12 }}>{r.name}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                   <TouchableOpacity onPress={assignRanks} style={{ marginTop: 10, borderRadius: 10, backgroundColor: theme.primary, paddingVertical: 10, alignItems: 'center' }}>
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>ZAPISZ ROLE</Text>
+                    <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>ZAPISZ ROLE</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1119,12 +1116,12 @@ export default function ClubChatScreen() {
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                   {canMute && (
                     <TouchableOpacity onPress={toggleMute} style={{ flex: 1, borderWidth: 1, borderColor: '#ff922b55', backgroundColor: '#ff922b18', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
-                      <Text style={{ color: '#ff922b', fontFamily: 'Orbitron', fontSize: 10 }}>{memberModal?.isMuted ? 'Odcisz' : 'Wycisz'}</Text>
+                      <Text style={{ color: '#ff922b', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{memberModal?.isMuted ? 'Odcisz' : 'Wycisz'}</Text>
                     </TouchableOpacity>
                   )}
                   {canKick && (
                     <TouchableOpacity onPress={kickMember} style={{ flex: 1, borderWidth: 1, borderColor: '#e3383555', backgroundColor: '#e3383518', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
-                      <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 10 }}>Wyrzuć</Text>
+                      <Text style={{ color: '#e33835', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Wyrzuć</Text>
                     </TouchableOpacity>
                   )}
                 </View>

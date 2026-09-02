@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, Image, Animated, Easing } from 'react-native';
+import { Modal, View, TouchableOpacity, Image, Animated, Easing } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../../constants/config';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
@@ -169,7 +170,7 @@ export const UserInfoModal = memo(
                   <Text style={[styles.userInfoName, showPremiumTheme && { color: accentColor }]}>{user.name}</Text>
                   {showPremiumTheme && (
                     <View style={{ backgroundColor: `${accentColor}18`, borderRadius: 10, borderWidth: 1, borderColor: `${accentColor}40`, paddingHorizontal: 7, paddingVertical: 2 }}>
-                      <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 8 }}>PREMIUM</Text>
+                      <Text style={{ color: '#FFD700', fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>PREMIUM</Text>
                     </View>
                   )}
                 </View>
@@ -239,8 +240,8 @@ export const UserInfoModal = memo(
               >
                 <MaterialIcons name="chat" size={20} color={theme.primary} />
                 <Text style={{
-                  fontFamily: 'Orbitron', color: theme.primary,
-                  fontSize: 10, fontWeight: '700', letterSpacing: 1,
+                  fontFamily: 'Manrope_600SemiBold', color: theme.primary,
+                  fontSize: 12, fontWeight: '700', letterSpacing: 1,
                 }}>
                   NAPISZ
                 </Text>
@@ -261,8 +262,8 @@ export const UserInfoModal = memo(
             >
               <MaterialIcons name="person" size={18} color={theme.textMuted} />
               <Text style={{
-                fontFamily: 'Orbitron', color: theme.textMuted,
-                fontSize: 10, fontWeight: '700', letterSpacing: 1,
+                fontFamily: 'Manrope_600SemiBold', color: theme.textMuted,
+                fontSize: 12, fontWeight: '700', letterSpacing: 1,
               }}>
                 PROFIL
               </Text>

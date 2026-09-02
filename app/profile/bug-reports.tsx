@@ -1,7 +1,6 @@
 import React, { useCallback, useState, useRef } from 'react';
-import {
-  View, Text, TouchableOpacity, FlatList, RefreshControl, ActivityIndicator,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, RefreshControl, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -92,7 +91,7 @@ export default function BugReportsListScreen() {
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
           <MaterialIcons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, marginLeft: 8, flex: 1 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, marginLeft: 8, flex: 1 }}>
           MOJE ZGŁOSZENIA
         </Text>
       </View>
@@ -103,7 +102,7 @@ export default function BugReportsListScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e33835" />}
         contentContainerStyle={{ paddingHorizontal: '5%', paddingBottom: 40 }}
         ListEmptyComponent={
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.textDim, textAlign: 'center', marginTop: 40 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center', marginTop: 40 }}>
             Brak zgłoszeń. Utwórz je w Ustawienia → Zgłoś błąd.
           </Text>
         }
@@ -120,22 +119,22 @@ export default function BugReportsListScreen() {
             }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#e33835' }}>#{item.id}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835' }}>#{item.id}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                 {STATUS_LABEL[item.status] ?? item.status}
               </Text>
             </View>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, marginTop: 6 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 6 }}>
               {item.category?.toUpperCase()} · {item.messageCount} wiadomości
             </Text>
             {!!item.lastMessagePreview && (
-              <Text numberOfLines={2} style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, marginTop: 8 }}>
+              <Text numberOfLines={2} style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, marginTop: 8 }}>
                 {item.lastMessagePreview}
               </Text>
             )}
             {item.hasUnreadFromStaff && (
               <View style={{ marginTop: 8, alignSelf: 'flex-start', backgroundColor: '#2196F322', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#2196F3' }}>NOWA ODPOWIEDŹ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#2196F3' }}>NOWA ODPOWIEDŹ</Text>
               </View>
             )}
           </TouchableOpacity>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
@@ -8,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
 import { withAlpha } from '../../constants/theme';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 type Spotlight = {
   season: { id: string; number: number; name: string; description?: string | null; imageUrl?: string | null; endsAt: string } | null;
@@ -52,6 +54,10 @@ async function fetchSpotlight(): Promise<Spotlight | null> {
 export function SeasonSpotlightCard({ active = true, compact = false, style }: { active?: boolean; compact?: boolean; style?: StyleProp<ViewStyle> }) {
   const router = useRouter();
   const { theme } = useTheme();
+  const { textScale } = useReadability();
+  const { fontScale } = useWindowDimensions();
+  const effectiveScale = Math.min(2, textScale * fontScale);
+  const expandedLayout = effectiveScale >= 1.2;
   const [data, setData] = useState<Spotlight | null>(memorySpotlight);
   const [loading, setLoading] = useState(!memorySpotlight);
   const [now, setNow] = useState(Date.now());
@@ -87,26 +93,36 @@ export function SeasonSpotlightCard({ active = true, compact = false, style }: {
       accessibilityRole="button"
       accessibilityLabel={`Otwórz szczegóły sezonu ${season.name}`}
       onPress={() => router.push('/seasons/current' as any)}
-      style={[compact ? styles.compactCard : styles.card, { borderColor: withAlpha(theme.primary, '66'), backgroundColor: theme.surface }, style]}
+      style={[
+        compact ? styles.compactCard : styles.card,
+        {
+          borderColor: withAlpha(theme.primary, '66'),
+          backgroundColor: theme.surface,
+          minHeight: compact
+            ? Math.round(102 + Math.max(0, effectiveScale - 1) * 105)
+            : Math.round(190 + Math.max(0, effectiveScale - 1) * 135),
+        },
+        style,
+      ]}
     >
       {image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFillObject} contentFit="cover" transition={180} cachePolicy="memory-disk" /> : <LinearGradient colors={[withAlpha(theme.primary, '46'), theme.surface, '#080808']} style={StyleSheet.absoluteFillObject} />}
       <LinearGradient colors={compact ? ['rgba(0,0,0,.2)', 'rgba(0,0,0,.92)'] : ['rgba(0,0,0,.05)', 'rgba(0,0,0,.48)', 'rgba(0,0,0,.96)']} style={StyleSheet.absoluteFillObject} />
       <View style={compact ? styles.compactContent : styles.content}>
-        <View style={styles.topRow}>
+        <View style={[styles.topRow, expandedLayout && styles.topRowExpanded]}>
           <View style={styles.livePill}><View style={styles.liveDot} /><Text style={styles.liveText}>SEZON {season.number} TRWA</Text></View>
           <Text style={styles.countdown}>{remainingLabel(season.endsAt, now)}</Text>
         </View>
-        <View style={styles.bottomRow}>
+        <View style={[styles.bottomRow, expandedLayout && styles.bottomRowExpanded]}>
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={[compact ? styles.compactTitle : styles.title, { color: '#fff' }]}>{season.name}</Text>
-            {!compact && <Text numberOfLines={2} style={styles.description}>{season.description || 'Rywalizuj, zdobywaj osiągnięcia i walcz o nagrody.'}</Text>}
+            <Text numberOfLines={expandedLayout ? undefined : 1} style={[compact ? styles.compactTitle : styles.title, { color: '#fff' }]}>{season.name}</Text>
+            {!compact && <Text numberOfLines={expandedLayout ? undefined : 2} style={styles.description}>{season.description || 'Rywalizuj, zdobywaj osiągnięcia i walcz o nagrody.'}</Text>}
             <View style={styles.metaRow}>
               <Text style={styles.meta}>{Number(data.stats?.points || 0).toLocaleString('pl-PL')} PKT</Text>
               <Text style={styles.meta}>{data.rewardCount || 0} NAGRÓD</Text>
               <Text style={styles.meta}>{data.achievementCount || 0} ODZNAK</Text>
             </View>
           </View>
-          <View style={[compact ? styles.arrow : styles.detailsButton, { backgroundColor: theme.primary }]}>
+          <View style={[compact ? styles.arrow : styles.detailsButton, expandedLayout && styles.detailsButtonExpanded, { backgroundColor: theme.primary }]}>
             {!compact && <Text style={styles.detailsButtonText}>INFO O SEZONIE</Text>}
             <MaterialCommunityIcons name="arrow-right" size={18} color="#fff" />
           </View>
@@ -118,22 +134,25 @@ export function SeasonSpotlightCard({ active = true, compact = false, style }: {
 
 const styles = StyleSheet.create({
   loading: { height: 174, marginHorizontal: 20, marginBottom: 20, borderWidth: 1, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  card: { height: 190, marginHorizontal: 20, marginBottom: 22, borderWidth: 1, borderRadius: 24, overflow: 'hidden' },
-  compactCard: { height: 102, marginHorizontal: 16, marginTop: 10, marginBottom: 8, borderWidth: 1, borderRadius: 17, overflow: 'hidden' },
+  card: { minHeight: 190, marginHorizontal: 20, marginBottom: 22, borderWidth: 1, borderRadius: 24, overflow: 'hidden' },
+  compactCard: { minHeight: 102, marginHorizontal: 16, marginTop: 10, marginBottom: 8, borderWidth: 1, borderRadius: 17, overflow: 'hidden' },
   content: { flex: 1, padding: 15, justifyContent: 'space-between' },
   compactContent: { flex: 1, padding: 11, justifyContent: 'space-between' },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  topRowExpanded: { flexWrap: 'wrap', alignItems: 'flex-start' },
   livePill: { minHeight: 24, paddingHorizontal: 9, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,.72)' },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4de926' },
-  liveText: { color: '#fff', fontFamily: 'Orbitron', fontSize: 6.5, fontWeight: '900', letterSpacing: .7 },
-  countdown: { color: '#FFD447', fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900', letterSpacing: .5 },
+  liveText: { color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: .7 },
+  countdown: { color: '#FFD447', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: .5 },
   bottomRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
-  title: { fontFamily: 'Orbitron', fontSize: 20, fontWeight: '900' },
-  compactTitle: { fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' },
-  description: { color: 'rgba(255,255,255,.68)', fontFamily: 'Satoshi', fontSize: 11, lineHeight: 15, marginTop: 5, maxWidth: 520 },
+  bottomRowExpanded: { flexDirection: 'column', alignItems: 'stretch', gap: 10 },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 20, fontWeight: '900' },
+  compactTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },
+  description: { color: 'rgba(255,255,255,.68)', fontFamily: 'Satoshi', fontSize: 12, lineHeight: 16, marginTop: 5, maxWidth: 520 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
-  meta: { color: 'rgba(255,255,255,.58)', fontFamily: 'Orbitron', fontSize: 6.5, fontWeight: '800', letterSpacing: .45 },
+  meta: { color: 'rgba(255,255,255,.58)', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: .45 },
   arrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   detailsButton: { minHeight: 38, paddingHorizontal: 12, borderRadius: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
-  detailsButtonText: { color: '#fff', fontFamily: 'Orbitron', fontSize: 6.5, fontWeight: '900', letterSpacing: .55 },
+  detailsButtonExpanded: { alignSelf: 'flex-end', minHeight: 48, paddingHorizontal: 16 },
+  detailsButtonText: { color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: .55 },
 });

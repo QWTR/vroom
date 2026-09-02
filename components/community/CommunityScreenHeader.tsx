@@ -1,9 +1,11 @@
 import React, { ReactNode } from 'react';
-import { View, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import { View, TouchableOpacity, Platform, StatusBar, useWindowDimensions } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 interface Props {
   title: string;
@@ -30,6 +32,9 @@ export function CommunityScreenHeader({
 }: Props) {
   const router = useRouter();
   const { theme } = useTheme();
+  const { textScale } = useReadability();
+  const { fontScale } = useWindowDimensions();
+  const expandedLayout = Math.min(2, textScale * fontScale) >= 1.2;
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'ios'
     ? insets.top + 8
@@ -52,17 +57,17 @@ export function CommunityScreenHeader({
       {showBack && breadcrumb ? (
         <TouchableOpacity
           onPress={handleBack}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}
+          style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <MaterialIcons name="arrow-back" size={18} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
             {breadcrumb}
           </Text>
         </TouchableOpacity>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View style={{ flexDirection: 'row', flexWrap: expandedLayout ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: expandedLayout ? 12 : 0 }}>
         {center ?? (
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {accentDot && (
@@ -70,22 +75,22 @@ export function CommunityScreenHeader({
             )}
             <View style={{ flex: 1 }}>
               <Text style={{
-                fontFamily: 'Orbitron',
+                fontFamily: 'Manrope_600SemiBold',
                 color: theme.text,
                 fontSize: 16,
-                letterSpacing: 2,
+                letterSpacing: 1,
                 fontWeight: '800',
-              }} numberOfLines={1}>
+              }} numberOfLines={expandedLayout ? undefined : 1}>
                 {title}
               </Text>
               {subtitleNode ?? (subtitle ? (
                 <Text style={{
-                  fontFamily: 'Orbitron',
+                  fontFamily: 'Manrope_600SemiBold',
                   color: theme.textDim,
-                  fontSize: 8,
+                  fontSize: 12,
                   letterSpacing: 1,
                   marginTop: 3,
-                }} numberOfLines={1}>
+                }} numberOfLines={expandedLayout ? undefined : 1}>
                   {subtitle}
                 </Text>
               ) : null)}

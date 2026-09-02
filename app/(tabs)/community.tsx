@@ -1,12 +1,6 @@
 import React, { type ComponentProps, type ReactNode } from 'react';
-import {
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import Feather from '@expo/vector-icons/Feather';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,6 +13,7 @@ import { useAppAnimations } from '../../hooks/useAppAnimations';
 import { useDailyDuel } from '../../hooks/useDailyDuel';
 import { DailyDuelHero } from '../../components/community';
 import { useTabScrollBottomPadding } from '../../lib/screenHeaderInsets';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
 type MciName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -39,8 +34,8 @@ function SectionHeading({
         <MaterialCommunityIcons name={icon} size={15} color={theme.primary} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
-        {!!subtitle && <Text style={[styles.sectionSubtitle, { color: theme.textDim }]}>{subtitle}</Text>}
+        <Text variant="h3" style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
+        {!!subtitle && <Text variant="bodySmall" style={[styles.sectionSubtitle, { color: theme.textMuted }]}>{subtitle}</Text>}
       </View>
       <View style={[styles.sectionLine, { backgroundColor: theme.primaryBorder }]} />
     </View>
@@ -50,7 +45,7 @@ function SectionHeading({
 function Arrow({ theme }: { theme: AppTheme }) {
   return (
     <View style={[styles.arrowCircle, { backgroundColor: theme.primaryBg }]}>
-      <Feather name="arrow-up-right" size={16} color={theme.primary} />
+      <Feather name="arrow-up-right" size={22} color={theme.primaryText} />
     </View>
   );
 }
@@ -94,13 +89,13 @@ function MiniCard({
         </View>
         {!!tag && (
           <View style={[styles.tag, { backgroundColor: theme.primary }]}>
-            <Text style={styles.tagText}>{tag}</Text>
+            <Text variant="micro" contrastBackground={theme.primary} style={[styles.tagText, { color: theme.onPrimary }]}>{tag}</Text>
           </View>
         )}
       </View>
-      <Text style={[styles.miniTitle, { color: theme.text }]}>{title}</Text>
-      <Text numberOfLines={2} style={[styles.miniDescription, { color: theme.textDim }]}>{description}</Text>
-      <Feather name="arrow-up-right" size={16} color={theme.primary} style={styles.miniArrow} />
+      <Text variant="h3" style={[styles.miniTitle, { color: theme.text }]}>{title}</Text>
+      <Text variant="bodySmall" style={[styles.miniDescription, { color: theme.textMuted }]}>{description}</Text>
+      <Feather name="arrow-up-right" size={21} color={theme.primaryText} style={styles.miniArrow} />
     </TouchableOpacity>
   );
 }
@@ -141,12 +136,12 @@ function WideCard({
         style={StyleSheet.absoluteFillObject}
       />
       <View style={[styles.wideIcon, { backgroundColor: theme.primary, shadowColor: theme.primary }]}>
-        <MaterialCommunityIcons name={icon} size={27} color="#fff" />
+        <MaterialCommunityIcons name={icon} size={27} color={theme.onPrimary} />
       </View>
       <View style={styles.wideCopy}>
-        {!!eyebrow && <Text style={[styles.wideEyebrow, { color: theme.primary }]}>{eyebrow}</Text>}
-        <Text style={[styles.wideTitle, { color: theme.text }]}>{title}</Text>
-        <Text style={[styles.wideDescription, { color: theme.textMuted }]}>{description}</Text>
+        {!!eyebrow && <Text variant="label" style={[styles.wideEyebrow, { color: theme.primaryText }]}>{eyebrow}</Text>}
+        <Text variant="h3" style={[styles.wideTitle, { color: theme.text }]}>{title}</Text>
+        <Text variant="bodySmall" style={[styles.wideDescription, { color: theme.textMuted }]}>{description}</Text>
         {children}
       </View>
       <Arrow theme={theme} />
@@ -185,7 +180,7 @@ function ChatShortcut({
           <Text style={[styles.chatShortcutTitle, { color: theme.text }]}>{title}</Text>
           {live && <View style={[styles.liveDot, { backgroundColor: theme.online }]} />}
         </View>
-        <Text numberOfLines={1} style={[styles.chatShortcutSubtitle, { color: theme.textDim }]}>{subtitle}</Text>
+        <Text variant="bodySmall" style={[styles.chatShortcutSubtitle, { color: theme.textMuted }]}>{subtitle}</Text>
       </View>
       <Feather name="chevron-right" size={16} color={theme.textDim} />
     </TouchableOpacity>
@@ -200,6 +195,9 @@ export default function Community() {
   const duelVsAnimation = pickAppAnimationForValue(animations, 'community_daily_duel_vs');
   const insets = useSafeAreaInsets();
   const tabScrollBottomPad = useTabScrollBottomPadding(20);
+  const { textScale } = useReadability();
+  const { width, fontScale } = useWindowDimensions();
+  const stackCards = width < 390 || textScale > 1 || fontScale > 1.15;
   const { duel, loading: duelLoading } = useDailyDuel(30000, {
     includeHistory: false,
     includeSubmission: false,
@@ -229,15 +227,15 @@ export default function Community() {
           <View style={styles.heroTopRow}>
             <View style={[styles.heroBadge, { backgroundColor: theme.primaryBg, borderColor: theme.primaryBorder }]}>
               <MaterialCommunityIcons name="account-group" size={15} color={theme.primary} />
-              <Text style={[styles.heroBadgeText, { color: theme.primary }]}>VROOM SOCIAL</Text>
+              <Text variant="micro" style={[styles.heroBadgeText, { color: theme.primaryText }]}>VROOM SOCIAL</Text>
             </View>
             <View style={styles.onlinePill}>
               <View style={[styles.onlineDot, { backgroundColor: theme.online }]} />
               <Text style={[styles.onlineText, { color: theme.textMuted }]}>RAZEM W DRODZE</Text>
             </View>
           </View>
-          <Text style={[styles.heroTitle, { color: theme.text }]}>SPOŁECZNOŚĆ</Text>
-          <Text style={[styles.heroSubtitle, { color: theme.textMuted }]}>Rozmawiaj, publikuj i spotykaj ludzi, którzy żyją motoryzacją.</Text>
+          <Text variant="h1" style={[styles.heroTitle, { color: theme.text }]}>Społeczność</Text>
+          <Text variant="body" style={[styles.heroSubtitle, { color: theme.textMuted }]}>Rozmawiaj, publikuj i spotykaj ludzi, którzy żyją motoryzacją.</Text>
         </View>
 
         <SectionHeading icon="sword-cross" title="DZISIAJ" subtitle="Oddaj głos w pojedynku dnia" theme={theme} />
@@ -268,12 +266,12 @@ export default function Community() {
             style={styles.chatPrimary}
           >
             <View style={[styles.chatPrimaryIcon, { backgroundColor: theme.primary, shadowColor: theme.primary }]}>
-              <MaterialCommunityIcons name="message-text" size={27} color="#fff" />
+              <MaterialCommunityIcons name="message-text" size={27} color={theme.onPrimary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.chatEyebrow, { color: theme.primary }]}>TWOJE ROZMOWY</Text>
-              <Text style={[styles.chatTitle, { color: theme.text }]}>Wiadomości</Text>
-              <Text style={[styles.chatDescription, { color: theme.textMuted }]}>Znajomi, prywatne rozmowy i grupy.</Text>
+              <Text variant="label" style={[styles.chatEyebrow, { color: theme.primaryText }]}>Twoje rozmowy</Text>
+              <Text variant="h2" style={[styles.chatTitle, { color: theme.text }]}>Wiadomości</Text>
+              <Text variant="bodySmall" style={[styles.chatDescription, { color: theme.textMuted }]}>Znajomi, prywatne rozmowy i grupy.</Text>
             </View>
             <Arrow theme={theme} />
           </TouchableOpacity>
@@ -308,7 +306,7 @@ export default function Community() {
             isDark={isDark}
             onPress={() => go('/Community/community/community')}
           />
-          <View style={styles.twoColumns}>
+          <View style={[styles.twoColumns, stackCards && styles.stackedCards]}>
             <MiniCard
               title="VROOMKI"
               description="Krótkie filmy kierowców."
@@ -331,7 +329,7 @@ export default function Community() {
         </View>
 
         <SectionHeading icon="map-marker-radius-outline" title="SPOTKAJ SIĘ I RYWALIZUJ" subtitle="Wydarzenia, punkty i rankingi" theme={theme} />
-        <View style={[styles.twoColumns, styles.sectionContent]}>
+        <View style={[styles.twoColumns, stackCards && styles.stackedCards, styles.sectionContent]}>
           <MiniCard
             title="WYDARZENIA"
             description="Meety i zloty w okolicy."
@@ -375,47 +373,48 @@ const styles = StyleSheet.create({
   heroOrbSmall: { position: 'absolute', width: 150, height: 150, borderRadius: 75, borderWidth: 1, right: -18, top: -45 },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   heroBadge: { minHeight: 32, borderRadius: 16, borderWidth: 1, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  heroBadgeText: { fontFamily: 'Orbitron', fontSize: 7, fontWeight: '900', letterSpacing: 1.2 },
+  heroBadgeText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6 },
   onlinePill: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   onlineDot: { width: 7, height: 7, borderRadius: 4 },
-  onlineText: { fontFamily: 'Orbitron', fontSize: 6.5, fontWeight: '800', letterSpacing: 0.9 },
-  heroTitle: { fontFamily: 'Orbitron', fontSize: 27, fontWeight: '900', letterSpacing: 2.3 },
-  heroSubtitle: { maxWidth: 330, fontSize: 12, lineHeight: 18, marginTop: 8 },
+  onlineText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 0.9 },
+  heroTitle: { fontSize: 28, fontWeight: '800', letterSpacing: 0 },
+  heroSubtitle: { maxWidth: 360, fontSize: 16, lineHeight: 24, marginTop: 8 },
   sectionHeading: { paddingHorizontal: 18, marginTop: 24, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 9 },
   sectionIcon: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  sectionTitle: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
-  sectionSubtitle: { fontSize: 8.5, marginTop: 3 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.2 },
+  sectionSubtitle: { fontSize: 14, lineHeight: 21, marginTop: 3 },
   sectionLine: { width: 36, height: 1 },
   arrowCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   chatHub: { marginHorizontal: 16, borderRadius: 26, borderWidth: 1, overflow: 'hidden', padding: 14, marginBottom: 4 },
   chatPrimary: { minHeight: 104, flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 3, paddingVertical: 6 },
   chatPrimaryIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.28, shadowRadius: 12, elevation: 6 },
-  chatEyebrow: { fontFamily: 'Orbitron', fontSize: 6.5, fontWeight: '900', letterSpacing: 1.2, marginBottom: 4 },
+  chatEyebrow: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
   chatTitle: { fontSize: 20, fontWeight: '900' },
-  chatDescription: { fontSize: 10, marginTop: 4 },
+  chatDescription: { fontSize: 14, lineHeight: 21, marginTop: 4 },
   chatDivider: { height: 1, marginVertical: 10 },
   chatShortcutRow: { gap: 9 },
-  chatShortcut: { minHeight: 62, borderRadius: 17, borderWidth: 1, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  chatShortcut: { minHeight: 72, borderRadius: 17, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
   chatShortcutIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   chatShortcutTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  chatShortcutTitle: { fontSize: 11, fontWeight: '900' },
-  chatShortcutSubtitle: { fontSize: 8.5, marginTop: 2 },
+  chatShortcutTitle: { fontSize: 16, fontWeight: '700' },
+  chatShortcutSubtitle: { fontSize: 14, lineHeight: 21, marginTop: 2 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   contentBlock: { paddingHorizontal: 16, gap: 10 },
   sectionContent: { paddingHorizontal: 16 },
   twoColumns: { flexDirection: 'row', gap: 10 },
+  stackedCards: { flexDirection: 'column' },
   wideCard: { minHeight: 132, borderRadius: 23, borderWidth: 1, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 13, overflow: 'hidden' },
   wideIcon: { width: 50, height: 50, borderRadius: 17, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.25, shadowRadius: 10, elevation: 5 },
   wideCopy: { flex: 1 },
-  wideEyebrow: { fontFamily: 'Orbitron', fontSize: 6, fontWeight: '900', letterSpacing: 1.1, marginBottom: 4 },
-  wideTitle: { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
-  wideDescription: { fontSize: 9.5, lineHeight: 14, marginTop: 5 },
-  miniCard: { flex: 1, minWidth: 0, height: 154, borderRadius: 22, borderWidth: 1, padding: 14, overflow: 'hidden' },
+  wideEyebrow: { fontSize: 14, fontWeight: '700', letterSpacing: 0.4, marginBottom: 4 },
+  wideTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0 },
+  wideDescription: { fontSize: 14, lineHeight: 21, marginTop: 5 },
+  miniCard: { flex: 1, minWidth: 0, minHeight: 184, borderRadius: 22, borderWidth: 1, padding: 16, paddingBottom: 48, overflow: 'hidden' },
   miniTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 11 },
   miniIcon: { width: 42, height: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  tag: { minHeight: 20, borderRadius: 10, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
-  tagText: { color: '#fff', fontFamily: 'Orbitron', fontSize: 5.5, fontWeight: '900', letterSpacing: 0.6 },
-  miniTitle: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
-  miniDescription: { fontSize: 8.5, lineHeight: 12, marginTop: 5, paddingRight: 12 },
+  tag: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4, alignItems: 'center', justifyContent: 'center' },
+  tagText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  miniTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0 },
+  miniDescription: { fontSize: 14, lineHeight: 21, marginTop: 6, paddingRight: 12 },
   miniArrow: { position: 'absolute', right: 13, bottom: 13 },
 });

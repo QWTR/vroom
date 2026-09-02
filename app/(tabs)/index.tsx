@@ -17,8 +17,9 @@ import {
 	RefreshControl,
 	Animated,
 	InteractionManager,
+	useWindowDimensions,
 } from "react-native";
-import { Text } from "@react-navigation/elements";
+import { AppText as Text } from "../../components/ui/AppText";
 import { LinearGradient } from "expo-linear-gradient";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -51,6 +52,7 @@ import { StreakUnlockFx } from "../../components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabScrollBottomPadding } from "../../lib/screenHeaderInsets";
 import { allowNotificationCenterEntry } from "../../lib/notifications/notificationCenterAccess";
+import { useReadability } from "../../contexts/ReadabilityContext";
 
 const { width, height } = Dimensions.get("window");
 const HOME_HERO_HEIGHT = Math.min(height * 0.47, 430);
@@ -123,6 +125,10 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
+	const { textScale } = useReadability();
+	const { fontScale } = useWindowDimensions();
+	const effectiveTextScale = Math.min(2, textScale * fontScale);
+	const homeHeroHeight = HOME_HERO_HEIGHT + Math.round(Math.max(0, effectiveTextScale - 1) * 250);
 	const insets = useSafeAreaInsets();
 	const tabScrollBottomPad = useTabScrollBottomPadding(16);
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
@@ -478,10 +484,10 @@ export default function HomeScreen() {
 				</Animated.View>
 				<Text
 					style={{
-						fontFamily: "Orbitron",
+						fontFamily: "Manrope_600SemiBold",
 						fontSize: 28,
 						color: t.primary,
-						letterSpacing: 10,
+						letterSpacing: 1,
 						fontWeight: "900",
 					}}>
 					VROOM
@@ -520,7 +526,7 @@ export default function HomeScreen() {
 				{/* ══════════════════════════════════════════════ */}
 				<View
 					style={{
-						height: HOME_HERO_HEIGHT,
+						minHeight: homeHeroHeight,
 						position: "relative",
 					}}>
 					{/* Tło hero — overflow tylko na dekoracjach, nie na pasku z avatarem */}
@@ -596,7 +602,7 @@ export default function HomeScreen() {
 									position: "absolute",
 									left: 0,
 									right: 0,
-									top: i * (HOME_HERO_HEIGHT / 12),
+									top: i * (homeHeroHeight / 12),
 									height: 1,
 									backgroundColor: chrome.scanLine,
 								}}
@@ -636,11 +642,11 @@ export default function HomeScreen() {
 							</View>
 							<Text
 								style={{
-									fontFamily: "Orbitron",
+									fontFamily: "Manrope_600SemiBold",
 									fontSize: 16,
 									color: t.text,
 									fontWeight: "900",
-									letterSpacing: 4,
+									letterSpacing: 1,
 								}}>
 								VROOM
 							</Text>
@@ -722,7 +728,7 @@ export default function HomeScreen() {
 											justifyContent: "center",
 											paddingHorizontal: 4,
 										}}>
-											<Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" }}>
+											<Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
 												{notifUnread > 99 ? "99+" : notifUnread}
 											</Text>
 										</View>
@@ -755,8 +761,8 @@ export default function HomeScreen() {
 								<Text
 									numberOfLines={1}
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontFamily: "Manrope_600SemiBold",
+										fontSize: 12,
 										color: "#4de926",
 										fontWeight: "700",
 										letterSpacing: 1,
@@ -788,7 +794,7 @@ export default function HomeScreen() {
 								) : (
 									<Text
 										style={{
-											fontFamily: "Orbitron",
+											fontFamily: "Manrope_600SemiBold",
 											fontSize: 14,
 											color: t.primary,
 											fontWeight: "900",
@@ -812,9 +818,9 @@ export default function HomeScreen() {
 						}}>
 						<Text
 							style={{
-								fontSize: 9,
+								fontSize: 12,
 								color: t.textDim,
-								letterSpacing: 4,
+								letterSpacing: 1,
 								marginBottom: 6,
 								textTransform: "uppercase",
 							}}>
@@ -823,11 +829,11 @@ export default function HomeScreen() {
 
 						<Text
 							style={{
-								fontFamily: "Orbitron",
+								fontFamily: "Manrope_600SemiBold",
 								fontSize: Math.min(42, width * 0.1),
 								color: t.text,
 								fontWeight: "900",
-								letterSpacing: -1,
+								letterSpacing: -0.2,
 								lineHeight: Math.min(48, width * 0.115),
 							}}
 							numberOfLines={2}>
@@ -856,7 +862,7 @@ export default function HomeScreen() {
 								/>
 								<Text
 									style={{
-										fontSize: 10,
+										fontSize: 12,
 										color: t.textDim,
 									}}>
 									{user.mainCar.brand} · {user.mainCar.specs}
@@ -877,7 +883,7 @@ export default function HomeScreen() {
 								<MaterialIcons name="leaderboard" size={14} color={t.primary} />
 								<Text
 									style={{
-										fontFamily: "Orbitron",
+										fontFamily: "Manrope_600SemiBold",
 										fontSize: 22,
 										color: statNumColor,
 										fontWeight: "900",
@@ -886,9 +892,9 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontSize: 8,
+										fontSize: 12,
 										color: t.textDim,
-										letterSpacing: 2,
+										letterSpacing: 1,
 										textTransform: "uppercase",
 									}}>
 									Pozycja
@@ -899,7 +905,7 @@ export default function HomeScreen() {
 								<MaterialIcons name="stars" size={14} color={t.primary} />
 								<Text
 									style={{
-										fontFamily: "Orbitron",
+										fontFamily: "Manrope_600SemiBold",
 										fontSize: 22,
 										color: statNumColor,
 										fontWeight: "900",
@@ -908,9 +914,9 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontSize: 8,
+										fontSize: 12,
 										color: t.textDim,
-										letterSpacing: 2,
+										letterSpacing: 1,
 										textTransform: "uppercase",
 									}}>
 									Punkty
@@ -931,7 +937,7 @@ export default function HomeScreen() {
 										) : null}
 										<Text
 											style={{
-												fontFamily: "Orbitron",
+												fontFamily: "Manrope_600SemiBold",
 												fontSize: 22,
 												color: statNumColor,
 												fontWeight: "900",
@@ -940,9 +946,9 @@ export default function HomeScreen() {
 										</Text>
 										<Text
 											style={{
-												fontSize: 8,
+												fontSize: 12,
 												color: t.textDim,
-												letterSpacing: 2,
+												letterSpacing: 1,
 												textTransform: "uppercase",
 											}}>
 											Streak
@@ -952,9 +958,9 @@ export default function HomeScreen() {
 											prefix="reset za "
 											fallback="reset za chwilę"
 											style={{
-												fontSize: 7,
+												fontSize: 12,
 												color: t.primary,
-												fontFamily: "Orbitron",
+												fontFamily: "Manrope_600SemiBold",
 												letterSpacing: 0.5,
 												marginTop: 2,
 												textAlign: "center",
@@ -1036,17 +1042,17 @@ export default function HomeScreen() {
 								<View style={{ flex: 1 }}>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 8,
+											fontFamily: "Manrope_600SemiBold",
+											fontSize: 12,
 											color: "#FFD700",
-											letterSpacing: 3,
+											letterSpacing: 1,
 											marginBottom: 4,
 										}}>
 										OSTATNIE OSIĄGNIĘCIE
 									</Text>
 									<Text
 										style={{
-											fontFamily: "Orbitron",
+											fontFamily: "Manrope_600SemiBold",
 											fontSize: 14,
 											color: t.text,
 											fontWeight: "700",

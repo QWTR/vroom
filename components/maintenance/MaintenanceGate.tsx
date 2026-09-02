@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  View, Text, Modal, ActivityIndicator, Image,
-} from 'react-native';
+import { View, Modal, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { useTheme } from '../../contexts/ThemeContext';
 import { fetchMaintenanceStatus, shouldBlockApp } from '../../lib/maintenance';
 
@@ -59,7 +58,7 @@ export function MaintenanceGate({ visible, message, onCleared }: Props) {
           resizeMode="contain"
         />
         <Text style={{
-          fontFamily: 'OrbitronBold',
+          fontFamily: 'Manrope_700Bold',
           color: theme.text,
           fontSize: 20,
           textAlign: 'center',

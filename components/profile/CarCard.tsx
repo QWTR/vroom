@@ -1,5 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, View, Image, Text } from 'react-native';
+import { TouchableOpacity, View, Image } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { GLASS_SHADOW, resolveProfileCardTheme, type ProfileCardTheme } from './profileCardTheme';
@@ -51,7 +52,7 @@ export default function CarCard({ brand, specs, isMain, firstPhoto, onPress, the
       </View>
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14 }}>{brand}</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 14 }}>{brand}</Text>
           {isMain && (
             <View style={{
               backgroundColor: theme.primaryBg,
@@ -62,11 +63,11 @@ export default function CarCard({ brand, specs, isMain, firstPhoto, onPress, the
               borderWidth: 1,
               borderColor: theme.primaryBorder,
             }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 10, letterSpacing: 1 }}>GŁÓWNE</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, letterSpacing: 1 }}>GŁÓWNE</Text>
             </View>
           )}
         </View>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, marginTop: 4 }}>{specs}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 4 }}>{specs}</Text>
       </View>
       <MaterialIcons name="chevron-right" size={22} color={theme.textDim} />
     </TouchableOpacity>

@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  Pressable,
-  Dimensions,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Modal, TouchableOpacity, Pressable, Dimensions, StyleSheet, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -520,17 +512,17 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 28,
   },
-  trackTitle: { fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', marginBottom: 4 },
+  trackTitle: { fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, fontWeight: '700', marginBottom: 4 },
   trackArtist: { color: '#ffffff99', fontSize: 12, marginBottom: 12 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  metaLabel: { fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1, marginRight: 8 },
-  metaTime: { fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffaa' },
+  metaLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', flex: 1, marginRight: 8 },
+  metaTime: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffffaa' },
   fullSongNote: {
     color: '#ffffff88',
-    fontSize: 10,
+    fontSize: 12,
     marginBottom: 10,
-    lineHeight: 15,
-    fontFamily: 'Orbitron',
+    lineHeight: 16,
+    fontFamily: 'Manrope_600SemiBold',
   },
   playRow: {
     flexDirection: 'row',
@@ -543,7 +535,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
     marginBottom: 12,
   },
-  playLabel: { fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1 },
+  playLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', flex: 1 },
   viewport: { height: 80, alignSelf: 'center', justifyContent: 'center' },
   selectionBox: {
     position: 'absolute',
@@ -554,10 +546,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     zIndex: 2,
   },
-  hint: { color: '#ffffff88', fontSize: 11, textAlign: 'center', marginTop: 10, marginBottom: 16, lineHeight: 16 },
+  hint: { color: '#ffffff88', fontSize: 12, textAlign: 'center', marginTop: 10, marginBottom: 16, lineHeight: 16 },
   actions: { flexDirection: 'row', gap: 12 },
   cancelBtn: { flex: 1, paddingVertical: 14, alignItems: 'center', borderRadius: 14, backgroundColor: '#ffffff12' },
-  cancelText: { fontFamily: 'Orbitron', color: '#fff', fontSize: 12 },
+  cancelText: { fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 },
   doneBtn: { flex: 1, paddingVertical: 14, alignItems: 'center', borderRadius: 14 },
-  doneText: { fontFamily: 'Orbitron', color: '#fff', fontSize: 12, fontWeight: '800' },
+  doneText: { fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12, fontWeight: '800' },
 });

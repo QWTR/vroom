@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, TextInput, TouchableOpacity,
-  Switch, ActivityIndicator,
-} from 'react-native';
+import { View, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -45,10 +43,10 @@ export function SaveRouteModal({
     >
           <View style={{ width: 40, height: 4, backgroundColor: theme.border3, borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, letterSpacing: 3, marginBottom: 4 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, letterSpacing: 1, marginBottom: 4 }}>
             ZAPISZ TRASĘ
           </Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 2, marginBottom: 16 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 16 }}>
             {pinCount} punktów · {distanceKm.toFixed(1)} km
           </Text>
 
@@ -74,7 +72,7 @@ export function SaveRouteModal({
                   color={isSnapped ? '#4de926' : theme.text}
                 />
               )}
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: isSnapped ? '#4de926' : theme.text, letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isSnapped ? '#4de926' : theme.text, letterSpacing: 1 }}>
                 {snapping ? 'DOPASOWUJĘ...' : isSnapped ? 'DOPASOWANO DO DROGI' : 'DOPASUJ DO DROGI'}
               </Text>
             </TouchableOpacity>
@@ -97,10 +95,10 @@ export function SaveRouteModal({
               color={isOffroad ? '#ff922b' : theme.textDim}
             />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: isOffroad ? '#ff922b' : theme.text, letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isOffroad ? '#ff922b' : theme.text, letterSpacing: 1 }}>
                 TRASA OFFROAD
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                 {isOffroad
                   ? 'Nawigacja w linii prostej między punktami'
                   : 'Nawigacja po drogach (standardowa)'}
@@ -115,14 +113,14 @@ export function SaveRouteModal({
             </View>
           </TouchableOpacity>
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, marginBottom: 6 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>
             NAZWA TRASY *
           </Text>
           <TextInput
             style={{
               backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border2,
               borderRadius: 10, padding: 12, color: theme.text,
-              fontFamily: 'Orbitron', fontSize: 11, marginBottom: 14,
+              fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginBottom: 14,
             }}
             placeholder="np. Trasa przez góry"
             placeholderTextColor={theme.textDim}
@@ -131,14 +129,14 @@ export function SaveRouteModal({
             maxLength={60}
           />
 
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, marginBottom: 6 }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>
             OPIS (opcjonalny)
           </Text>
           <TextInput
             style={{
               backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border2,
               borderRadius: 10, padding: 12, color: theme.text,
-              fontFamily: 'Orbitron', fontSize: 11, marginBottom: 14,
+              fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginBottom: 14,
               height: 72, textAlignVertical: 'top',
             }}
             placeholder="Opisz trasę..."
@@ -151,8 +149,8 @@ export function SaveRouteModal({
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 8 }}>
             <View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, letterSpacing: 1 }}>PUBLICZNA</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>Widoczna dla innych użytkowników</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, letterSpacing: 1 }}>PUBLICZNA</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>Widoczna dla innych użytkowników</Text>
             </View>
             <Switch
               value={isPublic}
@@ -167,7 +165,7 @@ export function SaveRouteModal({
               style={{ flex: 1, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, alignItems: 'center' }}
               onPress={onCancel}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>ANULUJ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>ANULUJ</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[{
@@ -181,7 +179,7 @@ export function SaveRouteModal({
                 ? <ActivityIndicator size="small" color="#fff" />
                 : <MaterialIcons name="save" size={16} color="#fff" />
               }
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text>
             </TouchableOpacity>
           </View>
     </ModalKeyboardSheet>

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -100,6 +101,15 @@ export default function DropHistoryScreen() {
                   </View>
                   <Text style={[styles.reward, { color: theme.text }]}>{item.reward.label}</Text>
                   <Text style={[styles.meta, { color: theme.textMuted }]}>{item.region?.name || 'Trasa VROOM'} · zrzut #{item.dropId}</Text>
+                  <Text style={[styles.grantStatus, { color: item.grantStatus === 'requires_review' ? theme.danger : item.grantStatus === 'repaired' ? theme.primary : theme.textMuted }]}>
+                    {item.grantStatus === 'requires_review'
+                      ? 'NAGRODA WYMAGA KONTROLI'
+                      : item.grantStatus === 'repaired'
+                        ? `SALDO NAPRAWIONE${item.balanceAfter != null ? ` · ${item.balanceAfter} NITRO` : ''}`
+                        : item.grantStatus === 'granted'
+                          ? `PRZYZNANA${item.balanceAfter != null ? ` · SALDO ${item.balanceAfter}` : ''}`
+                          : 'PRZYZNANA'}
+                  </Text>
                 </View>
               </View>
             );
@@ -117,24 +127,25 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 14 },
   back: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  kicker: { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2.5, fontWeight: '900' },
-  title: { fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', marginTop: 3 },
+  kicker: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '900' },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '900', marginTop: 3 },
   counter: { minWidth: 70, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 14, borderWidth: 1, alignItems: 'center' },
-  counterValue: { fontFamily: 'Orbitron', fontSize: 17, fontWeight: '900' },
-  counterLabel: { fontSize: 8, fontWeight: '900', marginTop: 2 },
+  counterValue: { fontFamily: 'Manrope_600SemiBold', fontSize: 17, fontWeight: '900' },
+  counterLabel: { fontSize: 12, fontWeight: '900', marginTop: 2 },
   content: { padding: 18, paddingBottom: 40, flexGrow: 1 },
   card: { borderWidth: 1, borderRadius: 19, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 13 },
   icon: { width: 54, height: 54, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  rarity: { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1.2, fontWeight: '900' },
-  date: { fontSize: 9, fontWeight: '700' },
+  rarity: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '900' },
+  date: { fontSize: 12, fontWeight: '700' },
   reward: { fontSize: 15, fontWeight: '900', marginTop: 6 },
-  meta: { fontSize: 10, fontWeight: '700', marginTop: 5 },
+  meta: { fontSize: 12, fontWeight: '700', marginTop: 5 },
+  grantStatus: { fontSize: 12, fontWeight: '900', letterSpacing: 0.7, marginTop: 6 },
   center: { flex: 1, minHeight: 300, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyTitle: { fontFamily: 'Orbitron', fontSize: 15, fontWeight: '900', marginTop: 14 },
+  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '900', marginTop: 14 },
   emptyText: { fontSize: 12, lineHeight: 18, marginTop: 7, textAlign: 'center' },
   retry: { minHeight: 46, borderRadius: 14, paddingHorizontal: 22, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
-  retryText: { fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 1.1, fontWeight: '900' },
+  retryText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '900' },
   more: { minHeight: 48, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  moreText: { fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 1.2, fontWeight: '900' },
+  moreText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, fontWeight: '900' },
 });

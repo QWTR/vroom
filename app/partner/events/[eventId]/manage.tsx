@@ -1,15 +1,8 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  ScrollView,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, Switch, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../../components/ui/AppText';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_URL } from '../../../../constants/config';
@@ -189,10 +182,10 @@ export default function PartnerEventManageScreen() {
           <MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: '#ff3b3f', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2 }}>ZARZĄDZANIE</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, marginTop: 3 }} numberOfLines={1}>{data.event?.title}</Text>
+          <Text style={{ color: '#ff3b3f', fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 }}>ZARZĄDZANIE</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 14, marginTop: 3 }} numberOfLines={1}>{data.event?.title}</Text>
         </View>
-        <Text style={{ color: theme.textDim, fontSize: 11, fontWeight: '800' }}>{String(data.role || '').toUpperCase()}</Text>
+        <Text style={{ color: theme.textDim, fontSize: 12, fontWeight: '800' }}>{String(data.role || '').toUpperCase()}</Text>
       </View>
 
       <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
@@ -208,7 +201,7 @@ export default function PartnerEventManageScreen() {
                 justifyContent: 'center',
               }}
             >
-              <Text style={{ color: tab === item.id ? theme.text : theme.textDim, fontWeight: '800', fontSize: 11 }}>{item.label}</Text>
+              <Text style={{ color: tab === item.id ? theme.text : theme.textDim, fontWeight: '800', fontSize: 12 }}>{item.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -227,9 +220,9 @@ export default function PartnerEventManageScreen() {
             <View key={row.id} style={{ padding: 14, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: card, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View>
                 <Text style={{ color: theme.text, fontWeight: '800' }}>@{row.user?.username}</Text>
-                <Text style={{ color: theme.textDim, marginTop: 4, fontSize: 11 }}>{new Date(row.createdAt).toLocaleString('pl-PL')}</Text>
+                <Text style={{ color: theme.textDim, marginTop: 4, fontSize: 12 }}>{new Date(row.createdAt).toLocaleString('pl-PL')}</Text>
               </View>
-              <Text style={{ color: row.status === 'checked_in' ? '#43d17b' : theme.textDim, fontWeight: '800', fontSize: 11 }}>
+              <Text style={{ color: row.status === 'checked_in' ? '#43d17b' : theme.textDim, fontWeight: '800', fontSize: 12 }}>
                 {row.status === 'checked_in' ? 'CHECKED-IN' : 'RSVP'}
               </Text>
             </View>
@@ -285,7 +278,7 @@ export default function PartnerEventManageScreen() {
               <View key={row.id} style={{ padding: 14, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: card, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontWeight: '800' }}>@{row.user?.username}</Text>
-                  <Text style={{ color: theme.textDim, marginTop: 3, fontSize: 11 }}>{row.role}</Text>
+                  <Text style={{ color: theme.textDim, marginTop: 3, fontSize: 12 }}>{row.role}</Text>
                 </View>
                 {row.role !== 'owner' && (
                   <TouchableOpacity onPress={() => removeStaff(row.userId)}>

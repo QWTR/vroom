@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Image, Text,
-} from 'react-native';
+import { View, TouchableOpacity, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker  from 'expo-image-picker';
 import MaterialIcons     from '@expo/vector-icons/MaterialIcons';
@@ -65,8 +63,8 @@ export default function EditSpotScreen() {
     } finally { setLoading(false); }
   };
 
-  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
-  const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
+  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Manrope_600SemiBold' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
+  const labelStyle = { fontFamily: 'Manrope_600SemiBold' as const, color: theme.textDim, fontSize: 12, marginBottom: 8, letterSpacing: 1 };
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 80 }}>
@@ -74,9 +72,9 @@ export default function EditSpotScreen() {
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, letterSpacing: 2 }}>EDYTUJ SPOT</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, letterSpacing: 1 }}>EDYTUJ SPOT</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -95,7 +93,7 @@ export default function EditSpotScreen() {
           <View key={`new_${i}`} style={{ position: 'relative', marginRight: 10 }}>
             <Image source={{ uri: p.uri }} style={{ width: 90, height: 90, borderRadius: 10 }} />
             <View style={{ position: 'absolute', bottom: 4, left: 4, backgroundColor: '#4de926aa', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 7 }}>NOWE</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }}>NOWE</Text>
             </View>
             <TouchableOpacity style={{ position: 'absolute', top: 4, right: 4, backgroundColor: theme.primary, borderRadius: 10, padding: 2 }} onPress={() => removeNew(p.uri)}>
               <MaterialIcons name="close" size={14} color="#fff" />
@@ -105,7 +103,7 @@ export default function EditSpotScreen() {
         {totalPhotos < 5 && (
           <TouchableOpacity style={{ width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center', alignItems: 'center' }} onPress={pickPhoto}>
             <MaterialIcons name="add-photo-alternate" size={28} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Dodaj</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, marginTop: 4 }}>Dodaj</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -127,7 +125,7 @@ export default function EditSpotScreen() {
             ]}
             onPress={() => setCategory(cat)}
           >
-            <Text style={[{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }, category === cat && { color: theme.primary }]}>
+            <Text style={[{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }, category === cat && { color: theme.primary }]}>
               {cat.toUpperCase()}
             </Text>
           </TouchableOpacity>
@@ -140,7 +138,7 @@ export default function EditSpotScreen() {
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, letterSpacing: 1 }}>ZAPISZ ZMIANY</Text>
+          : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, letterSpacing: 1 }}>ZAPISZ ZMIANY</Text>
         }
       </TouchableOpacity>
     </ScrollView>

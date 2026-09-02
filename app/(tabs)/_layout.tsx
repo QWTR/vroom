@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { Platform, View, StyleSheet, Dimensions, Animated, Text } from 'react-native';
+import { Platform, View, StyleSheet, Animated, useWindowDimensions } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { BlurView } from 'expo-blur';
@@ -11,34 +12,29 @@ import { usePushNotifications } from '../../hooks/usePushNotifications';
 import { useAppAnimations } from '../../hooks/useAppAnimations';
 import { pickAppAnimationForValue } from '../../constants/appAnimations';
 import AppAnimationLayer from '../../components/animations/AppAnimationLayer';
+import { useReadability } from '../../contexts/ReadabilityContext';
 
-const { width } = Dimensions.get('window');
-const TAB_WIDTH      = width / 5;
-const TAB_BAR_HEIGHT = 65;
+const TAB_BAR_HEIGHT = 82;
 
 const TabIcon = ({
-  focused, icon, iconLib = 'feather', label,
+  focused, icon, iconLib = 'feather',
 }: {
-  focused: boolean; icon: any; iconLib?: 'feather' | 'material'; label: string;
+  focused: boolean; icon: any; iconLib?: 'feather' | 'material';
 }) => {
   const { theme } = useTheme();
   const { animations } = useAppAnimations(['tab_active_icon']);
   const activeIconAnimation = focused ? pickAppAnimationForValue(animations, 'tab_active_icon') : null;
   const scaleAnim = useRef(new Animated.Value(focused ? 1.1 : 1)).current;
-  const glowAnim  = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: focused ? 1.1 : 1, friction: 6, tension: 120, useNativeDriver: true }),
-      Animated.timing(glowAnim,  { toValue: focused ? 1 : 0, duration: 180, useNativeDriver: true }),
-    ]).start();
+    Animated.spring(scaleAnim, { toValue: focused ? 1.1 : 1, friction: 6, tension: 120, useNativeDriver: true }).start();
   }, [focused]);
 
-  const color = focused ? theme.primary : theme.textDim;
+  const color = focused ? theme.primaryText : theme.textMuted;
 
   const Icon = iconLib === 'material'
-    ? <MaterialCommunityIcons name={icon} size={24} color={color} />
-    : <Feather name={icon} size={22} color={color} />;
+    ? <MaterialCommunityIcons name={icon} size={27} color={color} />
+    : <Feather name={icon} size={25} color={color} />;
 
   return (
     <View style={styles.wrapper}>
@@ -51,19 +47,25 @@ const TabIcon = ({
           <AppAnimationLayer animation={activeIconAnimation} style={{ width: 26, height: 26 }} fallbackIcon={Icon} />
         ) : Icon}
       </Animated.View>
-      <Animated.Text
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        style={[styles.label, {
-          color,
-          opacity: glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
-        }]}
-      >
-        {label}
-      </Animated.Text>
     </View>
   );
 };
+
+function TabLabel({ focused, label, compactLabel }: { focused: boolean; label: string; compactLabel?: string }) {
+  const { theme } = useTheme();
+  const { textScale } = useReadability();
+  const { fontScale } = useWindowDimensions();
+  const effectiveScale = Math.min(2, textScale * fontScale);
+  return (
+    <Text
+      variant="micro"
+      numberOfLines={1}
+      style={[styles.label, { color: focused ? theme.primaryText : theme.textMuted }]}
+    >
+      {effectiveScale >= 1.35 ? compactLabel ?? label : label}
+    </Text>
+  );
+}
 
 function AppOnlineBadge() {
   const insets = useSafeAreaInsets();
@@ -84,7 +86,7 @@ function AppOnlineBadge() {
     >
       <View style={onlineStyles.dot} />
       <Text style={[onlineStyles.num, { color: theme.text }]}>{count}</Text>
-      <Text style={[onlineStyles.lbl, { color: theme.textDim }]}>ONLINE</Text>
+      <Text variant="micro" style={[onlineStyles.lbl, { color: theme.textMuted }]}>ONLINE</Text>
     </View>
   );
 }
@@ -107,45 +109,52 @@ const onlineStyles = StyleSheet.create({
     backgroundColor: '#4de926',
   },
   num: {
-    fontFamily: 'Orbitron',
+    fontFamily: 'Manrope_600SemiBold',
     fontSize:   13,
     fontWeight: '800',
     minWidth:   18,
   },
   lbl: {
-    fontFamily: 'Orbitron',
-    fontSize:   7,
-    letterSpacing: 1.2,
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize:   12,
+    letterSpacing: 1,
   },
 });
 
 export default function TabLayout() {
   const insets        = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  const { textScale } = useReadability();
+  const { fontScale } = useWindowDimensions();
   usePushNotifications();
 
   // edgeToEdge=false → insets.bottom zazwyczaj = 0 na Androidzie
   // ale zostawiamy dla iOS i ewentualnej przyszłej zmiany
-  const tabBarHeight  = TAB_BAR_HEIGHT + insets.bottom;
+  const effectiveScale = Math.min(2, textScale * fontScale);
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
+  const tabBarHeight = TAB_BAR_HEIGHT + Math.round(Math.max(0, effectiveScale - 1) * 30) + safeBottom;
 
   return (
     <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown:      false,
-        tabBarShowLabel:  false,
+        tabBarShowLabel:  true,
+        tabBarLabelPosition: 'below-icon',
         tabBarStyle: {
           position:         'absolute',
           backgroundColor:  Platform.OS === 'android' ? theme.tabBg : 'transparent',
           borderTopWidth:   1,
           borderTopColor:   theme.tabBorder,
           height:           tabBarHeight,
-          paddingBottom:    insets.bottom,
-          paddingTop:       10,
+          paddingBottom:    safeBottom + 5,
+          paddingTop:       7,
           paddingHorizontal: 0,
           elevation:        0,
-          overflow:         'hidden',
+          overflow:         'visible',
         },
+        tabBarItemStyle: { minHeight: tabBarHeight - safeBottom, paddingVertical: 0 },
+        tabBarIconStyle: { flex: 1, width: '100%', minHeight: 46 },
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
             <View style={StyleSheet.absoluteFill}>
@@ -162,22 +171,26 @@ export default function TabLayout() {
         sceneStyle:          { paddingBottom: tabBarHeight, backgroundColor: theme.bg },
       }}
     >
-      <Tabs.Screen name="index"     options={{ tabBarIcon: (p) => <TabIcon {...p} icon="home"                      label="HOME"     /> }} />
+      <Tabs.Screen name="index" options={{ tabBarAccessibilityLabel: 'Strona główna', tabBarLabel: (p) => <TabLabel {...p} label="Główna" compactLabel="Start" />, tabBarIcon: (p) => <TabIcon {...p} icon="home" /> }} />
       <Tabs.Screen
         name="map"
         options={{
           freezeOnBlur: false,
-          tabBarIcon: (p) => <TabIcon {...p} icon="navigation" label="MAPA" />,
+          tabBarAccessibilityLabel: 'Mapa',
+          tabBarLabel: (p) => <TabLabel {...p} label="Mapa" />,
+          tabBarIcon: (p) => <TabIcon {...p} icon="navigation" />,
         }}
       />
-      <Tabs.Screen name="community" options={{ tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline"     label="SPOŁECZ." iconLib="material" /> }} />
-      <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"    iconLib="material" /> }} />
+      <Tabs.Screen name="community" options={{ tabBarAccessibilityLabel: 'Społeczność', tabBarLabel: (p) => <TabLabel {...p} label="Społeczność" compactLabel="Społ." />, tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline" iconLib="material" /> }} />
+      <Tabs.Screen name="spotmap" options={{ tabBarAccessibilityLabel: 'Spoty', tabBarLabel: (p) => <TabLabel {...p} label="Spoty" />, tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" iconLib="material" /> }} />
       <Tabs.Screen
         name="account"
         options={{
           lazy: false,
+          tabBarAccessibilityLabel: 'Profil',
+          tabBarLabel: (p) => <TabLabel {...p} label="Profil" />,
           animation: Platform.OS === 'ios' ? 'shift' : undefined,
-          tabBarIcon: (p) => <TabIcon {...p} icon="user" label="PROFIL" />,
+          tabBarIcon: (p) => <TabIcon {...p} icon="user" />,
         }}
       />
     </Tabs>
@@ -186,7 +199,7 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  wrapper:  { width: TAB_WIDTH, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 6 },
-  iconBg:   { width: 42, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent', backgroundColor: 'transparent' },
-  label:    { fontSize: 8.5, fontFamily: 'Orbitron', letterSpacing: 0.2, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
+  wrapper:  { minHeight: 46, width: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
+  iconBg:   { width: 46, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'transparent', backgroundColor: 'transparent' },
+  label:    { fontSize: 12, lineHeight: 16, letterSpacing: 0, textAlign: 'center', width: '100%', paddingHorizontal: 2, flexShrink: 1 },
 });

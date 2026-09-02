@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Modal, Pressable, StyleSheet } from 'react-native';
+import { AppText as Text } from '../../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -140,5 +141,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionLabel: { fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' },
+  actionLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
 });

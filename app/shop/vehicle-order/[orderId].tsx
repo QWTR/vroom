@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
-  ActivityIndicator, Image,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -140,7 +138,7 @@ export default function VehicleOrderDetailScreen() {
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}>
           <View style={[styles.statusCard, { backgroundColor: theme.surface2 }]}>
             <Text style={{ color: theme.textDim, fontSize: 12 }}>Status</Text>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 15 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 15 }}>
               {STATUS_LABELS[order.status] ?? order.status}
             </Text>
             {order.status === 'ready' && order.resultingItem && (
@@ -206,7 +204,7 @@ export default function VehicleOrderDetailScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  title: { fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' },
+  title: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '700' },
   statusCard: { borderRadius: 12, padding: 14, marginBottom: 16 },
   label: { fontSize: 12, marginBottom: 8, letterSpacing: 0.5 },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 10, fontSize: 15 },
@@ -214,7 +212,7 @@ const styles = StyleSheet.create({
   photoBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   thumb: { width: 72, height: 72, borderRadius: 8, marginRight: 8 },
   submitBtn: { backgroundColor: '#e33835', borderRadius: 12, padding: 16, alignItems: 'center' },
-  submitText: { color: '#fff', fontFamily: 'Orbitron', fontWeight: '700' },
+  submitText: { color: '#fff', fontFamily: 'Manrope_600SemiBold', fontWeight: '700' },
   readyBtn: { marginTop: 12, backgroundColor: '#4ade80', borderRadius: 8, padding: 10, alignItems: 'center' },
   readyBtnText: { color: '#111', fontWeight: '700' },
 });

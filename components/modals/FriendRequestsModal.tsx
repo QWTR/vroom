@@ -1,8 +1,6 @@
 import React from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  ScrollView, Image, ActivityIndicator,
-} from 'react-native';
+import { Modal, View, TouchableOpacity, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme }      from '../../contexts/ThemeContext';
 import type { FriendRequest } from '../../hooks/useChats';
@@ -44,10 +42,10 @@ export function FriendRequestsModal({ visible, requests, onClose, onAccept, onRe
               <MaterialIcons name="person-add" size={18} color="#e33835" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '700' }}>
                 ZAPROSZENIA DO ZNAJOMYCH
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                 {requests.length} oczekujących
               </Text>
             </View>
@@ -64,7 +62,7 @@ export function FriendRequestsModal({ visible, requests, onClose, onAccept, onRe
             {requests.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: 40, gap: 10 }}>
                 <MaterialIcons name="person-add-disabled" size={40} color={theme.textDim} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim }}>
                   Brak oczekujących zaproszeń
                 </Text>
               </View>
@@ -84,7 +82,7 @@ export function FriendRequestsModal({ visible, requests, onClose, onAccept, onRe
                   <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
                     {req.requester.avatarUrl
                       ? <Image source={{ uri: req.requester.avatarUrl }} style={{ width: 46, height: 46 }} />
-                      : <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#e33835', fontWeight: '700' }}>
+                      : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: '#e33835', fontWeight: '700' }}>
                           {req.requester.username.slice(0, 2).toUpperCase()}
                         </Text>
                     }
@@ -92,10 +90,10 @@ export function FriendRequestsModal({ visible, requests, onClose, onAccept, onRe
 
                   {/* Name */}
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
                       {req.requester.username}
                     </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>
                       chce zostać Twoim znajomym
                     </Text>
                   </View>

@@ -1,7 +1,6 @@
 import React, { ReactNode, useMemo } from 'react';
-import {
-  View, Text, TouchableOpacity, StyleSheet,
-} from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppText as Text } from './ui/AppText';
 import { LinearGradient }  from 'expo-linear-gradient';
 import MaterialIcons       from '@expo/vector-icons/MaterialIcons';
 import { useRouter }       from 'expo-router';
@@ -86,13 +85,13 @@ function makeStyles(t: AppTheme) {
       overflow: 'hidden',
     },
     feature: {
-      fontFamily: 'OrbitronBold',
+      fontFamily: 'Manrope_700Bold',
       fontSize: 14, color: t.text,
-      letterSpacing: 2, marginBottom: 8, textAlign: 'center',
+      letterSpacing: 1, marginBottom: 8, textAlign: 'center',
     },
     description: {
-      fontFamily: 'Orbitron',
-      fontSize: 10, color: t.textDim,
+      fontFamily: 'Manrope_600SemiBold',
+      fontSize: 12, color: t.textDim,
       textAlign: 'center', lineHeight: 16,
       marginBottom: 20,
     },
@@ -102,8 +101,8 @@ function makeStyles(t: AppTheme) {
       borderRadius: 14, overflow: 'hidden',
     },
     btnTxt: {
-      fontFamily: 'Orbitron',
-      fontSize: 11, color: t.onPrimary, fontWeight: '900',
+      fontFamily: 'Manrope_600SemiBold',
+      fontSize: 12, color: t.onPrimary, fontWeight: '900',
       letterSpacing: 1,
     },
   });

@@ -1,13 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -126,7 +119,7 @@ function makeStyles(t: AppTheme) {
     },
     title: {
       color: t.text,
-      fontFamily: 'OrbitronBold',
+      fontFamily: 'Manrope_700Bold',
       fontSize: 20,
       marginBottom: 14,
     },
@@ -135,7 +128,7 @@ function makeStyles(t: AppTheme) {
     },
     text: {
       color: t.textMuted,
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 13,
       lineHeight: 20,
       marginBottom: 12,
@@ -162,7 +155,7 @@ function makeStyles(t: AppTheme) {
     checkText: {
       flex: 1,
       color: t.text,
-      fontFamily: 'Orbitron',
+      fontFamily: 'Manrope_600SemiBold',
       fontSize: 12,
       lineHeight: 18,
     },
@@ -182,7 +175,7 @@ function makeStyles(t: AppTheme) {
     },
     primaryText: {
       color: t.onPrimary,
-      fontFamily: 'OrbitronBold',
+      fontFamily: 'Manrope_700Bold',
       fontSize: 12,
       textAlign: 'center',
     },
@@ -196,7 +189,7 @@ function makeStyles(t: AppTheme) {
     },
     secondaryText: {
       color: t.textMuted,
-      fontFamily: 'OrbitronBold',
+      fontFamily: 'Manrope_700Bold',
       fontSize: 12,
     },
   });

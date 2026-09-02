@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Image, Text,
-  KeyboardAvoidingView, Platform,
-} from 'react-native';
+import { View, TouchableOpacity, ScrollView, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
 import { useRouter }     from 'expo-router';
 import * as ImagePicker  from 'expo-image-picker';
 import MaterialIcons     from '@expo/vector-icons/MaterialIcons';
@@ -91,8 +88,8 @@ export default function EditProfileScreen() {
   const initials     = profile?.username?.slice(0, 2).toUpperCase() ?? '??';
   const isBusy       = loading || avatarLoading;
 
-  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
-  const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
+  const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Manrope_600SemiBold' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
+  const labelStyle = { fontFamily: 'Manrope_600SemiBold' as const, color: theme.textDim, fontSize: 12, marginBottom: 8, letterSpacing: 1 };
   const { scrollPaddingBottom } = useFormKeyboardPadding(72);
 
   return (
@@ -107,9 +104,9 @@ export default function EditProfileScreen() {
       {/* NAGŁÓWEK */}
       <View style={{ paddingTop: headerTop, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, letterSpacing: 2 }}>EDYTUJ PROFIL</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: theme.text, letterSpacing: 1 }}>EDYTUJ PROFIL</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -120,24 +117,24 @@ export default function EditProfileScreen() {
             ? <ActivityIndicator color={theme.primary} size="large" />
             : avatarSource
             ? <Image key={avatarSource} source={{ uri: avatarSource }} style={{ width: 100, height: 100 }} />
-            : <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: theme.primary }}>{initials}</Text>
+            : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: theme.primary }}>{initials}</Text>
           }
         </View>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 12 }}>Wybierz nowe zdjęcie profilowe</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginBottom: 12 }}>Wybierz nowe zdjęcie profilowe</Text>
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.surface3, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder }} onPress={() => handlePickAvatar(false)} disabled={avatarLoading}>
             <MaterialIcons name="photo-library" size={18} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 11 }}>Galeria</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>Galeria</Text>
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.surface3, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder }} onPress={() => handlePickAvatar(true)} disabled={avatarLoading}>
             <MaterialIcons name="photo-camera" size={18} color={theme.primary} />
-            <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 11 }}>Aparat</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12 }}>Aparat</Text>
           </TouchableOpacity>
         </View>
         {localAvatar && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}>
             <MaterialIcons name="check-circle" size={14} color="#4de926" />
-            <Text style={{ fontFamily: 'Orbitron', color: '#4de926', fontSize: 9 }}>Nowe zdjęcie wybrane – zapisz żeby zastosować</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#4de926', fontSize: 12 }}>Nowe zdjęcie wybrane – zapisz żeby zastosować</Text>
           </View>
         )}
       </View>
@@ -149,7 +146,7 @@ export default function EditProfileScreen() {
       <TextInput style={inputStyle} value={location} onChangeText={setLocation} placeholder="Np. Warszawa, Polska" placeholderTextColor={theme.textDim} />
 
       <Text style={labelStyle}>WOJEWÓDZTWO</Text>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 10, lineHeight: 14 }}>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginBottom: 10, lineHeight: 16 }}>
         Wyświetlane w profilu, klubach i czacie. Napisz np. @slask, by dotrzeć do użytkowników z regionu.
       </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
@@ -164,7 +161,7 @@ export default function EditProfileScreen() {
             backgroundColor: province == null ? `${theme.primary}22` : theme.surface3,
           }}
         >
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: province == null ? theme.primary : theme.textDim }}>Brak</Text>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: province == null ? theme.primary : theme.textDim }}>Brak</Text>
         </TouchableOpacity>
         {POLISH_PROVINCES.map(p => {
           const active = province === p.slug;
@@ -181,7 +178,7 @@ export default function EditProfileScreen() {
                 backgroundColor: active ? '#7cb34222' : theme.surface3,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? '#7cb342' : theme.textDim }}>{p.label}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: active ? '#7cb342' : theme.textDim }}>{p.label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -196,7 +193,7 @@ export default function EditProfileScreen() {
       >
         {isBusy
           ? <ActivityIndicator color="#fff" />
-          : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, letterSpacing: 1 }}>ZAPISZ ZMIANY</Text>
+          : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 13, letterSpacing: 1 }}>ZAPISZ ZMIANY</Text>
         }
       </TouchableOpacity>
     </ScrollView>

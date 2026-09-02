@@ -1,13 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { AppText as Text, AppTextInput as TextInput } from '../../../components/ui/AppText';
 import { useFocusEffect, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -131,14 +124,14 @@ export default function MarketWalletScreen() {
             { label: 'Wypłaty', value: wallet?.reservedAmount || 0 },
           ].map((card) => (
             <View key={card.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 12 }}>
-              <Text style={{ color: theme.textDim, fontSize: 10 }}>{card.label}</Text>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, marginTop: 6 }}>{money(card.value)}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 12 }}>{card.label}</Text>
+              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, marginTop: 6 }}>{money(card.value)}</Text>
             </View>
           ))}
         </View>
 
         <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 10 }}>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>Rachunek IBAN</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Rachunek IBAN</Text>
           {profile && (
             <Text style={{ color: theme.textDim, fontSize: 12 }}>
               {profile.beneficiaryName} · {profile.ibanMasked}
@@ -164,14 +157,14 @@ export default function MarketWalletScreen() {
             disabled={saving}
             style={{ backgroundColor: theme.primary, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
           >
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+            <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
               {saving ? '...' : 'ZAPISZ RACHUNEK'}
             </Text>
           </TouchableOpacity>
         </View>
 
         <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 10 }}>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>
+          <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>
             Wypłata (min. {money(limits.withdrawalMin)})
           </Text>
           <TextInput
@@ -187,17 +180,17 @@ export default function MarketWalletScreen() {
             disabled={saving}
             style={{ backgroundColor: '#268bff', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
           >
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>WNIOSEK O WYPŁATĘ</Text>
+            <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>WNIOSEK O WYPŁATĘ</Text>
           </TouchableOpacity>
         </View>
 
         {withdrawals.length > 0 && (
           <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>WYPŁATY</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>WYPŁATY</Text>
             {withdrawals.map((w) => (
               <View key={w.id} style={{ backgroundColor: theme.surface, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: theme.border }}>
                 <Text style={{ color: theme.text }}>{money(w.amount)} · {w.status}</Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }}>•••• {w.ibanLast4}</Text>
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>•••• {w.ibanLast4}</Text>
               </View>
             ))}
           </View>
@@ -205,11 +198,11 @@ export default function MarketWalletScreen() {
 
         {entries.length > 0 && (
           <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>HISTORIA</Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>HISTORIA</Text>
             {entries.slice(0, 15).map((e) => (
               <View key={e.id} style={{ backgroundColor: theme.surface, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: theme.border }}>
                 <Text style={{ color: theme.text, fontSize: 12 }}>{e.description || e.type}</Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }}>
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>
                   avail {e.availableDelta} · pend {e.pendingDelta} · res {e.reservedDelta}
                 </Text>
               </View>

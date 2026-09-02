@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert, Platform,
-} from 'react-native';
+import { ScrollView, View, TouchableOpacity, RefreshControl, Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert, Platform } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
 import Ionicons                     from '@expo/vector-icons/Ionicons';
@@ -52,6 +50,7 @@ import { ExplorationCoverageMap } from './ExplorationCoverageMap';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../../constants/config';
 import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/screenHeaderInsets';
+import { useNitroWallet } from '../../hooks/useNitroWallet';
 
 type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string; border2?: string; primaryBg?: string };
 type ProfileVroomkiPost = {
@@ -84,7 +83,7 @@ function glassCard(t: ProfileSurface, extra?: Record<string, unknown>) {
 }
 
 function profileLabel(t: ProfileSurface) {
-  return { fontFamily: 'Orbitron' as const, fontSize: 10, color: t.textDim, letterSpacing: 1.5 };
+  return { fontFamily: 'Manrope_600SemiBold' as const, fontSize: 12, color: t.textDim, letterSpacing: 1 };
 }
 
 function widgetGlass(t: ProfileSurface, extra?: Record<string, unknown>) {
@@ -138,8 +137,8 @@ function ProfileVroomkiModal({
               <MaterialIcons name="smart-display" size={19} color="#e33835" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>VROOMKI</Text>
-              <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 2, marginTop: 2 }}>@{username}</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>VROOMKI</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12, letterSpacing: 1, marginTop: 2 }}>@{username}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }}>
               <MaterialIcons name="close" size={18} color={theme.text} />
@@ -152,7 +151,7 @@ function ProfileVroomkiModal({
               data={posts}
               keyExtractor={item => String(item.id)}
               contentContainerStyle={{ padding: 16, paddingBottom: 34, gap: 14 }}
-              ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, textAlign: 'center', marginVertical: 36 }}>BRAK VROOMEK</Text>}
+              ListEmptyComponent={<Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, textAlign: 'center', marginVertical: 36 }}>BRAK VROOMEK</Text>}
               renderItem={({ item }) => {
                 const cover = item.photos?.[0] ?? item.car?.photos?.[0] ?? null;
                 const hasVideo = (item.videos?.length ?? 0) > 0;
@@ -172,7 +171,7 @@ function ProfileVroomkiModal({
                     {hasVideo && (
                       <View style={{ position: 'absolute', top: 12, right: 12, borderRadius: 999, backgroundColor: '#000000aa', paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                         <MaterialIcons name="videocam" size={13} color="#fff" />
-                        <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9 }}>WIDEO</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#fff', fontSize: 12 }}>WIDEO</Text>
                       </View>
                     )}
                     {isOwner && (
@@ -192,14 +191,14 @@ function ProfileVroomkiModal({
                     <View style={{ padding: 12 }}>
                       {item.car && (
                         <TouchableOpacity onPress={() => onOpenCar(item.car!.id)} style={{ alignSelf: 'flex-start', backgroundColor: '#e3383518', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{item.car.brand} · {item.car.specs}</Text>
+                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: '#e33835', fontSize: 12 }}>{item.car.brand} · {item.car.specs}</Text>
                         </TouchableOpacity>
                       )}
                       {!!item.caption && <Text style={{ color: theme.text, fontSize: 13, lineHeight: 18 }}>{item.caption}</Text>}
                       <View style={{ flexDirection: 'row', gap: 14, marginTop: 10 }}>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>♥ {item.likesCount}</Text>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>💬 {item.commentsCount}</Text>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>👁 {item.viewsCount}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>♥ {item.likesCount}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>💬 {item.commentsCount}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12 }}>👁 {item.viewsCount}</Text>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -278,6 +277,7 @@ export default function ProfileView({
   const scrollBottomPad = useScreenScrollBottomPadding({ inTab: !onBack });
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
+  const { wallet: nitroWallet } = useNitroWallet();
   const premiumActive = !!isPremium;
   const viewportStageRef = React.useRef(0);
   const [viewportStage, setViewportStage] = React.useState(0);
@@ -691,7 +691,7 @@ export default function ProfileView({
                   <View style={{ backgroundColor: '#e33835', borderRadius: 7, padding: 5 }}>
                     <MaterialCommunityIcons name="account" size={14} color="#fff" />
                   </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', letterSpacing: 3 }}>PROFIL</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>PROFIL</Text>
                 </View>
               )}
             </View>
@@ -788,7 +788,7 @@ export default function ProfileView({
                   ? <Image key={profile.avatarUrl} source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
                   : (
                     <View style={{ flex: 1, backgroundColor: '#e3383515', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: '#e33835', fontWeight: '900' }}>{initials}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: '#e33835', fontWeight: '900' }}>{initials}</Text>
                     </View>
                   )
                 }
@@ -796,11 +796,11 @@ export default function ProfileView({
               <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={96} />
             </View>
 
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], letterSpacing: 2.5, marginBottom: 6 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], letterSpacing: 1, marginBottom: 6 }}>
               {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }} numberOfLines={1}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }} numberOfLines={1}>
                 {profile?.username ?? '—'}
               </Text>
               <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={premiumActive} compact />
@@ -819,7 +819,7 @@ export default function ProfileView({
             {!!profile?.position && (
               <View style={{ marginTop: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, borderWidth: 1, borderColor: GLASS_BORDER, paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialCommunityIcons name="podium" size={14} color={pillAccentColors[2]} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: pillAccentColors[2], fontWeight: '900' }}>#{profile.position}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[2], fontWeight: '900' }}>#{profile.position}</Text>
                 <Text style={{ ...profileLabel(theme) }}>RANKING</Text>
               </View>
             )}
@@ -872,7 +872,7 @@ export default function ProfileView({
                       {action.lib === 'material' && <MaterialIcons name={action.icon as any} size={16} color={theme.textDim} />}
                       {action.lib === 'ion' && <Ionicons name={action.icon as any} size={16} color={theme.textDim} />}
                       {action.lib === 'mci' && <MaterialCommunityIcons name={action.icon as any} size={16} color={pillAccentColors[2]} />}
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: action.lib === 'mci' ? pillAccentColors[2] : theme.textDim, letterSpacing: 1 }}>{action.label}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: action.lib === 'mci' ? pillAccentColors[2] : theme.textDim, letterSpacing: 1 }}>{action.label}</Text>
                     </TouchableOpacity>
                     {idx < arr.length - 1 && (
                       <View style={{ width: 1, height: 22, backgroundColor: GLASS_BORDER }} />
@@ -917,7 +917,7 @@ export default function ProfileView({
                 >
                   <MaterialCommunityIcons name={w.icon} size={22} color={w.color} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: w.color, fontWeight: '900', letterSpacing: -0.5 }}>{w.value}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 24, color: w.color, fontWeight: '900', letterSpacing: -0.2 }}>{w.value}</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
                   </View>
                 </TouchableOpacity>
@@ -952,7 +952,7 @@ export default function ProfileView({
                   }}
                 >
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: w.color, fontWeight: '900' }}>{w.value}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: w.color, fontWeight: '900' }}>{w.value}</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
                   </View>
                   <MaterialCommunityIcons name={w.icon} size={20} color={w.color} />
@@ -963,7 +963,7 @@ export default function ProfileView({
 
           {isOwner && (
             <NitroShopPromoCard
-              nitroBalance={profile?.nitroBalance ?? 0}
+              nitroBalance={nitroWallet?.nitroBalance ?? profile?.nitroBalance ?? 0}
               onPress={() => router.push('/shop' as any)}
             />
           )}
@@ -976,14 +976,14 @@ export default function ProfileView({
             style={{ ...widgetGlass(theme), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
           >
             <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
-            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>{isOwner ? 'Mój ekwipunek' : `Ekwipunek @${profile?.username}`}</Text><Text style={{ color: theme.textDim, fontSize: 10, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' }}>{isOwner ? 'Mój ekwipunek' : `Ekwipunek @${profile?.username}`}</Text><Text style={{ color: theme.textDim, fontSize: 12, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
             <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
           </TouchableOpacity>
 
           {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
           <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
             <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700', letterSpacing: 2 }}>SPOŁECZNOŚĆ</Text>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>SPOŁECZNOŚĆ</Text>
             </View>
 
             <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(false) }}>
@@ -994,7 +994,7 @@ export default function ProfileView({
               >
                 <MaterialIcons name="visibility" size={18} color={pillAccentColors[2]} />
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
                   <Text style={{ ...profileLabel(theme) }}>Obserwujący</Text>
                 </View>
               </TouchableOpacity>
@@ -1006,7 +1006,7 @@ export default function ProfileView({
               >
                 <MaterialIcons name="person-add" size={18} color={pillAccentColors[1]} />
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
                   <Text style={{ ...profileLabel(theme) }}>Obserwacje</Text>
                 </View>
               </TouchableOpacity>
@@ -1017,7 +1017,7 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
                   <MaterialCommunityIcons name="shield-off-outline" size={20} color={theme.textDim} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Klub</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Klub</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{isOwner ? 'Nie należysz do klubu' : 'Brak klubu'}</Text>
                   </View>
                 </View>
@@ -1026,7 +1026,7 @@ export default function ProfileView({
                     onPress={() => router.push('/Community/clubs/clubs' as any)}
                     style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}
                   >
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], fontWeight: '700' }}>Szukaj</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>Szukaj</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -1043,7 +1043,7 @@ export default function ProfileView({
                   }
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{club.name}</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{club.name}</Text>
                   <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{club.memberCount} członków · {club.myRole === 'owner' ? 'Założyciel' : (club.myRank?.name ?? 'Członek')}</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
@@ -1059,13 +1059,13 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <MaterialIcons name="person-add" size={20} color={pillAccentColors[0]} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{requests.length} oczekujących</Text>
                   </View>
                 </View>
                 {requests.length > 0 && (
                   <View style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -1080,7 +1080,7 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <MaterialIcons name="people" size={20} color={pillAccentColors[1]} />
                   <View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{friends.length} osób</Text>
                   </View>
                 </View>
@@ -1093,7 +1093,7 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
                   <MaterialIcons name="location-on" size={20} color="#FFD700" />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Lok. tylko dla znajomych</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Lok. tylko dla znajomych</Text>
                     <Text style={{ ...profileLabel(theme), marginTop: 2 }}>Pozycja widoczna tylko dla znajomych</Text>
                   </View>
                 </View>
@@ -1116,10 +1116,10 @@ export default function ProfileView({
             right={isOwner ? (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity onPress={openVroomkiModal} style={{ backgroundColor: theme.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: theme.primaryBorder }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>VROOMKI</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>VROOMKI</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -1151,7 +1151,7 @@ export default function ProfileView({
                 onPress={() => router.push('/gamification' as any)}
                 style={{ backgroundColor: theme.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: theme.primaryBorder }}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>OTWORZ</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>OTWORZ</Text>
               </TouchableOpacity>
             ) : null}
           >
@@ -1165,7 +1165,7 @@ export default function ProfileView({
                   <View key={item.label} style={{ flex: 1, minHeight: 86, borderRadius: 16, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '72'), padding: 10, justifyContent: 'space-between' }}>
                     <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
                     <View>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: item.color, fontWeight: '900' }}>{item.value}</Text>
                       <Text style={{ ...profileLabel(theme), marginTop: 3 }}>{item.label}</Text>
                     </View>
                   </View>
@@ -1190,8 +1190,8 @@ export default function ProfileView({
                   {fogOfWar!.topRegions.slice(0, 3).map(region => (
                     <View key={region.slug} style={{ gap: 6 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 11, fontWeight: '900' }}>{region.percentComplete}%</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, fontWeight: '900' }}>{region.percentComplete}%</Text>
                       </View>
                       <View style={{ height: 7, borderRadius: 99, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.10)' }}>
                         <View style={{ width: `${Math.min(100, region.percentComplete)}%`, height: '100%', borderRadius: 99, backgroundColor: theme.primary }} />
@@ -1208,7 +1208,7 @@ export default function ProfileView({
 
             {(turf?.crowns?.length ?? 0) > 0 && (
               <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 12 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>REWIRY NALEŻĄCE DO {profile?.username?.toUpperCase?.() ?? 'GRACZA'}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#f5c518', letterSpacing: 1, fontWeight: '800', marginBottom: 10 }}>REWIRY NALEŻĄCE DO {profile?.username?.toUpperCase?.() ?? 'GRACZA'}</Text>
                 {turf!.crowns.slice(0, 3).map(crown => (
                   <View key={crown.regionSlug} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 }}>
                     <MaterialCommunityIcons name="crown" size={17} color="#f5c518" />
@@ -1221,7 +1221,7 @@ export default function ProfileView({
 
             {(turf?.history?.length ?? 0) > 0 && (
               <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 12 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textMuted, letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>HISTORIA ZWYCIĘSTW</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted, letterSpacing: 1, fontWeight: '800', marginBottom: 10 }}>HISTORIA ZWYCIĘSTW</Text>
                 {turf!.history!.slice(0, 5).map((crown, index) => (
                   <View key={`${crown.regionSlug}-${crown.year}-${crown.month}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 }}>
                     <MaterialCommunityIcons name="history" size={17} color={theme.textMuted} />
@@ -1234,11 +1234,11 @@ export default function ProfileView({
 
             {((passport?.latestCities?.length ?? passport?.latestStamps?.length) ?? 0) > 0 && (
               <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 0 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[1], letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>ODBLOKOWANE MIASTA</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[1], letterSpacing: 1, fontWeight: '800', marginBottom: 10 }}>ODBLOKOWANE MIASTA</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {(passport?.latestCities ?? passport?.latestStamps ?? []).filter(stamp => stamp.type === 'city').slice(0, 4).map(stamp => (
                     <View key={`${stamp.slug}-${stamp.firstSeenAt}`} style={{ borderRadius: 99, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '80'), paddingHorizontal: 10, paddingVertical: 6 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '800' }}>{stamp.name}</Text>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '800' }}>{stamp.name}</Text>
                     </View>
                   ))}
                 </View>
@@ -1304,7 +1304,7 @@ export default function ProfileView({
                   <MaterialIcons name="map" size={17} color={pillAccentColors[1]} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
                     OTWÓRZ HISTORIĘ PRZEJAZDÓW
                   </Text>
                   <Text style={{ ...profileLabel(theme), marginTop: 3 }}>
@@ -1418,8 +1418,8 @@ export default function ProfileView({
                 <MaterialIcons name="bar-chart" size={18} color="#e33835" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>{statsMode === 'distance' ? 'KILOMETRY' : 'STATYSTYKI'}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 2, marginTop: 2 }}>{profile?.username ?? ''}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>{statsMode === 'distance' ? 'KILOMETRY' : 'STATYSTYKI'}</Text>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', letterSpacing: 1, marginTop: 2 }}>{profile?.username ?? ''}</Text>
               </View>
               <TouchableOpacity onPress={closeStats} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialIcons name="close" size={18} color={theme.text} />
@@ -1429,7 +1429,7 @@ export default function ProfileView({
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
               {isOwner && <TouchableOpacity onPress={() => { closeStats(); router.push('/profile/seasons'); }} style={{ borderWidth: 1, borderColor: '#e3383545', backgroundColor: '#e3383512', borderRadius: 14, padding: 14, marginBottom: 18, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <MaterialIcons name="emoji-events" size={20} color="#e33835" />
-                <View style={{ flex: 1 }}><Text style={{ fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', color: theme.text }}>STATYSTYKI SEZONOWE</Text><Text style={{ fontFamily: 'Satoshi', fontSize: 11, color: theme.textDim, marginTop: 3 }}>Bieżący sezon, historia i nagrody</Text></View>
+                <View style={{ flex: 1 }}><Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', color: theme.text }}>STATYSTYKI SEZONOWE</Text><Text style={{ fontFamily: 'Satoshi', fontSize: 12, color: theme.textDim, marginTop: 3 }}>Bieżący sezon, historia i nagrody</Text></View>
                 <MaterialIcons name="chevron-right" size={20} color="#e33835" />
               </TouchableOpacity>}
               {/* PRĘDKOŚĆ */}
@@ -1445,18 +1445,18 @@ export default function ProfileView({
               <StatsModalSection title="DYSTANS" color="#268bff" icon="road-variant">
                 <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
                   <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#268bff35' : '#268bff25' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#268bff', letterSpacing: 2 }}>TYDZIEŃ</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#268bff', letterSpacing: 1 }}>TYDZIEŃ</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
                       {Number((profile as any)?.weeklyDistance ?? 0).toFixed(1)}
                     </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>km</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#ffffff15' : '#00000012' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>ŁĄCZNIE</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>ŁĄCZNIE</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
                       {Number(profile?.totalDistance ?? 0).toFixed(1)}
                     </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 2 }}>km</Text>
                   </View>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
@@ -1474,14 +1474,14 @@ export default function ProfileView({
                   return (
                     <View style={{ marginTop: 4 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 1 }}>POSTĘP DO KOLEJNEGO PROGU PKT</Text>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835' }}>{pts.toLocaleString('pl-PL')} / {nextAt.toLocaleString('pl-PL')}</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>POSTĘP DO KOLEJNEGO PROGU PKT</Text>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835' }}>{pts.toLocaleString('pl-PL')} / {nextAt.toLocaleString('pl-PL')}</Text>
                       </View>
                       <View style={{ height: 8, borderRadius: 4, backgroundColor: isDark ? '#ffffff10' : '#00000010', overflow: 'hidden' }}>
                         <View style={{ width: `${barPct}%`, height: '100%', backgroundColor: '#e33835', borderRadius: 4 }} />
                       </View>
                       {!!profile?.position && (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 8 }}>
+                        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 8 }}>
                           Aktualna pozycja w rankingu: #{profile.position}
                         </Text>
                       )}
@@ -1529,7 +1529,7 @@ export default function ProfileView({
                     onPress={() => router.push('/premium' as any)}
                   >
                     <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', flex: 1 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', flex: 1 }}>
                       Wykresy miesięczne i porównanie m/m odblokujesz w Premium.
                     </Text>
                   </TouchableOpacity>
@@ -1585,10 +1585,10 @@ function Section({
         ) : accentStrip?.kind === 'solid' ? (
           <View style={{ width: 4, height: 22, borderRadius: 2, backgroundColor: accentStrip.color }} />
         ) : null}
-        <Text style={{ fontFamily: 'Orbitron', color: t.text, fontSize: 13, fontWeight: '700', letterSpacing: 1, flex: 1 }}>{title}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: t.text, fontSize: 13, fontWeight: '700', letterSpacing: 1, flex: 1 }}>{title}</Text>
         {count !== undefined && (
           <View style={{ backgroundColor: t.surface, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: t.border, ...GLASS_SHADOW }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim, letterSpacing: 1 }}>{count}</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: t.textDim, letterSpacing: 1 }}>{count}</Text>
           </View>
         )}
         {right}
@@ -1603,7 +1603,7 @@ function EmptyState({ text, surfaceTheme }: { text: string; surfaceTheme?: Profi
   const t = surfaceTheme ?? theme;
   return (
     <View style={{ ...widgetGlass(t), paddingVertical: 24, alignItems: 'center', marginBottom: 16 }}>
-      <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 10, letterSpacing: 1.5 }}>{text}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', color: t.textDim, fontSize: 12, letterSpacing: 1 }}>{text}</Text>
     </View>
   );
 }
@@ -1615,7 +1615,7 @@ function StatsModalSection({ title, color, icon, children }: { title: string; co
         <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: color + '20', alignItems: 'center', justifyContent: 'center' }}>
           <MaterialCommunityIcons name={icon as any} size={14} color={color} />
         </View>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color, letterSpacing: 3, fontWeight: '700' }}>{title}</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color, letterSpacing: 1, fontWeight: '700' }}>{title}</Text>
         <View style={{ flex: 1, height: 1, backgroundColor: color + '25', marginLeft: 4 }} />
       </View>
       {children}
@@ -1683,7 +1683,7 @@ function PremiumMonthlyCharts({
   if (!data.length) {
     return (
       <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '800' }}>Brak danych miesięcznych</Text>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '800' }}>Brak danych miesięcznych</Text>
         <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 6, lineHeight: 17 }}>
           Wykres pojawi się po zapisaniu przejazdów w kolejnych miesiącach.
         </Text>
@@ -1696,22 +1696,22 @@ function PremiumMonthlyCharts({
       <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '900' }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '900' }}>
               Dystans miesięczny
             </Text>
-            <Text style={{ fontSize: 11, color: theme.textDim, marginTop: 4, lineHeight: 16 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 4, lineHeight: 16 }}>
               Słupki pokazują sumę kilometrów przejechanych w danym miesiącu.
             </Text>
           </View>
           <View style={{ borderRadius: 10, borderWidth: 1, borderColor: '#e3383540', backgroundColor: '#e3383512', paddingHorizontal: 9, paddingVertical: 6 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '900' }}>KM</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', fontWeight: '900' }}>KM</Text>
           </View>
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'stretch' }}>
           <View style={{ width: 34, height: 172, justifyContent: 'space-between', paddingBottom: 22 }}>
             {yTicks.map((tick) => (
-              <Text key={tick} style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, textAlign: 'right' }}>
+              <Text key={tick} style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'right' }}>
                 {formatCompactKm(tick)}
               </Text>
             ))}
@@ -1739,11 +1739,11 @@ function PremiumMonthlyCharts({
                   const label = m.month > 0 ? `${m.month}/${String(m.year || '').slice(-2)}` : '--';
                   return (
                     <View key={m.key} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', minWidth: 24 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.text, marginBottom: 5 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, marginBottom: 5 }} numberOfLines={1}>
                         {formatCompactKm(m.distance)}
                       </Text>
                       <View style={{ width: '82%', height, borderRadius: 5, backgroundColor: '#e33835' }} />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 6 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, marginTop: 6 }} numberOfLines={1}>
                         {label}
                       </Text>
                     </View>
@@ -1752,22 +1752,22 @@ function PremiumMonthlyCharts({
               </View>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-              <Text style={{ fontSize: 10, color: theme.textDim }}>miesiąc</Text>
-              <Text style={{ fontSize: 10, color: theme.textDim }}>skala: 0-{formatCompactKm(maxDistance)} km</Text>
+              <Text style={{ fontSize: 12, color: theme.textDim }}>miesiąc</Text>
+              <Text style={{ fontSize: 12, color: theme.textDim }}>skala: 0-{formatCompactKm(maxDistance)} km</Text>
             </View>
           </View>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
           <View style={{ flex: 1, borderRadius: 10, backgroundColor: isDark ? '#ffffff08' : '#00000006', padding: 10 }}>
-            <Text style={{ fontSize: 10, color: theme.textDim }}>Ostatni miesiąc</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim }}>Ostatni miesiąc</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
               {formatCompactKm(latest?.distance ?? 0)} km
             </Text>
           </View>
           <View style={{ flex: 1, borderRadius: 10, backgroundColor: isDark ? '#ffffff08' : '#00000006', padding: 10 }}>
-            <Text style={{ fontSize: 10, color: theme.textDim }}>Przejazdy</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim }}>Przejazdy</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
               {(latest?.rides ?? 0).toLocaleString('pl-PL')} szt.
             </Text>
           </View>
@@ -1775,25 +1775,25 @@ function PremiumMonthlyCharts({
       </View>
 
       <View style={{ marginTop: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '900', marginBottom: 10 }}>
+        <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '900', marginBottom: 10 }}>
           Porównanie miesiąc do miesiąca
         </Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: (distancePositive ? '#4de926' : '#e33835') + '35', padding: 11 }}>
-            <Text style={{ fontSize: 10, color: theme.textDim }}>Dystans</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: distancePositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim }}>Dystans</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: distancePositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
               {formatSignedValue(deltaDistance, ' km')}
             </Text>
-            <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 4 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 4 }}>
               {Math.round(pctDistance)}% względem poprzedniego
             </Text>
           </View>
           <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: (ridesPositive ? '#4de926' : '#e33835') + '35', padding: 11 }}>
-            <Text style={{ fontSize: 10, color: theme.textDim }}>Przejazdy</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: ridesPositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim }}>Przejazdy</Text>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: ridesPositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
               {formatSignedValue(deltaRides)}
             </Text>
-            <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 4 }}>
+            <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 4 }}>
               {Math.round(pctRides)}% względem poprzedniego
             </Text>
           </View>
@@ -1806,9 +1806,9 @@ function PremiumMonthlyCharts({
 function StatsModalItem({ label, value, unit, color, isDark }: { label: string; value: string; unit?: string; color: string; isDark: boolean }) {
   return (
     <View style={{ minWidth: '30%', flex: 1, backgroundColor: isDark ? '#1a1a1a' : '#f0f0f0', borderRadius: 14, borderWidth: 1, borderColor: color + '30', padding: 12, alignItems: 'center', gap: 3 }}>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color, fontWeight: '900', letterSpacing: -0.5 }}>{value}</Text>
-      {!!unit && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: color + 'bb', letterSpacing: 1 }}>{unit}</Text>}
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: isDark ? '#ffffff50' : '#00000050', letterSpacing: 0.5, textAlign: 'center', marginTop: 2 }}>{label}</Text>
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color, fontWeight: '900', letterSpacing: -0.2 }}>{value}</Text>
+      {!!unit && <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: color + 'bb', letterSpacing: 1 }}>{unit}</Text>}
+      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: isDark ? '#ffffff50' : '#00000050', letterSpacing: 0.5, textAlign: 'center', marginTop: 2 }}>{label}</Text>
     </View>
   );
 }

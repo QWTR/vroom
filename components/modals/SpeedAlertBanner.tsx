@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Platform } from 'react-native';
+import { View, Animated, Platform } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 
@@ -72,17 +73,17 @@ export function SpeedAlertBanner({ camera, userSpeed, visible }: Props) {
         {/* Tekst */}
         <View style={{ flex: 1 }}>
           <Text style={{
-            fontFamily:    'Orbitron',
-            fontSize:      9,
+            fontFamily:    'Manrope_600SemiBold',
+            fontSize:      12,
             color:         color,
-            letterSpacing: 2,
+            letterSpacing: 1,
             fontWeight:    '700',
           }}>
             {isBump ? '🚧 PRÓG ZWALNIAJĄCY' : (isSpeeding ? '⚠️ FOTORADAR — ZA SZYBKO!' : '📷 FOTORADAR AHEAD')}
           </Text>
           <Text style={{
-            fontFamily: 'Orbitron',
-            fontSize:   8,
+            fontFamily: 'Manrope_600SemiBold',
+            fontSize:   12,
             color:      color + 'aa',
             marginTop:  2,
           }}>
@@ -103,7 +104,7 @@ export function SpeedAlertBanner({ camera, userSpeed, visible }: Props) {
             justifyContent:  'center',
           }}>
             <Text style={{
-              fontFamily: 'Orbitron',
+              fontFamily: 'Manrope_600SemiBold',
               fontSize:   12,
               color:      '#111',
               fontWeight: '900',

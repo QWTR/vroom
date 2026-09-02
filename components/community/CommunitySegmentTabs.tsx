@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -55,7 +56,7 @@ export function CommunitySegmentTabs({ tabs, activeKey, onChange, compact }: Pro
               />
             ) : null}
             <Text style={{
-              fontFamily: 'Orbitron',
+              fontFamily: 'Manrope_600SemiBold',
               fontSize: compact ? 8 : 9,
               fontWeight: active ? '700' : '500',
               color: active ? theme.primary : theme.textDim,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, View, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -36,15 +36,15 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
               <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: '#e3383520', borderWidth: 2, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                 <MaterialCommunityIcons name="rocket-launch" size={34} color="#e33835" />
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 4, marginBottom: 6 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', letterSpacing: 1, marginBottom: 6 }}>
                 NOWA WERSJA
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900', textAlign: 'center', letterSpacing: -0.5 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: theme.text, fontWeight: '900', textAlign: 'center', letterSpacing: -0.2 }}>
                 Aktualizacja{'\n'}dostępna!
               </Text>
             </View>
 
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, textAlign: 'center', lineHeight: 16, marginBottom: error ? 12 : 28, letterSpacing: 0.5 }}>
+            <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center', lineHeight: 16, marginBottom: error ? 12 : 28, letterSpacing: 0.5 }}>
               {loading
                 ? `Pobieranie aktualizacji… ${Math.round(progress)}%`
                 : 'Dostępna jest nowa wersja VROOM.\nZaktualizuj teraz, żeby korzystać z najnowszych funkcji i poprawek.'}
@@ -65,7 +65,7 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
             )}
 
             {!!error && (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', textAlign: 'center', lineHeight: 16, marginBottom: 20, letterSpacing: 0.3 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#e33835', textAlign: 'center', lineHeight: 16, marginBottom: 20, letterSpacing: 0.3 }}>
                 {error}
               </Text>
             )}
@@ -80,7 +80,7 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
                   ? <ActivityIndicator color={theme.onPrimary} size="small" />
                   : <>
                       <MaterialIcons name="system-update" size={18} color={theme.onPrimary} />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.onPrimary, fontWeight: '900', letterSpacing: 1 }}>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 13, color: theme.onPrimary, fontWeight: '900', letterSpacing: 1 }}>
                         {error ? 'SPRÓBUJ PONOWNIE' : 'AKTUALIZUJ TERAZ'}
                       </Text>
                     </>
@@ -90,7 +90,7 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
 
             {!loading && (
               <TouchableOpacity onPress={onDismiss} activeOpacity={0.7} style={{ alignItems: 'center', paddingVertical: 12 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1 }}>
+                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
                   Później
                 </Text>
               </TouchableOpacity>
