@@ -61,11 +61,12 @@ function MarkerVisualLayers({ iconImage, iconSize, sourceID }: VisualLayersProps
           style={{
             iconImage,
             iconSize,
-            // World heading + map alignment lets Mapbox compensate its exact,
-            // current bearing atomically. It cannot drift a frame behind camera.
-            iconRotate: ['coalesce', ['get', 'worldHeading'], ['get', 'heading'], 0],
+            // The native follower publishes this from the same VSync as the
+            // applied camera bearing. Keeping the arrow viewport-aligned avoids
+            // Mapbox applying a second, pitch-dependent map rotation.
+            iconRotate: ['coalesce', ['get', 'screenHeading'], ['get', 'heading'], 0],
             iconPitchAlignment: 'viewport',
-            iconRotationAlignment: 'map',
+            iconRotationAlignment: 'viewport',
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconAnchor: 'center',

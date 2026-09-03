@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAP_LIVE_DETAIL_MIN_ZOOM,
   MAP_LIVE_MIN_ZOOM,
   MAP_POI_CARD_MIN_ZOOM,
   MAP_POI_LABEL_MIN_ZOOM,
@@ -11,11 +12,12 @@ import {
 } from './mapViewport';
 
 describe('map viewport', () => {
-  it('hides distant map clutter and shows LIVE users only as individual markers', () => {
+  it('keeps LIVE users visible as individual markers at every zoom', () => {
     expect(MAP_POI_MIN_ZOOM).toBe(11.5);
     expect(MAP_POI_CARD_MIN_ZOOM).toBe(14.5);
     expect(MAP_POI_LABEL_MIN_ZOOM).toBe(MAP_POI_CARD_MIN_ZOOM);
-    expect(MAP_LIVE_MIN_ZOOM).toBe(11.5);
+    expect(MAP_LIVE_MIN_ZOOM).toBe(0);
+    expect(MAP_LIVE_DETAIL_MIN_ZOOM).toBe(11.5);
   });
   it('builds center and 20% query overscan', () => {
     const viewport = createMapViewport([[20, 54], [18, 52]], 14, 3)!;

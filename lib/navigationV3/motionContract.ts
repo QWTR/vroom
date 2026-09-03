@@ -61,10 +61,11 @@ export function interpolateHeadingShortest(start: number, target: number, progre
 export function markerScreenHeading(
   worldHeading: number,
   cameraBearing: number,
-  cameraMode: 'courseUp' | 'northUp' | 'free',
-  following: boolean,
+  _cameraMode: 'courseUp' | 'northUp' | 'free',
+  _following: boolean,
 ): number {
-  if (following && cameraMode === 'courseUp') return 0;
+  // Course-up does not mean that the marker is always 0 degrees on screen:
+  // the camera heading is intentionally smoother than the exact road tangent.
   return ((worldHeading - cameraBearing) % 360 + 360) % 360;
 }
 

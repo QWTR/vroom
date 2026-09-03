@@ -10,6 +10,23 @@ export function roadHeadingDeltaAbs(a: number, b: number): number {
   return Math.abs(((a - b + 540) % 360) - 180);
 }
 
+/** Segment containing localArcM; an exact vertex belongs to the outgoing segment. */
+export function roadSegmentIndexAtArc(cumM: number[], localArcM: number): number {
+  'worklet';
+  if (cumM.length < 2) return 0;
+  const lastSegment = cumM.length - 2;
+  const total = cumM[cumM.length - 1] ?? 0;
+  const clamped = Math.max(0, Math.min(total, localArcM));
+  let lo = 0;
+  let hi = lastSegment;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if ((cumM[mid] ?? Number.POSITIVE_INFINITY) <= clamped) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 /** Exact direction of the polyline segment occupied by localArcM. */
 export function exactRoadSegmentHeading(
   points: { lat: number; lng: number }[],
@@ -25,13 +42,7 @@ export function exactRoadSegmentHeading(
   // A 2 cm probe only resolves which side of a vertex owns the pose. It does
   // not average the bearing across a bend like the previous multi-metre chord.
   const probe = Math.max(0, Math.min(total, clamped + direction * 0.02));
-  let segment = 0;
-  for (let index = 0; index < cumM.length - 1; index += 1) {
-    if (probe < cumM[index + 1] || index === cumM.length - 2) {
-      segment = index;
-      break;
-    }
-  }
+  const segment = roadSegmentIndexAtArc(cumM, probe);
   const a = points[segment];
   const b = points[segment + 1];
   if (!a || !b) return normalizeRoadHeading(fallbackHeading);

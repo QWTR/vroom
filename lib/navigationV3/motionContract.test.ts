@@ -45,8 +45,8 @@ describe('shared trip motion contract', () => {
     expect(interpolateHeadingShortest(1, 359, 0.5)).toBe(0);
   });
 
-  it('uses distinct marker rotation rules for Course Up, North Up and free camera', () => {
-    expect(markerScreenHeading(123, 123, 'courseUp', true)).toBe(0);
+  it('uses the exact camera-relative marker rotation in every camera mode', () => {
+    expect(markerScreenHeading(110, 123, 'courseUp', true)).toBe(347);
     expect(markerScreenHeading(123, 0, 'northUp', true)).toBe(123);
     expect(markerScreenHeading(10, 350, 'free', false)).toBe(20);
   });

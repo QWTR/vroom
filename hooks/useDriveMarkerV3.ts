@@ -12,6 +12,7 @@ import { shouldHoldTransientOffRoadPose } from '../lib/navigationV3/roadPoseRete
 import {
   exactRoadSegmentHeading,
   roadHeadingDeltaAbs,
+  roadSegmentIndexAtArc,
   shouldAcceptArcGeometryTransition,
 } from '../lib/navigationV3/markerRoadGeometry';
 
@@ -184,14 +185,7 @@ function pointAtWindowArcLocalJs(
   }
   const total = cumM[n - 1];
   const clamped = Math.max(0, Math.min(total, localM));
-  let seg = 0;
-  for (let i = 0; i < n - 1; i += 1) {
-    if (clamped <= cumM[i + 1]) {
-      seg = i;
-      break;
-    }
-    seg = i;
-  }
+  const seg = roadSegmentIndexAtArc(cumM, clamped);
   const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
   const t = (clamped - cumM[seg]) / segLen;
   const aLat = ptsFlat[seg * 2];
@@ -327,14 +321,7 @@ function pointAtWindowArcLocal(
   }
   const total = cumM[n - 1];
   const clamped = Math.max(0, Math.min(total, localM));
-  let lo = 0;
-  let hi = n - 2;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1) / 2);
-    if (cumM[mid + 1] <= clamped) lo = mid;
-    else hi = mid - 1;
-  }
-  const seg = lo;
+  const seg = roadSegmentIndexAtArc(cumM, clamped);
   const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
   const t = (clamped - cumM[seg]) / segLen;
   const aLat = ptsFlat[seg * 2];
@@ -398,13 +385,7 @@ function exactRoadSegmentHeadingWorklet(
   const total = cum[count - 1];
   const direction = travelDirection < 0 ? -1 : 1;
   const probeM = clampWorklet(localM + direction * 0.02, 0, total);
-  let segment = 0;
-  if (direction > 0) {
-    while (segment < count - 2 && cum[segment + 1] <= probeM) segment += 1;
-  } else {
-    segment = count - 2;
-    while (segment > 0 && cum[segment] >= probeM) segment -= 1;
-  }
+  const segment = roadSegmentIndexAtArc(cum, probeM);
   const aLat = ptsFlat[segment * 2];
   const aLng = ptsFlat[segment * 2 + 1];
   const bLat = ptsFlat[(segment + 1) * 2];

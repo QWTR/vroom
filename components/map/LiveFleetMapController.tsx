@@ -7,7 +7,7 @@ import {
 } from '../../hooks/liveFleetSpatialIndex';
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
-import { MAP_LIVE_MIN_ZOOM } from '../../lib/mapViewport';
+import { MAP_LIVE_DETAIL_MIN_ZOOM } from '../../lib/mapViewport';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 
 type Props = {
@@ -19,6 +19,18 @@ type Props = {
   mapIdleNonce: number;
   zoom?: number;
   onUserPress: (userId: number) => void;
+};
+
+// getVisibleBounds() can fail while a Mapbox style is being attached or
+// recreated. LIVE data is already privacy-filtered by the server, so a short
+// full-world fallback is safer than dropping every received user from the
+// renderer until the next map-idle event happens to succeed.
+const LIVE_FLEET_FALLBACK_VIEWPORT: ViewportBounds = {
+  north: 90,
+  south: -90,
+  east: 180,
+  west: -180,
+  valid: 1,
 };
 
 function viewportKey(bounds: ViewportBounds): string {
@@ -139,15 +151,18 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     void refreshViewportFromNative();
   }, [enabled, movingAnchorKey, refreshViewportFromNative]);
 
-  const viewportReady = viewportBounds.valid === 1;
   const effectiveZoom = Number.isFinite(zoom) ? Number(zoom) : viewportZoom;
-  const renderEnabled = enabled && viewportReady && effectiveZoom >= MAP_LIVE_MIN_ZOOM;
+  const renderEnabled = enabled;
+  const effectiveViewportBounds = viewportBounds.valid === 1
+    ? viewportBounds
+    : LIVE_FLEET_FALLBACK_VIEWPORT;
+  const detailedMarkers = effectiveZoom >= MAP_LIVE_DETAIL_MIN_ZOOM;
   const animator = useLiveFleetAnimator(
     store,
     fleetUserIds,
     renderEnabled,
     anchor,
-    viewportBounds,
+    effectiveViewportBounds,
     effectiveZoom,
   );
 
@@ -160,6 +175,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
         coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
         metaPinRequests={animator.metaPinRequests}
         visible={renderEnabled}
+        detailed={detailedMarkers}
         onUserPress={onUserPress}
       />
     </>

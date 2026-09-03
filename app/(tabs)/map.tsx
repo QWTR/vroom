@@ -4363,7 +4363,8 @@ function MapScreenInner() {
     AsyncStorage.getItem('user').then(raw => {
       if (!raw) return;
       const user = JSON.parse(raw);
-      setCurrentUserId(user.userId);
+      const storedUserId = Number(user.userId ?? user.id);
+      setCurrentUserId(Number.isFinite(storedUserId) && storedUserId > 0 ? storedUserId : null);
       const rawAvatar = user.avatarUrl ?? user.avatar ?? null;
       setMyAvatarUrl(
         rawAvatar && typeof rawAvatar === 'string'

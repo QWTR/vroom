@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isLiveUpdateNewer, resolveLiveUserLivenessAt } from './liveUpdateOrder';
+import {
+  isLiveServerEventFresh,
+  isLiveUpdateNewer,
+  resolveLiveUserLivenessAt,
+} from './liveUpdateOrder';
 
 describe('live update ordering', () => {
   it('rejects duplicates and older socket sequences', () => {
@@ -33,5 +37,17 @@ describe('resolveLiveUserLivenessAt', () => {
   it('falls back to fix time when no receipt time exists', () => {
     expect(resolveLiveUserLivenessAt(null, 5_000)).toBe(5_000);
     expect(resolveLiveUserLivenessAt(null, null)).toBe(0);
+  });
+});
+
+describe('isLiveServerEventFresh', () => {
+  it('accepts legacy events without a server timestamp', () => {
+    expect(isLiveServerEventFresh(null, 100_000)).toBe(true);
+    expect(isLiveServerEventFresh(undefined, 100_000)).toBe(true);
+  });
+
+  it('rejects only an explicitly stale server timestamp', () => {
+    expect(isLiveServerEventFresh(20_000, 100_000, 90_000)).toBe(true);
+    expect(isLiveServerEventFresh(9_999, 100_000, 90_000)).toBe(false);
   });
 });

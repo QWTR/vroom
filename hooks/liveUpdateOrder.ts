@@ -29,3 +29,17 @@ export function resolveLiveUserLivenessAt(
   }
   return 0;
 }
+
+/**
+ * Reject only an explicitly stale server timestamp. A missing timestamp must
+ * remain valid because older socket deployments do not attach one, while a
+ * client fix timestamp is unsafe for this check due to clock skew.
+ */
+export function isLiveServerEventFresh(
+  serverAt?: number | null,
+  now = Date.now(),
+  maxAgeMs = 90_000,
+): boolean {
+  if (!Number.isFinite(serverAt) || Number(serverAt) <= 0) return true;
+  return now - Number(serverAt) <= maxAgeMs;
+}

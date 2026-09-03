@@ -3,9 +3,10 @@
 export const MAP_POI_MIN_ZOOM = 11.5;
 export const MAP_POI_CARD_MIN_ZOOM = 14.5;
 export const MAP_POI_LABEL_MIN_ZOOM = MAP_POI_CARD_MIN_ZOOM;
-// Obcy użytkownicy nie zaśmiecają widoku kraju. Po przybliżeniu każdy
-// użytkownik jest osobnym markerem — bez klastrów i liczników.
-export const MAP_LIVE_MIN_ZOOM = 11.5;
+// LIVE jest widoczny na każdym poziomie: daleko jako osobny punkt, od tego
+// progu jako pełny marker z avatarem i nickiem. Bez klastrów i liczników.
+export const MAP_LIVE_MIN_ZOOM = 0;
+export const MAP_LIVE_DETAIL_MIN_ZOOM = 11.5;
 export const MAP_LIVE_LABEL_MIN_ZOOM = 15.5;
 
 export type MapViewportBounds = {

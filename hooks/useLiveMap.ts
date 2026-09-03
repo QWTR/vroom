@@ -4,8 +4,9 @@ import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Notifications from 'expo-notifications';
-import { API_URL } from '../constants/mapConfig';
+import { API_URL, MAX_NEARBY_USERS_DISTANCE } from '../constants/mapConfig';
 import { prepareLiveLocationPacket, sendLiveLocation } from '../lib/liveLocationBroker';
+import { parseLiveUsersPayload } from '../lib/liveUsersPayload';
 import { snapToRoute } from '../scripts/navigationUtils';
 import {
   createLiveMapStore,
@@ -25,7 +26,11 @@ import {
   type FleetMotionTier,
 } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
-import { isLiveUpdateNewer, resolveLiveUserLivenessAt } from './liveUpdateOrder';
+import {
+  isLiveServerEventFresh,
+  isLiveUpdateNewer,
+  resolveLiveUserLivenessAt,
+} from './liveUpdateOrder';
 import {
   WARNING_CATALOG,
   type CreateWarningInput,
@@ -102,6 +107,47 @@ function parseIncomingMotion(u: Partial<LiveUser>): {
   return { heading, speedMps };
 }
 
+function optionalFiniteNumber(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseLiveUserList(payload: unknown): LiveUser[] {
+  return parseLiveUsersPayload(payload).map((transport): LiveUser => {
+    const user = transport as any;
+    return {
+      id: transport.id,
+      username: transport.username,
+      avatarUrl: transport.avatarUrl,
+      avatarFrameUrl: transport.avatarFrameUrl,
+      lat: transport.lat,
+      lng: transport.lng,
+      online: user.online !== false,
+      isFriend: user.isFriend === true,
+      isPremium: user.isPremium === true,
+      premiumVisual: user.premiumVisual ?? null,
+      vehicleModelUrl: user.vehicleModelUrl === undefined
+        ? undefined
+        : (typeof user.vehicleModelUrl === 'string' ? user.vehicleModelUrl : null),
+      vehicleModelMeta: user.vehicleModelMeta,
+      serverAt: optionalFiniteNumber(user.serverAt ?? user.locationAt),
+      fixAt: optionalFiniteNumber(user.fixAt ?? user.serverAt ?? user.locationAt),
+      fixId: user.fixId == null ? null : String(user.fixId),
+      stale: user.stale === true,
+      seq: optionalFiniteNumber(user.seq),
+      heading: optionalFiniteNumber(user.heading),
+      speedKmh: optionalFiniteNumber(user.speedKmh),
+      speedMps: optionalFiniteNumber(user.speedMps),
+      trail: parseIncomingTrail(user.trail),
+      motionTier: user.motionTier === 'full' || user.motionTier === 'reduced'
+        ? user.motionTier
+        : undefined,
+      positionSource: user.positionSource === 'snapped' ? 'snapped' : 'raw',
+    };
+  });
+}
+
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -117,7 +163,9 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 const PROXIMITY_THRESHOLD_M     = 500;
 const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
-const LIVE_USERS_RADIUS_KM = 750;
+// Keep this aligned with the deployed API and native car clients. Sending a
+// larger ad-hoc radius can be rejected by server-side query validation.
+const LIVE_USERS_RADIUS_KM = MAX_NEARBY_USERS_DISTANCE;
 const LIVE_USERS_TAKE = 400;
 /** Brak aktualizacji pozycji — usuń zombie (snapshot / prune). */
 const LIVE_USER_STALE_MS = 90_000;
@@ -128,9 +176,8 @@ const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
 const LIVE_USER_EVENT_STALE_MS = 90_000;
 const LIVE_LOCATION_HEARTBEAT_MS = 25_000;
-const USERS_REFRESH_MS = 45_000;
+const USERS_REFRESH_MS = 20_000;
 const SOCKET_USERS_FALLBACK_MS = 1_500;
-const LIVE_USERS_REST_FRESH_MS = 40_000;
 
 async function fetchWithTimeout(
   url: string,
@@ -178,13 +225,14 @@ export function useLiveMap(
   const mapSessionActiveRef     = useRef(mapSessionActive);
   const liveUsersEnabledRef     = useRef(liveUsersEnabled);
   const appStateRef             = useRef<AppStateStatus>(AppState.currentState);
-  const lastSnapshotAtRef  = useRef(0);
-  const hasUsersFromSocketRef = useRef(false);
   const liveJoinWithGpsRef = useRef(false);
   const liveJoinedRef = useRef(false);
+  const liveJoinInFlightRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveUsersFetchInFlightRef = useRef<Promise<void> | null>(null);
   const mergeGenerationRef = useRef(0);
   const pendingLocationPayloadRef = useRef<Record<string, unknown> | null>(null);
+  const latestOwnPayloadRef = useRef<Record<string, unknown> | null>(null);
   const latestOwnFixRef = useRef<{ lat: number; lng: number; fixAt: number; fixId: string } | null>(null);
   const liveUserFixAtRef = useRef<Map<number, number>>(new Map());
 
@@ -502,13 +550,15 @@ export function useLiveMap(
     });
     if (!payload) return null;
     pendingLocationPayloadRef.current = payload;
+    latestOwnPayloadRef.current = payload;
     emitPendingLocation();
     return payload;
   }, [emitPendingLocation]);
 
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
-    if (!socket?.connected) return;
+    if (!socket?.connected || liveJoinInFlightRef.current) return;
+    liveJoinInFlightRef.current = true;
     liveJoinedRef.current = false;
     if (isSharingRef.current) setSharingStatus('connecting');
     const pending = pendingLocationPayloadRef.current;
@@ -524,9 +574,15 @@ export function useLiveMap(
         fixAgeMs: Math.max(0, Date.now() - previousFix.fixAt),
       } : {}),
     } : { protocolVersion: 2 });
+    // Older production sockets join the room but do not acknowledge the
+    // event. Treat the emit as an active legacy join; only an explicit
+    // `joined: false` is a rejection. REST remains the independent fallback.
+    liveJoinedRef.current = true;
+    setSharingStatus(isSharingRef.current ? 'on' : 'off');
     socket.timeout(5_000).emit('live:join', payload, (error: Error | null, ack?: { joined?: boolean }) => {
+      liveJoinInFlightRef.current = false;
       if (socketRef.current !== socket || !socket.connected) return;
-      if (error || ack?.joined !== true) {
+      if (!error && ack?.joined === false) {
         liveJoinedRef.current = false;
         if (isSharingRef.current) setSharingStatus('error');
         return;
@@ -539,6 +595,7 @@ export function useLiveMap(
 
   const leaveLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
+    liveJoinInFlightRef.current = false;
     liveJoinedRef.current = false;
     setSharingStatus('off');
     if (!socket?.connected) return;
@@ -628,30 +685,35 @@ export function useLiveMap(
     }
   }, []);
 
-  const fetchLiveUsersRest = useCallback(async (token: string) => {
-    if (!liveUsersEnabledRef.current) return;
-    if (
-      socketRef.current?.connected
-      && hasUsersFromSocketRef.current
-      && Date.now() - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
-    ) {
-      return;
-    }
-    // Pusty snapshot z socketa nie blokuje REST — hasUsersFromSocketRef ustawiamy tylko przy users.length > 0.
-    try {
-      const usersRes = await fetchWithTimeout(
-        buildLiveUsersUrl(),
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (usersRes.ok && liveUsersEnabledRef.current) {
-        const data = await usersRes.json();
-        const users: LiveUser[] = Array.isArray(data) ? data : [];
-        mergeLiveUsersFromApi(users);
+  const fetchLiveUsersRest = useCallback((token: string): Promise<void> => {
+    if (!liveUsersEnabledRef.current) return Promise.resolve();
+    if (liveUsersFetchInFlightRef.current) return liveUsersFetchInFlightRef.current;
+    // REST jest niezależną warstwą naprawczą. Snapshot socketu może być pusty
+    // lub częściowy (np. gdy dwa telefony dołączają równocześnie), więc nie
+    // wolno blokować nim pobrania pełnej listy zgodnej z zasadami prywatności.
+    const requestGeneration = mergeGenerationRef.current;
+    const request = (async () => {
+      try {
+        const usersRes = await fetchWithTimeout(
+          buildLiveUsersUrl(),
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (usersRes.ok && liveUsersEnabledRef.current) {
+          const data = await usersRes.json();
+          const users = parseLiveUserList(data);
+          applyLiveUsersMerge(users, requestGeneration);
+        }
+      } catch (e) {
+        console.log('fetchLiveUsersRest error:', e);
       }
-    } catch (e) {
-      console.log('fetchLiveUsersRest error:', e);
-    }
-  }, [buildLiveUsersUrl, mergeLiveUsersFromApi]);
+    })().finally(() => {
+      if (liveUsersFetchInFlightRef.current === request) {
+        liveUsersFetchInFlightRef.current = null;
+      }
+    });
+    liveUsersFetchInFlightRef.current = request;
+    return request;
+  }, [buildLiveUsersUrl, applyLiveUsersMerge]);
 
   const scheduleUsersRestFallback = useCallback((token: string) => {
     clearUsersFallbackTimer();
@@ -663,11 +725,10 @@ export function useLiveMap(
   }, [clearUsersFallbackTimer, fetchLiveUsersRest]);
 
   const fetchInitialData = useCallback(async (token: string) => {
-    await fetchWarnings(token);
-    if (liveUsersEnabledRef.current) {
-      scheduleUsersRestFallback(token);
-    }
-  }, [fetchWarnings, scheduleUsersRestFallback]);
+    const tasks: Promise<unknown>[] = [fetchWarnings(token)];
+    if (liveUsersEnabledRef.current) tasks.push(fetchLiveUsersRest(token));
+    await Promise.allSettled(tasks);
+  }, [fetchWarnings, fetchLiveUsersRest]);
 
   // Geo refresh REST tylko gdy socket martwy lub dawno bez snapshotu.
   const lastUsersGeoRefreshRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
@@ -682,8 +743,7 @@ export function useLiveMap(
     liveUserLastServerAtRef.current.clear();
     reducedLastAppliedAtRef.current.clear();
     reducedPendingRef.current.clear();
-    hasUsersFromSocketRef.current = false;
-    lastSnapshotAtRef.current = 0;
+    liveUsersFetchInFlightRef.current = null;
     lastUsersGeoRefreshRef.current = null;
     store.clear();
   }, [store, clearUsersFallbackTimer]);
@@ -757,10 +817,6 @@ export function useLiveMap(
       lng: userLocation.longitude,
       at: now,
     };
-    if (
-      socketRef.current?.connected
-      && now - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
-    ) return;
     void fetchLiveUsersRest(tok);
   }, [userLocation?.latitude, userLocation?.longitude, liveUsersEnabled, fetchLiveUsersRest]);
 
@@ -795,6 +851,11 @@ export function useLiveMap(
       if (!token) return;
       tokenRef.current = token;
 
+      // REST starts immediately and does not wait for the websocket handshake.
+      // This is the recovery path on networks that block websocket transport.
+      void fetchWarnings(token);
+      if (liveUsersEnabledRef.current) void fetchLiveUsersRest(token);
+
       const socket = io(API_URL, {
         auth:              { token },
         transports:        ['websocket'],
@@ -807,19 +868,20 @@ export function useLiveMap(
 
       socket.on('connect', async () => {
         setConnected(true);
-        hasUsersFromSocketRef.current = false;
         if (liveUsersEnabledRef.current) {
           joinLiveMapRoom();
         }
         emitPendingLocation();
-        await fetchWarnings(token);
+        void fetchWarnings(token);
         if (liveUsersEnabledRef.current) {
+          void fetchLiveUsersRest(token);
           scheduleUsersRestFallback(token);
         }
       });
 
       socket.on('disconnect', (reason) => {
         liveJoinedRef.current = false;
+        liveJoinInFlightRef.current = false;
         setConnected(false);
         setSharingStatus(isSharingRef.current ? 'connecting' : 'off');
         if (
@@ -839,16 +901,19 @@ export function useLiveMap(
 
       socket.on('user:location', (data: any) => {
         if (!liveUsersEnabledRef.current) return;
-        const id = Number(data?.id);
-        const rawLat = Number(data?.lat);
-        const rawLng = Number(data?.lng);
-        const seq = Number(data?.seq);
-        const serverAtRaw = Number(data?.serverAt ?? data?.locationAt);
-        const serverAt = Number.isFinite(serverAtRaw) ? serverAtRaw : Date.now();
-        const fixAtRaw = Number(data?.fixAt ?? data?.serverAt ?? data?.locationAt);
-        const fixAt = Number.isFinite(fixAtRaw) ? fixAtRaw : serverAt;
-        if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
-        if (Date.now() - fixAt > LIVE_USER_EVENT_STALE_MS) return;
+        const transport = parseLiveUsersPayload(data)[0];
+        if (!transport) return;
+        const id = transport.id;
+        const rawLat = transport.lat;
+        const rawLng = transport.lng;
+        const seqValue = optionalFiniteNumber(data?.seq);
+        const seq = seqValue ?? Number.NaN;
+        const serverAtValue = optionalFiniteNumber(data?.serverAt ?? data?.locationAt);
+        const serverAt = serverAtValue ?? Date.now();
+        const fixAt = optionalFiniteNumber(data?.fixAt ?? data?.serverAt ?? data?.locationAt) ?? serverAt;
+        // fixAt is generated by the other phone and its clock can be skewed.
+        // Only a server timestamp is safe for transport-age rejection.
+        if (!isLiveServerEventFresh(serverAtValue, Date.now(), LIVE_USER_EVENT_STALE_MS)) return;
         const prevSeq = liveUserLastSeqRef.current.get(id);
         if (Number.isFinite(seq) && prevSeq != null && seq <= prevSeq) return;
         const prevServerAt = liveUserLastServerAtRef.current.get(id);
@@ -876,14 +941,14 @@ export function useLiveMap(
           const displaySpeedMps = motion.speedMps;
           const meta: LiveUserMeta = {
             id,
-            username: typeof data?.username === 'string'
-              ? data.username
+            username: transport.username
+              ? transport.username
               : (existingMeta?.username ?? ''),
-            avatarUrl: data?.avatarUrl !== undefined
-              ? data.avatarUrl
+            avatarUrl: transport.avatarUrl
+              ? transport.avatarUrl
               : (existingMeta?.avatarUrl ?? null),
-            avatarFrameUrl: data?.avatarFrameUrl !== undefined
-              ? data.avatarFrameUrl
+            avatarFrameUrl: transport.avatarFrameUrl
+              ? transport.avatarFrameUrl
               : (existingMeta?.avatarFrameUrl ?? null),
             online: data?.online ?? existingMeta?.online ?? true,
             isFriend: data?.isFriend ?? existingMeta?.isFriend,
@@ -914,7 +979,6 @@ export function useLiveMap(
             serverAt,
           });
           if (!existingMeta) store.registerUserId(id);
-          lastSnapshotAtRef.current = Date.now();
         };
 
         if (motionTier === 'reduced' && existingPosForTier) {
@@ -923,11 +987,11 @@ export function useLiveMap(
           reducedPendingRef.current.delete(id);
           applyIncomingLocation();
         }
-        lastSnapshotAtRef.current = Date.now();
       });
 
       socket.on('live:users:snapshot', (data: any) => {
-        const rawCount = Array.isArray(data) ? data.length : -1;
+        const users = parseLiveUserList(data);
+        const rawCount = users.length;
         console.log(
           '[LIVE_SNAPSHOT] received rawCount=',
           rawCount,
@@ -938,51 +1002,11 @@ export function useLiveMap(
           console.log('[LIVE_SNAPSHOT] skipped — liveUsersEnabled is false');
           return;
         }
-        const users: LiveUser[] = (Array.isArray(data) ? data : [])
-          .map((u): LiveUser => ({
-            id: Number(u?.id),
-            username: typeof u?.username === 'string' ? u.username : '',
-            avatarUrl: typeof u?.avatarUrl === 'string' ? u.avatarUrl : null,
-            avatarFrameUrl: typeof u?.avatarFrameUrl === 'string' ? u.avatarFrameUrl : null,
-            lat: Number(u?.lat),
-            lng: Number(u?.lng),
-            online: u?.online !== false,
-            isFriend: u?.isFriend === true,
-            isPremium: !!u?.isPremium,
-            premiumVisual: u?.premiumVisual ?? null,
-            vehicleModelUrl: u?.vehicleModelUrl === undefined
-              ? undefined
-              : (typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null),
-            vehicleModelMeta: u?.vehicleModelMeta,
-            serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
-            fixAt: Number.isFinite(Number(u?.fixAt)) ? Number(u.fixAt) : null,
-            fixId: u?.fixId == null ? null : String(u.fixId),
-            stale: u?.stale === true,
-            seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
-            heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,
-            speedKmh: Number.isFinite(Number(u?.speedKmh)) ? Number(u.speedKmh) : null,
-            speedMps: Number.isFinite(Number(u?.speedMps)) ? Number(u.speedMps) : null,
-            trail: parseIncomingTrail(u?.trail),
-            motionTier: u?.motionTier === 'full' || u?.motionTier === 'reduced'
-              ? u.motionTier
-              : undefined,
-            positionSource: u?.positionSource === 'snapped' ? 'snapped' : 'raw',
-          }))
-          .filter((u) =>
-            Number.isFinite(u.id)
-            && Number.isFinite(u.lat)
-            && Number.isFinite(u.lng),
-          );
         console.log(
           '[LIVE_SNAPSHOT] parsed users=',
           users.length,
           '→ mergeLiveUsersFromApi',
         );
-        if (users.length > 0) {
-          hasUsersFromSocketRef.current = true;
-          lastSnapshotAtRef.current = Date.now();
-        }
-        clearUsersFallbackTimer();
         mergeLiveUsersFromApi(users);
       });
 
@@ -1062,6 +1086,8 @@ export function useLiveMap(
     resolveIncomingMotionTier,
     enqueueReducedMotionUpdate,
     emitPendingLocation,
+    fetchLiveUsersRest,
+    isForegroundActive,
   ]);
 
   // Pause socket when app is backgrounded without background permission
@@ -1082,6 +1108,7 @@ export function useLiveMap(
           if (liveUsersEnabledRef.current) joinLiveMapRoom();
           void fetchWarnings(tokenRef.current!);
           if (liveUsersEnabledRef.current) {
+            void fetchLiveUsersRest(tokenRef.current!);
             scheduleUsersRestFallback(tokenRef.current!);
           }
         }
@@ -1100,32 +1127,38 @@ export function useLiveMap(
       }
     });
     return () => sub.remove();
-  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, clearUsersFallbackTimer, mergeLiveUsersFromApi, store, queueCurrentLocation]);
+  }, [mapSessionActive, fetchWarnings, fetchLiveUsersRest, scheduleUsersRestFallback, joinLiveMapRoom, queueCurrentLocation]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
-    if (!liveUsersEnabled) return;
+    if (!mapSessionActive || !liveUsersEnabled) return;
     const interval = setInterval(async () => {
       if (!allowBgRef.current && !isForegroundActive()) return;
       const token = tokenRef.current;
       if (!token) return;
-      if (
-        socketRef.current?.connected
-        && Date.now() - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
-      ) {
-        return;
-      }
+      if (socketRef.current?.connected && !liveJoinedRef.current) joinLiveMapRoom();
       await fetchLiveUsersRest(token);
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [liveUsersEnabled, fetchLiveUsersRest]);
+  }, [mapSessionActive, liveUsersEnabled, fetchLiveUsersRest, joinLiveMapRoom, isForegroundActive]);
 
   // Niezależny heartbeat utrzymuje na mapie również kierowcę stojącego w miejscu.
+  // Socket i REST są celowo równoległe: na niestabilnej sieci mobilnej jeden
+  // transport może działać, gdy drugi zgubił zdarzenie lub członkostwo pokoju.
   useEffect(() => {
     if (!mapSessionActive || !isSharing) return;
     const interval = setInterval(() => {
       if (!allowBgRef.current && !isForegroundActive()) return;
-      queueCurrentLocation('live_heartbeat');
+      const queued = queueCurrentLocation('live_heartbeat');
+      const latest = queued ?? latestOwnPayloadRef.current;
+      const loc = userLocationRef.current;
+      if (!latest && (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude))) return;
+      void sendLiveLocation({
+        ...(latest ?? { lat: loc!.latitude, lng: loc!.longitude }),
+        clientSequence: undefined,
+        shareLocation: true,
+        source: 'live_rest_heartbeat',
+      }, { force: true }).catch(() => {});
     }, LIVE_LOCATION_HEARTBEAT_MS);
     return () => clearInterval(interval);
   }, [mapSessionActive, isSharing, isForegroundActive, queueCurrentLocation]);
@@ -1233,12 +1266,14 @@ export function useLiveMap(
     const prepared = prepareLiveLocationPacket(payload);
     if (!prepared) return;
     pendingLocationPayloadRef.current = prepared;
+    latestOwnPayloadRef.current = prepared;
     emitPendingLocation();
-  }, [isSharing, emitPendingLocation]);
+  }, [isSharing, emitPendingLocation, isForegroundActive]);
 
   // ── Toggle sharing ────────────────────────────────────
   const forceLocalSharingOff = useCallback(() => {
     isSharingRef.current = false;
+    latestOwnPayloadRef.current = null;
     setSharingStatus('off');
     const socket = socketRef.current;
     if (socket?.connected) {
@@ -1514,6 +1549,10 @@ export function useLiveMap(
     const socket = socketRef.current;
     if (!socket?.connected) {
       socket?.connect();
+      await Promise.allSettled([
+        fetchWarnings(token),
+        ...(liveUsersEnabledRef.current ? [fetchLiveUsersRest(token)] : []),
+      ]);
     } else {
       if (liveUsersEnabledRef.current) joinLiveMapRoom();
       await fetchWarnings(token);
@@ -1534,7 +1573,7 @@ export function useLiveMap(
     } catch {
       /* ignore */
     }
-  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, leaveLiveMapRoom, queueCurrentLocation]);
+  }, [fetchWarnings, fetchLiveUsersRest, scheduleUsersRestFallback, joinLiveMapRoom, queueCurrentLocation]);
 
   const liveUsers = store.getLiveUsersArray();
 

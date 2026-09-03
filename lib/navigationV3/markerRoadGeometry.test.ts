@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   exactRoadSegmentHeading,
   roadHeadingDeltaAbs,
+  roadSegmentIndexAtArc,
   shouldAcceptArcGeometryTransition,
 } from './markerRoadGeometry';
 
@@ -13,6 +14,16 @@ const points = [
 const cumM = [0, 111, 179];
 
 describe('exact road marker geometry', () => {
+  it('selects the segment containing the marker instead of the previous segment', () => {
+    const arcs = [0, 10, 20, 30];
+    expect(roadSegmentIndexAtArc(arcs, 0)).toBe(0);
+    expect(roadSegmentIndexAtArc(arcs, 5)).toBe(0);
+    expect(roadSegmentIndexAtArc(arcs, 10)).toBe(1);
+    expect(roadSegmentIndexAtArc(arcs, 15)).toBe(1);
+    expect(roadSegmentIndexAtArc(arcs, 20)).toBe(2);
+    expect(roadSegmentIndexAtArc(arcs, 30)).toBe(2);
+  });
+
   it('uses the occupied segment instead of averaging across a bend', () => {
     expect(exactRoadSegmentHeading(points, cumM, 100, 1, 180)).toBeCloseTo(0, 1);
     expect(exactRoadSegmentHeading(points, cumM, 120, 1, 180)).toBeCloseTo(90, 1);
