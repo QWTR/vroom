@@ -43,6 +43,7 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
   @objc var latitude: NSNumber = 0 { didSet { markDirty() } }
   @objc var longitude: NSNumber = 0 { didSet { markDirty() } }
   @objc var heading: NSNumber = 0 { didSet { markDirty() } }
+  @objc var markerHeading: NSNumber = 0 { didSet { markDirty() } }
   @objc var segmentDurationMs: NSNumber = NSNumber(value: vroomMapCameraDefaultSegmentMs) { didSet { markDirty() } }
   @objc var zoom: NSNumber = 18 { didSet { markDirty() } }
   @objc var pitch: NSNumber = 58 { didSet { markDirty() } }
@@ -180,7 +181,8 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
     let targetLat = latitude.doubleValue
     let targetLng = longitude.doubleValue
     let targetHdg = heading.doubleValue
-    guard targetLat.isFinite, targetLng.isFinite, targetHdg.isFinite,
+    let targetMarkerHdg = markerHeading.doubleValue
+    guard targetLat.isFinite, targetLng.isFinite, targetHdg.isFinite, targetMarkerHdg.isFinite,
           abs(targetLat) > 0.000001 || abs(targetLng) > 0.000001 else { return }
 
     let dtMs: Double
@@ -198,7 +200,8 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
       dtMs: dtMs
     )
 
-    let worldHeading = Self.normalizeHeading(displayedHeading)
+    let cameraWorldHeading = Self.normalizeHeading(displayedHeading)
+    let markerWorldHeading = Self.normalizeHeading(targetMarkerHdg)
     ensureArrowImage(mapView)
 
     let mode = normalizedCameraMode()
@@ -229,28 +232,19 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
           right: max(0, displayedPaddingRight)
         ),
         zoom: displayedZoom,
-        bearing: mode == "northUp" ? 0 : worldHeading,
+        bearing: mode == "northUp" ? 0 : cameraWorldHeading,
         pitch: displayedPitch
       ))
     }
 
-    let cameraBearing: Double
-    if enabled && mode == "courseUp" {
-      cameraBearing = worldHeading
-    } else if enabled && mode == "northUp" {
-      cameraBearing = 0
-    } else {
-      cameraBearing = Self.normalizeHeading(mapView.mapboxMap.cameraState.bearing)
-    }
-    let screenHeading = enabled && mode == "courseUp"
-      ? 0
-      : Self.normalizeHeading(worldHeading - cameraBearing)
+    let cameraBearing = Self.normalizeHeading(mapView.mapboxMap.cameraState.bearing)
+    let screenHeading = Self.normalizeHeading(markerWorldHeading - cameraBearing)
     updateMarkerSource(
       mapView,
       pose: VroomRenderedPose(
         latitude: displayedLatitude,
         longitude: displayedLongitude,
-        worldHeading: worldHeading,
+        worldHeading: markerWorldHeading,
         screenHeading: screenHeading
       )
     )

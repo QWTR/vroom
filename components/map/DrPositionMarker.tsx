@@ -24,6 +24,7 @@ export interface DrPositionMarkerProps {
   avatarUrl?: string | null;
   /** Skórka z API (premium / odblokowane) — nad avatar/strzałką. */
   cursorSkin?: CursorSkinOverlay | null;
+  compact?: boolean;
 }
 
 export const DrPositionMarker = memo(function DrPositionMarker({
@@ -33,6 +34,7 @@ export const DrPositionMarker = memo(function DrPositionMarker({
   imageUri,
   avatarUrl,
   cursorSkin,
+  compact = false,
 }: DrPositionMarkerProps) {
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -57,6 +59,14 @@ export const DrPositionMarker = memo(function DrPositionMarker({
   const showSkin = !!skinUri;
   const hdg = Number.isFinite(heading) ? heading : 0;
   const markerTransform = { transform: [{ rotate: `${hdg}deg` }] as const };
+
+  if (compact) {
+    return (
+      <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }} allowOverlapWithPuck allowOverlap>
+        <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#e33835', borderWidth: 2.5, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 3, elevation: 4 }} />
+      </Mapbox.MarkerView>
+    );
+  }
 
   return (
     <Mapbox.MarkerView

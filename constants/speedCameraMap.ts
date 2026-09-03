@@ -9,11 +9,3 @@ export const SPEED_CAMERA_SPRITE_PX = 35;
 
 /** Rozmiar ikony na mapie — mnożnik tekstury Mapbox. */
 export const SPEED_CAMERA_ICON_SIZE = 1.08;
-
-/** Nieco większa ikona dla klastrów (licznik na środku). */
-export const SPEED_CAMERA_CLUSTER_ICON_SIZE = 1.16;
-
-/** Mapbox clusterMaxZoomLevel — powyżej tego zoomu pojedyncze piny zamiast klastrów. */
-export const SPEED_CAMERA_CLUSTER_MAX_ZOOM = 14;
-
-export const SPEED_CAMERA_CLUSTER_RADIUS = 48;

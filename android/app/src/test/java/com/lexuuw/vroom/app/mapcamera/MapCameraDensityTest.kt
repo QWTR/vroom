@@ -26,8 +26,9 @@ class MapCameraDensityTest {
   }
 
   @Test fun derivesScreenHeadingForEveryCameraMode() {
-    assertEquals(0.0, mapCameraScreenHeading(123.0, 123.0, "courseUp", true), 0.0001)
-    assertEquals(123.0, mapCameraScreenHeading(123.0, 0.0, "northUp", true), 0.0001)
-    assertEquals(20.0, mapCameraScreenHeading(10.0, 350.0, "free", false), 0.0001)
+    assertEquals(0.0, mapCameraScreenHeading(123.0, 123.0), 0.0001)
+    assertEquals(123.0, mapCameraScreenHeading(123.0, 0.0), 0.0001)
+    assertEquals(20.0, mapCameraScreenHeading(10.0, 350.0), 0.0001)
+    assertEquals(330.0, mapCameraScreenHeading(90.0, 120.0), 0.0001)
   }
 }

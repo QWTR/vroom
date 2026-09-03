@@ -1,34 +1,8 @@
-import React, { useMemo } from 'react';
-import { TouchableOpacity, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import React, { useCallback, useMemo } from 'react';
 import type { GeoDropNearby } from '../../lib/gamificationClient';
-
-const SPRITE_PX = 44;
-
-function GeoDropSprite() {
-  return (
-    <View
-      style={{
-        width: SPRITE_PX,
-        height: SPRITE_PX,
-        borderRadius: SPRITE_PX / 2,
-        backgroundColor: '#7c3aed',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 2.5,
-        borderColor: '#fbbf24',
-        shadowColor: '#000',
-        shadowOpacity: 0.35,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 6,
-      }}
-    >
-      <MaterialCommunityIcons name="diamond-stone" size={22} color="#fde68a" />
-    </View>
-  );
-}
+import { MAP_POI_MIN_ZOOM } from '../../lib/mapViewport';
+import { MAP_DROP_MARKER_IMAGES, MAP_MARKER_IMAGE_KEYS } from './mapMarkerSprites';
 
 type Props = {
   drops: GeoDropNearby[];
@@ -36,27 +10,51 @@ type Props = {
 };
 
 export function GeoDropMapLayer({ drops, onSelectDrop }: Props) {
-  const visibleDrops = useMemo(
-    () => drops.filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lng)),
-    [drops],
-  );
+  const { shape, byId } = useMemo(() => {
+    const index = new Map<string, GeoDropNearby>();
+    const features = drops.flatMap((drop) => {
+      if (!Number.isFinite(drop.lat) || !Number.isFinite(drop.lng)) return [];
+      index.set(String(drop.id), drop);
+      return [{
+        type: 'Feature' as const,
+        id: String(drop.id),
+        geometry: { type: 'Point' as const, coordinates: [drop.lng, drop.lat] },
+        properties: { id: String(drop.id) },
+      }];
+    });
+    return { shape: { type: 'FeatureCollection' as const, features }, byId: index };
+  }, [drops]);
+
+  const onPress = useCallback((event: any) => {
+    const drop = byId.get(String(event.features?.[0]?.properties?.id ?? ''));
+    if (drop) onSelectDrop?.(drop);
+  }, [byId, onSelectDrop]);
 
   return (
     <>
-      {visibleDrops.map((drop) => (
-        <Mapbox.MarkerView
-          key={`geo-drop-${drop.id}`}
-          coordinate={[drop.lng, drop.lat]}
-          anchor={{ x: 0.5, y: 0.5 }}
-        >
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => onSelectDrop?.(drop)}
-          >
-            <GeoDropSprite />
-          </TouchableOpacity>
-        </Mapbox.MarkerView>
-      ))}
+      <Mapbox.Images images={MAP_DROP_MARKER_IMAGES} />
+      <Mapbox.ShapeSource
+        id="geoDropsSource"
+        shape={shape as any}
+        onPress={onPress}
+        hitbox={{ width: 48, height: 48 }}
+      >
+        <Mapbox.SymbolLayer
+          id="geoDropsIcons"
+          minZoomLevel={MAP_POI_MIN_ZOOM}
+          style={{
+            iconImage: MAP_MARKER_IMAGE_KEYS.dropCompact,
+            iconSize: ['interpolate', ['linear'], ['zoom'], MAP_POI_MIN_ZOOM, 0.82, 16, 0.98],
+            iconAllowOverlap: true,
+            iconIgnorePlacement: true,
+            iconAnchor: 'bottom',
+            iconOptional: false,
+            iconPitchAlignment: 'viewport',
+            iconRotationAlignment: 'viewport',
+            symbolSortKey: 90,
+          }}
+        />
+      </Mapbox.ShapeSource>
     </>
   );
 }

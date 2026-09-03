@@ -316,7 +316,6 @@ import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
 import { useRouteBuilder } from '../../hooks/useRouteBuilder';
 import { useRouteLeaderboard } from '../../hooks/useRouteLeaderboard';
 import { useRouteTimer } from '../../hooks/useRouteTimer';
-import { SPEED_CAMERA_MIN_ZOOM } from '../../constants/speedCameraMap';
 import { SpeedCameraMapLayers } from '../../components/map/SpeedCameraMapLayers';
 import { GeoDropMapLayer } from '../../components/map/GeoDropMapLayer';
 import { GeoDropAvailableSheet } from '../../components/map/GeoDropAvailableSheet';
@@ -382,10 +381,8 @@ import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
 import { SpeedLimitReportModal } from '../../components/modals/SpeedLimitReportModal';
 import { AdSlot }               from '../../components/ads/AdSlot';
-import { useFuelStations }      from '../../hooks/useFuelStations';
-import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
-import { PartnerPoiMarker }     from '../../components/markers/PartnerPoiMarker';
-import { OfficialMeetMarker }   from '../../components/markers/OfficialMeetMarker';
+import { useFuelStations, type FuelStation } from '../../hooks/useFuelStations';
+import { MapPoiLayers } from '../../components/map/MapPoiLayers';
 import { PartnerPoiModal }      from '../../components/modals/PartnerPoiModal';
 import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useOfficialMapMeets, type OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
@@ -402,6 +399,7 @@ import { ManualTargetPickOverlay } from '../../components/map/ManualTargetPickOv
 import { MapScreenHud } from '../../components/map/MapScreenHud';
 import { WarningMapLayers } from '../../components/map/WarningMapLayers';
 import { MapModalsHost } from '../../components/map/MapModalsHost';
+import { createMapViewport, isCoordinateInViewport, MAP_POI_MIN_ZOOM, type MapViewport } from '../../lib/mapViewport';
 import { useMapGeoDrops } from '../../hooks/map/useMapGeoDrops';
 import { useMapTripCheckpoints } from '../../hooks/map/useMapTripCheckpoints';
 import { useMapTripLifecycle } from '../../hooks/map/useMapTripLifecycle';
@@ -1806,9 +1804,12 @@ function MapScreenInner() {
   const [fuelAddMode, setFuelAddMode] = useState(false);
   const [addFuelStationVisible, setAddFuelStationVisible] = useState(false);
   const [addFuelStationCoords, setAddFuelStationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange, createStation: createFuelStation } = useFuelStations(userLocation);
-  const { pois: partnerPois } = usePartnerPois(userLocation);
-  const { meets: officialMapMeets } = useOfficialMapMeets();
+  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
+  const mapViewportRevisionRef = useRef(0);
+  const lastViewportDriveAnchorRef = useRef<{ latitude: number; longitude: number; at: number } | null>(null);
+  const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, createStation: createFuelStation } = useFuelStations(mapViewport, userLocation);
+  const { pois: partnerPois } = usePartnerPois(mapViewport);
+  const { meets: officialMapMeets } = useOfficialMapMeets(mapViewport);
   // ── State – live / ostrzeżenia ────────────────────────────
   const [isSharing,           setIsSharing]           = useState(true);
   const isSharingRef          = useRef(true);
@@ -1835,6 +1836,31 @@ function MapScreenInner() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [currentZoom,  setCurrentZoom]  = useState(15);
   const [mapStyleEpoch, setMapStyleEpoch] = useState(0);
+
+  const refreshMapViewport = useCallback(async (knownZoom?: number) => {
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      const bounds = await map.getVisibleBounds();
+      const getZoom = (map as unknown as { getZoom?: () => Promise<number> }).getZoom;
+      const nativeZoom = Number.isFinite(knownZoom)
+        ? Number(knownZoom)
+        : typeof getZoom === 'function'
+          ? await getZoom.call(map).catch(() => NaN)
+          : NaN;
+      const viewport = createMapViewport(
+        bounds as [[number, number], [number, number]],
+        Number.isFinite(nativeZoom) ? nativeZoom : currentZoom,
+        ++mapViewportRevisionRef.current,
+      );
+      if (viewport) {
+        setCurrentZoom(viewport.zoom);
+        setMapViewport(viewport);
+      }
+    } catch {
+      // Mapbox can briefly reject bounds while a style is being recreated.
+    }
+  }, [currentZoom]);
 
   useEffect(() => {
     void clearTelemetry();
@@ -1951,27 +1977,31 @@ function MapScreenInner() {
       && isDrivingRef.current
       && !isNavigatingRef.current,
     );
-    const isValidRoadGeometry = (pts: { latitude: number; longitude: number }[]) => (
+    const isStrictlyValidRoadGeometry = (pts: { latitude: number; longitude: number }[]) => (
       !canValidateRoadGeometry
       || validateGeometryAgainstRaw(pts, rawForGeometry!.lat, rawForGeometry!.lng, 45)
     );
-    let liveGeom = drivingSnapGeometryRef.current;
-    if (canValidateRoadGeometry && liveGeom.length >= 2 && !isValidRoadGeometry(liveGeom)) {
-      drivingSnapGeometryRef.current = [];
-      liveGeom = [];
-    }
-    if (
-      canValidateRoadGeometry
-      && lastGoodDrivingSnapGeometryRef.current.length >= 2
-      && !isValidRoadGeometry(lastGoodDrivingSnapGeometryRef.current)
-    ) {
-      lastGoodDrivingSnapGeometryRef.current = [];
-    }
-    const matchedGeometry = liveGeom.length >= 2 && isValidRoadGeometry(liveGeom)
+    // Raw GPS potrafi na kilka sekund skoczyć kilkadziesiąt metrów w bok.
+    // Szerszy próg dotyczy wyłącznie już zaakceptowanej geometrii; świeża droga
+    // nadal przechodzi rygorystyczną walidację w applyRoadMatchPoints.
+    const retainedGeometryRadiusM = Math.max(speedKmhRef.current, rawGpsKmhRef.current) >= 10
+      ? 110
+      : 70;
+    const isValidRetainedRoadGeometry = (pts: { latitude: number; longitude: number }[]) => (
+      !canValidateRoadGeometry
+      || validateGeometryAgainstRaw(
+        pts,
+        rawForGeometry!.lat,
+        rawForGeometry!.lng,
+        retainedGeometryRadiusM,
+      )
+    );
+    const liveGeom = drivingSnapGeometryRef.current;
+    const matchedGeometry = liveGeom.length >= 2 && isStrictlyValidRoadGeometry(liveGeom)
       ? liveGeom
       : (
           lastGoodDrivingSnapGeometryRef.current.length >= 2
-          && isValidRoadGeometry(lastGoodDrivingSnapGeometryRef.current)
+          && isValidRetainedRoadGeometry(lastGoodDrivingSnapGeometryRef.current)
             ? lastGoodDrivingSnapGeometryRef.current
             : []
         );
@@ -1987,7 +2017,7 @@ function MapScreenInner() {
       routePoints: routePointsRef.current,
       isNavigating: isNavigatingRef.current,
       suppressRouteSnap: suppressSnap,
-      mirrorPolylines: localRoadGeometryMirror.getPolylines().filter(isValidRoadGeometry),
+      mirrorPolylines: localRoadGeometryMirror.getPolylines().filter(isValidRetainedRoadGeometry),
     });
   }, []);
 
@@ -2034,7 +2064,6 @@ function MapScreenInner() {
         !out.rejected
         && isDrivingRef.current
         && !isNavigatingRef.current
-        && out.snap.pathMode === 'onRoad'
       ) {
         const localPose = localRoadGeometryMirror.snapToLocalRoadNearest(
           out.snap.rawLat,
@@ -2047,7 +2076,8 @@ function MapScreenInner() {
           ? haversineKm(markerTarget.lat, markerTarget.lng, localPose.lat, localPose.lng) * 1000
           : 0;
         const suspiciousRoadLock =
-          out.snap.crossTrackM > 18
+          out.snap.pathMode !== 'onRoad'
+          || out.snap.crossTrackM > 18
           || targetToLocalM > 10;
         const nowRepair = Date.now();
         if (suspiciousRoadLock && nowRepair - lastRoadLockRepairAtRef.current >= 1600) {
@@ -2633,12 +2663,8 @@ function MapScreenInner() {
     const needsLocalResolve =
       drivingSnapGeometryRef.current.length < 2
       || geomInvalidForRaw;
-    if (geomInvalidForRaw) {
-      drivingSnapGeometryRef.current = [];
-      lastGoodDrivingSnapGeometryRef.current = [];
-      localRoadGeometryMirror.clear();
-      roadMatchSigRef.current = '';
-    }
+    // Nie kasuj ostatniej dobrej osi po pojedynczym odchyleniu GPS. Resolver
+    // poniżej szuka świeżej geometrii, a marker przez chwilę pozostaje na drodze.
     const resolveGapMs = geomInvalidForRaw ? 1200 : CLIENT_FIRST_RESOLVE_MIN_MS;
     if (needsLocalResolve && nowCf - lastClientFirstResolveRef.current >= resolveGapMs) {
       lastClientFirstResolveRef.current = nowCf;
@@ -2700,25 +2726,71 @@ function MapScreenInner() {
   const [mapPreferredFramesPerSecond, setMapPreferredFramesPerSecond] = useState<15 | 30 | 60>(() => (
     resolveMapFps({ profile: performanceProfile, speedKmh: 0, idleForMs: 0 })
   ));
+  const mapGestureActiveRef = useRef(false);
+  const mapFpsIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!mapScene.uiVisible) return undefined;
-    setMapPreferredFramesPerSecond(resolveMapFps({
+  const clearMapFpsIdleTimer = useCallback(() => {
+    if (mapFpsIdleTimerRef.current) {
+      clearTimeout(mapFpsIdleTimerRef.current);
+      mapFpsIdleTimerRef.current = null;
+    }
+  }, []);
+
+  const markMapInteractionStartedForFps = useCallback(() => {
+    if (!mapScene.uiVisible) return;
+    clearMapFpsIdleTimer();
+    if (mapGestureActiveRef.current) return;
+    mapGestureActiveRef.current = true;
+    const nextFps = resolveMapFps({
       profile: performanceProfile,
       speedKmh,
+      interacting: true,
       idleForMs: 0,
-    }));
-    if (speedKmh >= 1) return undefined;
+    });
+    setMapPreferredFramesPerSecond((current) => current === nextFps ? current : nextFps);
+  }, [clearMapFpsIdleTimer, mapScene.uiVisible, performanceProfile, speedKmh]);
+
+  const markMapIdleForFps = useCallback(() => {
+    mapGestureActiveRef.current = false;
+    clearMapFpsIdleTimer();
+    if (!mapScene.uiVisible) return;
+
+    const activeFps = resolveMapFps({ profile: performanceProfile, speedKmh, idleForMs: 0 });
+    setMapPreferredFramesPerSecond((current) => current === activeFps ? current : activeFps);
+    if (speedKmh >= 1) return;
+
     const idleDelay = performanceProfile === 'battery' ? 3_000 : performanceProfile === 'smooth' ? 10_000 : 5_000;
-    const timer = setTimeout(() => {
-      setMapPreferredFramesPerSecond(resolveMapFps({
+    mapFpsIdleTimerRef.current = setTimeout(() => {
+      mapFpsIdleTimerRef.current = null;
+      if (mapGestureActiveRef.current) return;
+      const idleFps = resolveMapFps({
         profile: performanceProfile,
         speedKmh: 0,
         idleForMs: idleDelay,
-      }));
+      });
+      setMapPreferredFramesPerSecond((current) => current === idleFps ? current : idleFps);
     }, idleDelay);
-    return () => clearTimeout(timer);
-  }, [mapScene.uiVisible, performanceProfile, speedKmh]);
+  }, [clearMapFpsIdleTimer, mapScene.uiVisible, performanceProfile, speedKmh]);
+
+  useEffect(() => {
+    if (!mapScene.uiVisible) {
+      mapGestureActiveRef.current = false;
+      clearMapFpsIdleTimer();
+      return undefined;
+    }
+    if (mapGestureActiveRef.current) {
+      const nextFps = resolveMapFps({
+        profile: performanceProfile,
+        speedKmh,
+        interacting: true,
+        idleForMs: 0,
+      });
+      setMapPreferredFramesPerSecond((current) => current === nextFps ? current : nextFps);
+      return clearMapFpsIdleTimer;
+    }
+    markMapIdleForFps();
+    return clearMapFpsIdleTimer;
+  }, [mapScene.uiVisible, performanceProfile, speedKmh, clearMapFpsIdleTimer, markMapIdleForFps]);
   /** OSM + sticky — bez mieszania z limitem fotoradaru (eliminuje mruganie znaku). */
   const effectiveSpeedLimit = useMemo(() => speedLimit, [speedLimit]);
   const ALERT_DIST = 400;
@@ -2758,16 +2830,6 @@ function MapScreenInner() {
       if (val) setMapType(val);
     }).catch(() => {});
   }, []);
-
-  // ── Fuel stations — trigger fetch on location change ──────
-  // Hook throttles (5 min / 2.5 km). Zaokrąglamy GPS żeby micro-jitter nie odpalał Search Box category.
-  const fuelLocationKey = userLocation
-    ? `${userLocation.latitude.toFixed(3)}_${userLocation.longitude.toFixed(3)}`
-    : null;
-  useEffect(() => {
-    if (!userLocation || !fuelLocationKey) return;
-    onFuelLocationChange(userLocation);
-  }, [fuelLocationKey, onFuelLocationChange, userLocation]);
 
   const handleChangeMapType = useCallback((type: string) => {
     setMapType(type);
@@ -10030,13 +10092,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
       } else if (isDrivingRef.current) {
         const roadPts = drivingSnapGeometryRef.current;
+        const resumeRoadRetentionM = speedKmh >= 10 ? 110 : 70;
         const roadGeometryFits = roadPts.length >= 2
-          && validateGeometryAgainstRaw(roadPts, latestLat, latestLng, 45);
-        if (roadPts.length >= 2 && !roadGeometryFits) {
-          drivingSnapGeometryRef.current = [];
-          lastGoodDrivingSnapGeometryRef.current = [];
-          localRoadGeometryMirror.clear();
-        }
+          && validateGeometryAgainstRaw(roadPts, latestLat, latestLng, resumeRoadRetentionM);
         const onRoad = roadGeometryFits
           ? projectOntoDrivingRoad(
               latestLat,
@@ -11689,6 +11747,30 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   const liveUsersAnchor = fleetAnchor;
 
+  useEffect(() => {
+    if (!(isDriving || isNavigating) || !liveUsersAnchor) return;
+    const previous = lastViewportDriveAnchorRef.current;
+    const now = Date.now();
+    if (previous) {
+      const movedKm = haversineKm(
+        previous.latitude,
+        previous.longitude,
+        liveUsersAnchor.latitude,
+        liveUsersAnchor.longitude,
+      );
+      if (movedKm < 1.2 && now - previous.at < 30_000) return;
+    }
+    lastViewportDriveAnchorRef.current = { ...liveUsersAnchor, at: now };
+    void refreshMapViewport(currentZoom);
+  }, [
+    isDriving,
+    isNavigating,
+    liveUsersAnchor?.latitude,
+    liveUsersAnchor?.longitude,
+    currentZoom,
+    refreshMapViewport,
+  ]);
+
   const visibleLiveUserIds = useMemo(() => {
     if (!liveUsersEnabled || liveUserIds.length === 0) return [];
     return liveUserIds.filter((id) => String(id) !== String(currentUserId));
@@ -13225,62 +13307,46 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   }, [upcomingWarning, speedKmh, navigationVoice.enqueue]);
 
   const effectiveCameras = useMemo(() => {
-    if (currentZoom < SPEED_CAMERA_MIN_ZOOM) return [];
+    if (currentZoom < MAP_POI_MIN_ZOOM) return [];
     if (!Array.isArray(cameras) || cameras.length === 0) return [];
+    const inViewport = mapViewport
+      ? cameras.filter((camera) => isCoordinateInViewport(
+          Number(camera.latitude ?? camera.lat),
+          Number(camera.longitude ?? camera.lng),
+          mapViewport,
+        ))
+      : cameras;
     const zoomCap =
       currentZoom >= 16 ? 1200
       : currentZoom >= 14.5 ? 600
       : currentZoom >= 13 ? 250
       : 80;
-    if (cameras.length <= zoomCap) return cameras;
-    return [...cameras]
+    if (inViewport.length <= zoomCap) return inViewport;
+    return [...inViewport]
       .sort((a, b) => (a.distanceM ?? 0) - (b.distanceM ?? 0))
       .slice(0, zoomCap);
-  }, [currentZoom, cameras]);
-  const effectiveFuelStations = useMemo(() => {
-    // Keep stations visible on normal city zoom; declutter only when far out.
-    if (currentZoom < 12.8) return [];
-    const zoomCap =
-      currentZoom >= 16 ? 42
-      : currentZoom >= 15.5 ? 28
-      : currentZoom >= 15 ? 18
-      : 10;
-    if (!Array.isArray(fuelStations) || fuelStations.length <= zoomCap) return fuelStations;
-    if (userLocation) {
-      const sorted = [...fuelStations].sort((a, b) => {
-        const da = haversineKm(userLocation.latitude, userLocation.longitude, a.lat, a.lng);
-        const db = haversineKm(userLocation.latitude, userLocation.longitude, b.lat, b.lng);
-        return da - db;
-      });
-      return sorted.slice(0, zoomCap);
-    }
-    return fuelStations.slice(0, zoomCap);
-  }, [currentZoom, fuelStations, userLocation]);
-  const effectivePartnerPois = useMemo(() => {
-    // Partner markers stay visible farther out than fuel stations (hide only below ~10.5).
-    if (currentZoom < 10.5) return [];
-    const zoomCap =
-      currentZoom >= 16 ? 36
-      : currentZoom >= 15 ? 28
-      : currentZoom >= 13.5 ? 20
-      : currentZoom >= 12 ? 14
-      : currentZoom >= 11 ? 10
-      : 8;
-    if (!Array.isArray(partnerPois) || partnerPois.length <= zoomCap) return partnerPois;
-    if (userLocation) {
-      const sorted = [...partnerPois].sort((a, b) => {
-        const da = haversineKm(userLocation.latitude, userLocation.longitude, a.lat, a.lng);
-        const db = haversineKm(userLocation.latitude, userLocation.longitude, b.lat, b.lng);
-        const rankDelta = (b.priorityRank || 0) - (a.priorityRank || 0);
-        if (rankDelta !== 0) return rankDelta;
-        return da - db;
-      });
-      return sorted.slice(0, zoomCap);
-    }
-    return [...partnerPois]
-      .sort((a, b) => (b.priorityRank || 0) - (a.priorityRank || 0))
-      .slice(0, zoomCap);
-  }, [currentZoom, partnerPois, userLocation]);
+  }, [currentZoom, cameras, mapViewport]);
+  const mapVisibleWarnings = useMemo(() => (
+    currentZoom < MAP_POI_MIN_ZOOM
+      ? []
+      : effectiveWarnings.filter((warning) => isCoordinateInViewport(Number(warning.lat), Number(warning.lng), mapViewport))
+  ), [currentZoom, effectiveWarnings, mapViewport]);
+  const mapVisibleDrops = useMemo(() => (
+    currentZoom < MAP_POI_MIN_ZOOM
+      ? []
+      : gamificationDrops.filter((drop) => isCoordinateInViewport(Number(drop.lat), Number(drop.lng), mapViewport))
+  ), [currentZoom, gamificationDrops, mapViewport]);
+  const handleFuelPoiPress = useCallback((station: FuelStation) => {
+    setSelectedFuelStation(station);
+    setFuelStationModalVisible(true);
+  }, []);
+  const handlePartnerPoiPress = useCallback((poi: PartnerPoi) => {
+    router.push(`/partner/${poi.id}` as any);
+  }, [router]);
+  const handleOfficialMeetPress = useCallback((meet: OfficialMapMeet) => {
+    setSelectedOfficialMeet(meet);
+    setOfficialMeetModalVisible(true);
+  }, []);
   const handleAutoNavigationStarted = useCallback((event: AutoNavigationStartedPayload) => {
     if (event.routePoints.length < 2) return;
     const distanceMeters = Math.max(0, event.distanceMeters || 0);
@@ -13659,6 +13725,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           ref={mapRef}
           styleURL={mapStyle}
           preferredFramesPerSecond={mapPreferredFramesPerSecond}
+          onTouchStart={markMapInteractionStartedForFps}
           onPress={(e: any) => {
             if (!isBuilding) return;
             const [longitude, latitude] = e.geometry.coordinates;
@@ -13677,17 +13744,28 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             handleManualTargetPick(latitude, longitude);
           }}
           onMapIdle={(e: any) => {
+            markMapIdleForFps();
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
-            const zoom = Number.isFinite(z) ? Number(z) : 15;
-            setCurrentZoom(zoom);
+            const zoom = Number.isFinite(z) ? Number(z) : undefined;
+            if (zoom != null) setCurrentZoom(zoom);
             setFleetMapIdleNonce((n) => n + 1);
+            void refreshMapViewport(zoom);
           }}
           onDidFinishLoadingStyle={() => {
             setMapStyleEpoch((n) => n + 1);
+            void refreshMapViewport();
           }}
           onCameraChanged={(e: any) => {
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
             const zoomLive = Number.isFinite(z) ? Number(z) : null;
+            if (zoomLive != null && currentZoom >= MAP_POI_MIN_ZOOM && zoomLive < MAP_POI_MIN_ZOOM) {
+              setCurrentZoom(zoomLive);
+              setMapViewport((previous) => previous ? {
+                ...previous,
+                zoom: zoomLive,
+                revision: ++mapViewportRevisionRef.current,
+              } : previous);
+            }
             if (MAP_RENDER_DEBUG) {
               const now = Date.now();
               if (now - lastCameraChangeLogAtRef.current >= 250) {
@@ -13710,6 +13788,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               }
             }
             const gestureActive = Boolean(e?.gestures?.isGestureActive);
+            const userInteracting = gestureActive || e?.properties?.isUserInteraction === true;
+            if (userInteracting) markMapInteractionStartedForFps();
             const tripActive = isDrivingRef.current || isNavigatingRef.current;
             const pitchRaw = e?.properties?.pitch;
             const pitchLive = Number.isFinite(pitchRaw) ? Number(pitchRaw) : undefined;
@@ -13809,43 +13889,21 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
           {(navV3Mode === 'freeDrive' || navV3Mode === 'navigation') ? (
             <GeoDropMapLayer
-              key={gamificationDrops.map((d) => d.id).join('-') || 'no-drops'}
-              drops={gamificationDrops}
+              key={mapVisibleDrops.map((d) => d.id).join('-') || 'no-drops'}
+              drops={mapVisibleDrops}
               onSelectDrop={showDropPrompt}
             />
           ) : null}
 
-          {effectiveFuelStations.map(station => (
-            <FuelStationMarker
-              key={`fuel_${station.id}`}
-              station={station}
-              preferredFuel={preferredFuel}
-              compact={currentZoom < 15.2}
-              onPress={() => { setSelectedFuelStation(station); setFuelStationModalVisible(true); }}
-            />
-          ))}
-
-          {effectivePartnerPois.map(poi => (
-            <PartnerPoiMarker
-              key={`partner_${poi.id}`}
-              poi={poi}
-              compact={false}
-              onPress={() => {
-                router.push(`/partner/${poi.id}` as any);
-              }}
-            />
-          ))}
-
-          {officialMapMeets.map(meet => (
-            <OfficialMeetMarker
-              key={`official_meet_${meet.id}`}
-              meet={meet}
-              onPress={() => {
-                setSelectedOfficialMeet(meet);
-                setOfficialMeetModalVisible(true);
-              }}
-            />
-          ))}
+          <MapPoiLayers
+            stations={fuelStations}
+            partners={partnerPois}
+            meets={officialMapMeets}
+            preferredFuel={preferredFuel}
+            onStationPress={handleFuelPoiPress}
+            onPartnerPress={handlePartnerPoiPress}
+            onMeetPress={handleOfficialMeetPress}
+          />
 
           {isBuilding ? (
             <MapBuilderRouteLayers
@@ -13863,6 +13921,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             selfUserId={currentUserId}
             mapRef={mapRef}
             mapIdleNonce={fleetMapIdleNonce}
+            zoom={currentZoom}
             onUserPress={handleLiveUserPress}
           />
 
@@ -13894,7 +13953,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           )}
 
           <WarningMapLayers
-            warnings={effectiveWarnings}
+            warnings={mapVisibleWarnings}
             onSelectWarning={setSelectedWarning}
           />
 
@@ -13908,7 +13967,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             cursorSkin={cursorSkinOverlay}
           />
           <VehicleModelMarker
-            enabled={useVehicle3DMarker}
+            enabled={useVehicle3DMarker && (isTripActive || currentZoom >= MAP_POI_MIN_ZOOM)}
             isTripActive={isTripActive}
             driveMarker={driveMarker}
             browseLat={markerLat}
@@ -13920,7 +13979,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           {!isTripActive
             && Number.isFinite(markerLat)
             && Number.isFinite(markerLng)
-            && showSelf2DMarker && (
+            && (showSelf2DMarker || currentZoom < MAP_POI_MIN_ZOOM) && (
             <DrPositionMarker
               latitude={markerLat}
               longitude={markerLng}
@@ -13928,6 +13987,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               avatarUrl={selfMarkerUsesArrow ? null : myAvatarUrl}
               imageUri={selfMarkerUsesArrow ? arrowMarkerImage : carMarkerImage}
               cursorSkin={cursorSkinOverlay}
+              compact={currentZoom < MAP_POI_MIN_ZOOM}
             />
           )}
         </MapCanvas>

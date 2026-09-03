@@ -472,6 +472,7 @@ function buildGeoJsonLive(
         heading: resolved.heading,
         stale: s.stale,
         pinColor: s.pinColor,
+        username: s.username,
       },
     });
   }
@@ -560,6 +561,7 @@ function buildMetaPinRequests(
         isFriend: !!meta.isFriend,
         initials,
         distanceLabel,
+        stale: !!meta.stale,
         visualVersion: meta.premiumVisual?.visualVersion ?? null,
       }),
       data: {
@@ -571,6 +573,7 @@ function buildMetaPinRequests(
         isPremium: !!meta.isPremium,
         premiumVisual: meta.premiumVisual ?? null,
         isFriend: !!meta.isFriend,
+        stale: !!meta.stale,
       },
     });
   }

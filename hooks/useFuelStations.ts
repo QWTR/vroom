@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import {
+  MAP_POI_MIN_ZOOM,
+  viewportCacheKey,
+  viewportQueryBoxes,
+  type MapViewport,
+} from '../lib/mapViewport';
 
 export interface FuelPrice {
   pb95:      number | null;
@@ -59,9 +65,7 @@ type NearbyStationDto = {
   }>;
 };
 
-const THROTTLE_MS = 300_000;
-const THROTTLE_M = 2500;
-const NEARBY_RADIUS_M = 12_000;
+const CACHE_TTL_MS = 300_000;
 export const PRICE_UPDATE_RADIUS_M = 500;
 
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -97,8 +101,8 @@ function mapNearbyStation(row: NearbyStationDto): FuelStation {
     name: row.name,
     brand: row.brand,
     brandLogoUrl: row.brandLogoUrl ?? null,
-    lat: row.lat,
-    lng: row.lng,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
     address: row.address ?? undefined,
     distance: row.distance,
     amenities: row.amenities ?? null,
@@ -106,73 +110,74 @@ function mapNearbyStation(row: NearbyStationDto): FuelStation {
   };
 }
 
-export function useFuelStations(userLocation: LocationState | null) {
+const viewportCache = new Map<string, { at: number; rows: FuelStation[] }>();
+
+export function useFuelStations(viewport: MapViewport | null, userLocation: LocationState | null) {
   const [stations, setStations] = useState<FuelStation[]>([]);
   const [loading, setLoading] = useState(false);
-
-  const lastFetchTimeRef = useRef<number>(0);
-  const lastFetchLocRef = useRef<LocationState | null>(null);
-  const fetchingRef = useRef(false);
+  const requestRevisionRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
-  const fetchStations = useCallback(async (loc: LocationState) => {
-    if (fetchingRef.current) return;
-
-    const now = Date.now();
-    const lastLoc = lastFetchLocRef.current;
-    const timeDelta = now - lastFetchTimeRef.current;
-
-    if (timeDelta < THROTTLE_MS && lastLoc) {
-      const dist = haversineM(lastLoc.latitude, lastLoc.longitude, loc.latitude, loc.longitude);
-      if (dist < THROTTLE_M) return;
+  const fetchStations = useCallback(async (nextViewport: MapViewport, force = false) => {
+    const key = viewportCacheKey(nextViewport);
+    const cached = viewportCache.get(key);
+    if (!force && cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      setStations(cached.rows);
+      return;
     }
-
-    fetchingRef.current = true;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestRevision = ++requestRevisionRef.current;
     setLoading(true);
-
     try {
       const token = await getToken();
-      const params = new URLSearchParams({
-        lat: String(loc.latitude),
-        lng: String(loc.longitude),
-        radiusM: String(NEARBY_RADIUS_M),
-      });
-      const url = `${API_URL}/api/fuel-stations/nearby?${params}`;
-
-      const res = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!res.ok) {
-        throw new Error(`fuel-stations/nearby HTTP ${res.status}`);
-      }
-
-      const data = (await res.json()) as NearbyStationDto[];
-      const mapped = Array.isArray(data) ? data.map(mapNearbyStation) : [];
-
+      const batches = await Promise.all(viewportQueryBoxes(nextViewport).map(async (box) => {
+        const params = new URLSearchParams({
+          minLat: String(box.south), maxLat: String(box.north),
+          minLng: String(box.west), maxLng: String(box.east), limit: '180',
+        });
+        const res = await fetch(`${API_URL}/api/fuel-stations?${params}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`fuel-stations bbox HTTP ${res.status}`);
+        return (await res.json()) as NearbyStationDto[];
+      }));
+      if (controller.signal.aborted || requestRevision !== requestRevisionRef.current) return;
+      const unique = new Map<number, FuelStation>();
+      batches.flat().forEach((row) => unique.set(row.id, mapNearbyStation(row)));
+      const mapped = [...unique.values()];
+      viewportCache.set(key, { at: Date.now(), rows: mapped });
+      if (viewportCache.size > 12) viewportCache.delete(viewportCache.keys().next().value!);
       setStations(mapped);
-      lastFetchTimeRef.current = Date.now();
-      lastFetchLocRef.current = loc;
     } catch (e) {
-      console.error('useFuelStations fetch:', e);
+      if ((e as Error)?.name !== 'AbortError') console.error('useFuelStations fetch:', e);
     } finally {
-      setLoading(false);
-      fetchingRef.current = false;
+      if (requestRevision === requestRevisionRef.current) setLoading(false);
     }
   }, []);
 
   const refetch = useCallback(() => {
-    if (userLocation) {
-      lastFetchTimeRef.current = 0;
-      fetchStations(userLocation);
-    }
-  }, [userLocation, fetchStations]);
+    if (viewport && viewport.zoom >= MAP_POI_MIN_ZOOM) void fetchStations(viewport, true);
+  }, [viewport, fetchStations]);
 
-  const onLocationChange = useCallback((loc: LocationState) => {
-    fetchStations(loc);
-  }, [fetchStations]);
+  const onLocationChange = useCallback((_loc: LocationState) => {}, []);
+
+  useEffect(() => {
+    if (!viewport || viewport.zoom < MAP_POI_MIN_ZOOM) {
+      abortRef.current?.abort();
+      requestRevisionRef.current += 1;
+      setStations([]);
+      setLoading(false);
+      return;
+    }
+    void fetchStations(viewport);
+    return () => abortRef.current?.abort();
+  }, [viewport?.revision, viewport?.zoom, fetchStations]);
 
   const updatePrices = useCallback(async (
     station: FuelStation,

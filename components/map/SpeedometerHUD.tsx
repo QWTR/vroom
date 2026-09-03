@@ -202,12 +202,12 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     pendingDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#f59f00' },
     pendingText: { color: '#f59f00', fontSize: 12, fontWeight: '900' },
     quickReportBtn: {
-      width: 58,
-      height: 58,
+      width: 62,
+      height: 62,
       borderRadius: 16,
-      backgroundColor: theme.primary,
-      borderWidth: 1.5,
-      borderColor: theme.primaryBorder2,
+      backgroundColor: '#f23835',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.30)',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 8,
@@ -219,7 +219,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     quickReportLabel: {
       fontSize: 12,
       fontWeight: '800',
-      color: theme.onPrimary,
+      color: '#ffffff',
       marginTop: 2,
     },
     maneuverBox: {
@@ -491,7 +491,7 @@ export const HudQuickReportButton = memo(function HudQuickReportButton({
       accessibilityRole="button"
       accessibilityLabel="Zgłoś ostrzeżenie"
     >
-      <MaterialIcons name="warning" size={26} color={theme.onPrimary} />
+      <MaterialIcons name="warning" size={27} color="#ffffff" />
       <Text style={hud.quickReportLabel}>ZGŁOŚ</Text>
     </TouchableOpacity>
   );

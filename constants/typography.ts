@@ -12,9 +12,10 @@ export type TypographyVariant =
   | 'caption'
   | 'micro';
 
-export type TextSizePreference = 'small' | 'standard' | 'large' | 'veryLarge';
+export type TextSizePreference = 'compact' | 'small' | 'standard' | 'large' | 'veryLarge';
 
 export const TEXT_SIZE_SCALES: Record<TextSizePreference, number> = {
+  compact: 0.75,
   small: 0.9,
   standard: 1,
   large: 1.15,
@@ -39,7 +40,7 @@ export const MIN_INPUT_FONT_SIZE = 16;
 export const MAX_COMBINED_FONT_SCALE = 2;
 
 export function normalizeTextSizePreference(value: unknown): TextSizePreference {
-  return value === 'small' || value === 'large' || value === 'veryLarge' ? value : 'standard';
+  return value === 'compact' || value === 'small' || value === 'large' || value === 'veryLarge' ? value : 'standard';
 }
 
 export function manropeFamilyForWeight(weight: TextStyle['fontWeight']): string {

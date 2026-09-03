@@ -22,6 +22,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 type AppTextProps = TextProps & {
   variant?: TypographyVariant;
   contrastBackground?: string | string[];
+  allowAppScaling?: boolean;
 };
 
 function useReadableTextStyle(
@@ -29,15 +30,19 @@ function useReadableTextStyle(
   variant: TypographyVariant,
   minimumSize: number,
   contrastBackground?: string | string[],
+  allowAppScaling = true,
 ) {
-  const { textScale } = useReadability();
+  const { textSize, textScale } = useReadability();
   const { theme } = useTheme();
   return useMemo(() => {
     const flattened = StyleSheet.flatten(style) as TextStyle | undefined;
     const token = TYPOGRAPHY[variant];
     const requestedSize = typeof flattened?.fontSize === 'number' ? flattened.fontSize : token.fontSize;
+    const compactMinimum = minimumSize === MIN_INPUT_FONT_SIZE ? 12 : 8;
+    const activeMinimum = allowAppScaling && textSize === 'compact' ? compactMinimum : minimumSize;
     const baseSize = Math.max(minimumSize, requestedSize);
-    const displayedSize = Math.max(minimumSize, baseSize * textScale);
+    const appScale = allowAppScaling ? textScale : 1;
+    const displayedSize = Math.max(activeMinimum, baseSize * appScale);
     const appliedScale = displayedSize / baseSize;
     const requestedLineHeight = typeof flattened?.lineHeight === 'number'
       ? flattened.lineHeight
@@ -68,14 +73,14 @@ function useReadableTextStyle(
       ],
       maxFontSizeMultiplier: MAX_COMBINED_FONT_SCALE / appliedScale,
     };
-  }, [contrastBackground, minimumSize, style, textScale, theme, variant]);
+  }, [allowAppScaling, contrastBackground, minimumSize, style, textScale, textSize, theme, variant]);
 }
 
 export const AppText = forwardRef<React.ElementRef<typeof NativeText>, AppTextProps>(function AppText(
-  { variant = 'bodySmall', style, allowFontScaling = true, maxFontSizeMultiplier, contrastBackground, ...props },
+  { variant = 'bodySmall', style, allowFontScaling = true, maxFontSizeMultiplier, contrastBackground, allowAppScaling = true, ...props },
   ref,
 ) {
-  const readable = useReadableTextStyle(style, variant, MIN_READABLE_FONT_SIZE, contrastBackground);
+  const readable = useReadableTextStyle(style, variant, MIN_READABLE_FONT_SIZE, contrastBackground, allowAppScaling);
   return (
     <NativeText
       ref={ref}

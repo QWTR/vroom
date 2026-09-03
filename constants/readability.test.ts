@@ -30,8 +30,9 @@ describe('readability design contract', () => {
   });
 
   it('provides the three requested app scales and a 200% combined ceiling', () => {
-    expect(TEXT_SIZE_SCALES).toEqual({ small: 0.9, standard: 1, large: 1.15, veryLarge: 1.3 });
+    expect(TEXT_SIZE_SCALES).toEqual({ compact: 0.75, small: 0.9, standard: 1, large: 1.15, veryLarge: 1.3 });
     expect(MAX_COMBINED_FONT_SCALE).toBe(2);
+    expect(normalizeTextSizePreference('compact')).toBe('compact');
     expect(normalizeTextSizePreference('small')).toBe('small');
     expect(normalizeTextSizePreference('large')).toBe('large');
     expect(normalizeTextSizePreference('veryLarge')).toBe('veryLarge');

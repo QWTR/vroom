@@ -14,7 +14,7 @@ import { pickAppAnimationForValue } from '../../constants/appAnimations';
 import AppAnimationLayer from '../../components/animations/AppAnimationLayer';
 import { useReadability } from '../../contexts/ReadabilityContext';
 
-const TAB_BAR_HEIGHT = 82;
+const TAB_BAR_HEIGHT = 70;
 
 const TabIcon = ({
   focused, icon, iconLib = 'feather',
@@ -60,6 +60,8 @@ function TabLabel({ focused, label, compactLabel }: { focused: boolean; label: s
     <Text
       variant="micro"
       numberOfLines={1}
+      allowAppScaling={false}
+      allowFontScaling={false}
       style={[styles.label, { color: focused ? theme.primaryText : theme.textMuted }]}
     >
       {effectiveScale >= 1.35 ? compactLabel ?? label : label}
@@ -124,15 +126,12 @@ const onlineStyles = StyleSheet.create({
 export default function TabLayout() {
   const insets        = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { textScale } = useReadability();
-  const { fontScale } = useWindowDimensions();
   usePushNotifications();
 
   // edgeToEdge=false → insets.bottom zazwyczaj = 0 na Androidzie
   // ale zostawiamy dla iOS i ewentualnej przyszłej zmiany
-  const effectiveScale = Math.min(2, textScale * fontScale);
-  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
-  const tabBarHeight = TAB_BAR_HEIGHT + Math.round(Math.max(0, effectiveScale - 1) * 30) + safeBottom;
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+  const tabBarHeight = TAB_BAR_HEIGHT + safeBottom;
 
   return (
     <View style={{ flex: 1 }}>
@@ -147,14 +146,14 @@ export default function TabLayout() {
           borderTopWidth:   1,
           borderTopColor:   theme.tabBorder,
           height:           tabBarHeight,
-          paddingBottom:    safeBottom + 5,
-          paddingTop:       7,
+          paddingBottom:    safeBottom + 2,
+          paddingTop:       3,
           paddingHorizontal: 0,
           elevation:        0,
           overflow:         'visible',
         },
-        tabBarItemStyle: { minHeight: tabBarHeight - safeBottom, paddingVertical: 0 },
-        tabBarIconStyle: { flex: 1, width: '100%', minHeight: 46 },
+        tabBarItemStyle: { height: TAB_BAR_HEIGHT, paddingVertical: 0 },
+        tabBarIconStyle: { flex: 1, width: '100%', minHeight: 40 },
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
             <View style={StyleSheet.absoluteFill}>
@@ -199,7 +198,7 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  wrapper:  { minHeight: 46, width: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
-  iconBg:   { width: 46, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'transparent', backgroundColor: 'transparent' },
+  wrapper:  { minHeight: 40, width: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
+  iconBg:   { width: 42, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'transparent', backgroundColor: 'transparent' },
   label:    { fontSize: 12, lineHeight: 16, letterSpacing: 0, textAlign: 'center', width: '100%', paddingHorizontal: 2, flexShrink: 1 },
 });

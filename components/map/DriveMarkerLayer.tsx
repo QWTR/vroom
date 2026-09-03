@@ -61,10 +61,11 @@ function MarkerVisualLayers({ iconImage, iconSize, sourceID }: VisualLayersProps
           style={{
             iconImage,
             iconSize,
-            // Native writes screen-space heading (Course Up → 0).
-            iconRotate: ['get', 'screenHeading'],
+            // World heading + map alignment lets Mapbox compensate its exact,
+            // current bearing atomically. It cannot drift a frame behind camera.
+            iconRotate: ['coalesce', ['get', 'worldHeading'], ['get', 'heading'], 0],
             iconPitchAlignment: 'viewport',
-            iconRotationAlignment: 'viewport',
+            iconRotationAlignment: 'map',
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconAnchor: 'center',
@@ -137,7 +138,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
         <Mapbox.Images images={{ [DRIVE_MARKER_IMAGE_KEY]: { uri: textureUri } }} />
       ) : null}
       <Mapbox.ShapeSource id="tripDriveMarkerSource" shape={EMPTY_SHAPE}>
-        {showVisual ? <MarkerVisualLayers iconImage={iconImage} iconSize={iconSize} /> : null}
+        {showVisual ? <MarkerVisualLayers iconImage={iconImage} iconSize={iconSize} /> : <></>}
       </Mapbox.ShapeSource>
     </>
   );

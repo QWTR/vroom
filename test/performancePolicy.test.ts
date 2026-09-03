@@ -26,6 +26,8 @@ describe('performance policy', () => {
     expect(resolveMapFps({ profile: 'standard', speedKmh: 0, idleForMs: 5_000 })).toBe(15);
     expect(resolveMapFps({ profile: 'battery', speedKmh: 60 })).toBe(30);
     expect(resolveMapFps({ profile: 'smooth', speedKmh: 0, idleForMs: 10_000 })).toBe(30);
+    expect(resolveMapFps({ profile: 'standard', speedKmh: 0, interacting: true, idleForMs: 60_000 })).toBe(60);
+    expect(resolveMapFps({ profile: 'smooth', speedKmh: 0, interacting: true, idleForMs: 60_000 })).toBe(60);
   });
 
   it('limits media preload in battery mode', () => {

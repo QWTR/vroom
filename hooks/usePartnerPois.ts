@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import { MAP_POI_MIN_ZOOM, viewportCacheKey, viewportQueryBoxes, type MapViewport } from '../lib/mapViewport';
 
 export interface PartnerPoi {
   id: number;
@@ -20,25 +21,8 @@ export interface PartnerPoi {
   hasActiveOffer?: boolean;
 }
 
-interface LocationState {
-  latitude: number;
-  longitude: number;
-}
-
-const THROTTLE_MS = 90_000;
-const THROTTLE_M = 1200;
-
-function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+const CACHE_TTL_MS = 300_000;
+const viewportCache = new Map<string, { at: number; rows: PartnerPoi[] }>();
 
 async function getToken(): Promise<string | null> {
   return (
@@ -65,47 +49,54 @@ export async function fetchPartnerPoisSearch(
   return Array.isArray(data?.results) ? data.results : [];
 }
 
-export function usePartnerPois(userLocation: LocationState | null) {
+export function usePartnerPois(viewport: MapViewport | null) {
   const [pois, setPois] = useState<PartnerPoi[]>([]);
-  const lastFetchRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const requestRevisionRef = useRef(0);
 
-  const fetchForLocation = useCallback(async (loc: LocationState) => {
+  const fetchForViewport = useCallback(async (nextViewport: MapViewport, force = false) => {
+    const key = viewportCacheKey(nextViewport);
+    const cached = viewportCache.get(key);
+    if (!force && cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      setPois(cached.rows);
+      return;
+    }
     const token = await getToken();
     if (!token) return;
-
-    const delta = 0.06;
-    const cosLat = Math.cos((loc.latitude * Math.PI) / 180);
-    const lngDelta = cosLat > 0 ? delta / cosLat : delta;
-    const params = new URLSearchParams({
-      minLat: String(loc.latitude - delta),
-      maxLat: String(loc.latitude + delta),
-      minLng: String(loc.longitude - lngDelta),
-      maxLng: String(loc.longitude + lngDelta),
-    });
-
-    const res = await fetch(`${API_URL}/api/partner-pois?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    setPois(Array.isArray(data?.pois) ? data.pois : []);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestRevision = ++requestRevisionRef.current;
+    try {
+      const batches = await Promise.all(viewportQueryBoxes(nextViewport).map(async (box) => {
+        const params = new URLSearchParams({ minLat: String(box.south), maxLat: String(box.north), minLng: String(box.west), maxLng: String(box.east), limit: '160' });
+        const res = await fetch(`${API_URL}/api/partner-pois?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+        if (!res.ok) throw new Error(`partner-pois bbox HTTP ${res.status}`);
+        const data = await res.json();
+        return Array.isArray(data?.pois) ? data.pois as PartnerPoi[] : [];
+      }));
+      if (controller.signal.aborted || requestRevision !== requestRevisionRef.current) return;
+      const unique = new Map<number, PartnerPoi>();
+      batches.flat().forEach((row) => unique.set(row.id, row));
+      const rows = [...unique.values()];
+      viewportCache.set(key, { at: Date.now(), rows });
+      if (viewportCache.size > 12) viewportCache.delete(viewportCache.keys().next().value!);
+      setPois(rows);
+    } catch (e) {
+      if ((e as Error)?.name !== 'AbortError') console.error('usePartnerPois fetch:', e);
+    }
   }, []);
 
-  const onLocationChange = useCallback((loc: LocationState | null) => {
-    if (!loc) return;
-    const prev = lastFetchRef.current;
-    const now = Date.now();
-    if (prev) {
-      if (now - prev.at < THROTTLE_MS) return;
-      if (haversineM(prev.lat, prev.lng, loc.latitude, loc.longitude) < THROTTLE_M) return;
-    }
-    lastFetchRef.current = { at: now, lat: loc.latitude, lng: loc.longitude };
-    void fetchForLocation(loc);
-  }, [fetchForLocation]);
-
   useEffect(() => {
-    if (userLocation) onLocationChange(userLocation);
-  }, [userLocation?.latitude, userLocation?.longitude, onLocationChange, userLocation]);
+    if (!viewport || viewport.zoom < MAP_POI_MIN_ZOOM) {
+      abortRef.current?.abort();
+      requestRevisionRef.current += 1;
+      setPois([]);
+      return;
+    }
+    void fetchForViewport(viewport);
+    return () => abortRef.current?.abort();
+  }, [viewport?.revision, viewport?.zoom, fetchForViewport]);
 
-  return { pois, onLocationChange, refetch: () => userLocation && fetchForLocation(userLocation) };
+  return { pois, refetch: () => viewport && fetchForViewport(viewport, true) };
 }

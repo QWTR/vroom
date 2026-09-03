@@ -15,6 +15,7 @@ function storageWith(value: string | null): PreferenceStorage {
 
 describe('readability preference persistence', () => {
   it('loads every valid preference', async () => {
+    await expect(loadTextSizePreference(storageWith('compact'))).resolves.toBe('compact');
     await expect(loadTextSizePreference(storageWith('small'))).resolves.toBe('small');
     await expect(loadTextSizePreference(storageWith('standard'))).resolves.toBe('standard');
     await expect(loadTextSizePreference(storageWith('large'))).resolves.toBe('large');

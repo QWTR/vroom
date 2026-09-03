@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteVisual';
 
-/** Dokładny rozmiar PNG w atlasie Mapbox (px) — pigułka + awatar + grot. */
-export const LIVE_USER_PIN_SPRITE_W = 140;
-export const LIVE_USER_PIN_SPRITE_H = 100;
-/** Docelowy rozmiar pinu na mapie [pt] — skalowany proporcjonalnie do szerszego sprite'a. */
-export const LIVE_USER_PIN_DISPLAY_PT = 101;
+/** Compact avatar atlas entry. Position updates never change this bitmap. */
+export const LIVE_USER_PIN_SPRITE_W = 56;
+export const LIVE_USER_PIN_SPRITE_H = 56;
+export const LIVE_USER_PIN_DISPLAY_PT = 40;
 
 export function liveUserPinIconSize(): number {
   return LIVE_USER_PIN_DISPLAY_PT / LIVE_USER_PIN_SPRITE_W;
@@ -57,8 +56,9 @@ export function buildPinSpriteSignature(input: {
     input.isPremium ? '1' : '0',
     input.isFriend ? '1' : '0',
     input.initials,
+    input.stale ? 'stale' : 'online',
     input.visualVersion ?? 'free',
-    'v5-stable',
+    'v6-compact',
   ].join('|');
 }
 

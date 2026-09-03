@@ -1,16 +1,12 @@
-import { Platform, StatusBar, useWindowDimensions } from 'react-native';
+import { Platform, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useReadability } from '../contexts/ReadabilityContext';
 
-const TAB_BAR_CONTENT_HEIGHT = 82;
+const TAB_BAR_CONTENT_HEIGHT = 70;
 
 function useDynamicTabBarHeight(): number {
   const insets = useSafeAreaInsets();
-  const { textScale } = useReadability();
-  const { fontScale } = useWindowDimensions();
-  const effectiveScale = Math.min(2, textScale * fontScale);
-  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
-  return TAB_BAR_CONTENT_HEIGHT + Math.round(Math.max(0, effectiveScale - 1) * 30) + safeBottom;
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+  return TAB_BAR_CONTENT_HEIGHT + safeBottom;
 }
 
 /** Top offset for back buttons / screen headers (safe area aware). */

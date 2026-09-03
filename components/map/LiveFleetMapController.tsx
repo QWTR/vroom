@@ -8,7 +8,7 @@ import {
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
-import { FleetVehicleModelsLayer } from './FleetVehicleModelsLayer';
+import { MAP_LIVE_MIN_ZOOM } from '../../lib/mapViewport';
 
 type Props = {
   store: LiveMapStore;
@@ -17,6 +17,7 @@ type Props = {
   selfUserId: number | string | null;
   mapRef: React.RefObject<Mapbox.MapView | null>;
   mapIdleNonce: number;
+  zoom?: number;
   onUserPress: (userId: number) => void;
 };
 
@@ -37,6 +38,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   selfUserId,
   mapRef,
   mapIdleNonce,
+  zoom,
   onUserPress,
 }: Props) {
   const liveUserIds = useLiveMapUserIds(store);
@@ -138,31 +140,26 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   }, [enabled, movingAnchorKey, refreshViewportFromNative]);
 
   const viewportReady = viewportBounds.valid === 1;
+  const effectiveZoom = Number.isFinite(zoom) ? Number(zoom) : viewportZoom;
+  const renderEnabled = enabled && viewportReady && effectiveZoom >= MAP_LIVE_MIN_ZOOM;
   const animator = useLiveFleetAnimator(
     store,
     fleetUserIds,
-    enabled && viewportReady,
+    renderEnabled,
     anchor,
     viewportBounds,
-    viewportZoom,
+    effectiveZoom,
   );
 
   return (
     <>
-      <FleetVehicleModelsLayer
-        hotAnimatedShapeProps={animator.hotVehicleAnimatedShapeProps}
-        coldAnimatedShapeProps={animator.coldVehicleAnimatedShapeProps}
-        visible={enabled && viewportReady}
-        minZoomLevel={0}
-        onUserPress={onUserPress}
-      />
       {/* ShapeSource zostaje zamontowany także dla chwilowo pustej klatki.
           Remount przy każdym 0 -> 1 powodował widoczne mruganie ikon w Mapbox. */}
       <LiveUsersFleetLayer
         hotAnimatedShapeProps={animator.hotAnimatedShapeProps}
         coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
         metaPinRequests={animator.metaPinRequests}
-        visible={enabled && viewportReady}
+        visible={renderEnabled}
         onUserPress={onUserPress}
       />
     </>

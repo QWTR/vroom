@@ -34,13 +34,7 @@ internal fun mapCameraShortestHeadingDelta(from: Double, to: Double): Double {
 internal fun mapCameraScreenHeading(
   worldHeading: Double,
   cameraBearing: Double,
-  cameraMode: String,
-  following: Boolean,
-): Double = if (following && cameraMode == "courseUp") {
-  0.0
-} else {
-  mapCameraNormalizeHeading(worldHeading - cameraBearing)
-}
+): Double = mapCameraNormalizeHeading(worldHeading - cameraBearing)
 
 internal fun mapCameraArrowPixelSize(logicalDp: Int, density: Float): Int =
   (logicalDp * density.coerceAtLeast(1f)).toInt().coerceAtLeast(logicalDp)
@@ -70,6 +64,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var targetLatitude = 0.0
   private var targetLongitude = 0.0
   private var targetHeading = 0.0
+  private var targetMarkerHeading = 0.0
   private var segmentDurationMs = DEFAULT_SEGMENT_MS
   private var zoom = 18.0
   private var pitch = 58.0
@@ -140,6 +135,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   fun setLatitude(value: Double) = updateTarget { targetLatitude = value }
   fun setLongitude(value: Double) = updateTarget { targetLongitude = value }
   fun setHeading(value: Double) = updateTarget { targetHeading = value }
+  fun setMarkerHeading(value: Double) = updateTarget { targetMarkerHeading = value }
   fun setSegmentDurationMs(value: Double) {
     segmentDurationMs = value.coerceIn(MIN_SEGMENT_MS, MAX_SEGMENT_MS)
     dirty = true
@@ -205,7 +201,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private fun hasPendingWork(): Boolean = hasPendingFraming()
 
   private fun applyLatestPose(frameTimeNanos: Long) {
-    if (!positionValid || !targetLatitude.isFinite() || !targetLongitude.isFinite() || !targetHeading.isFinite() || !zoom.isFinite()) {
+    if (!positionValid || !targetLatitude.isFinite() || !targetLongitude.isFinite() || !targetHeading.isFinite() || !targetMarkerHeading.isFinite() || !zoom.isFinite()) {
       dirty = false
       return
     }
@@ -234,7 +230,8 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
     }
 
     dirty = false
-    val worldHeading = mapCameraNormalizeHeading(displayedHeading)
+    val cameraWorldHeading = mapCameraNormalizeHeading(displayedHeading)
+    val markerWorldHeading = mapCameraNormalizeHeading(targetMarkerHeading)
     ensureArrowImage(mapboxMap)
 
     if (enabled && cameraMode != "free") {
@@ -248,7 +245,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       mapboxMap.setCamera(
         CameraOptions.Builder()
           .center(Point.fromLngLat(displayedLongitude, displayedLatitude))
-          .bearing(if (cameraMode == "northUp") 0.0 else worldHeading)
+          .bearing(if (cameraMode == "northUp") 0.0 else cameraWorldHeading)
           .zoom(displayedZoom)
           .pitch(displayedPitch)
           .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
@@ -256,14 +253,9 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       )
     }
 
-    val cameraBearing = when {
-      enabled && cameraMode == "courseUp" -> worldHeading
-      enabled && cameraMode == "northUp" -> 0.0
-      else -> mapCameraNormalizeHeading(mapboxMap.cameraState.bearing)
-    }
-    // Course Up: arrow fixed screen-up. North Up / free pan: world − camera.
-    val screenHeading = mapCameraScreenHeading(worldHeading, cameraBearing, cameraMode, enabled)
-    updateMarkerSource(mapboxMap, displayedLatitude, displayedLongitude, worldHeading, screenHeading)
+    val cameraBearing = mapCameraNormalizeHeading(mapboxMap.cameraState.bearing)
+    val screenHeading = mapCameraScreenHeading(markerWorldHeading, cameraBearing)
+    updateMarkerSource(mapboxMap, displayedLatitude, displayedLongitude, markerWorldHeading, screenHeading)
   }
 
   private fun advanceDisplayedPose(@Suppress("UNUSED_PARAMETER") dtMs: Double) {

@@ -8,17 +8,23 @@ import {
 import { NAV_V3 } from '../lib/navigationV3/config';
 import type { ArcWindowSlice, NavigationTarget, PathMode } from '../lib/navigationV3/types';
 import { TRIP_MOTION } from '../lib/navigationV3/motionContract';
+import { shouldHoldTransientOffRoadPose } from '../lib/navigationV3/roadPoseRetention';
 
 const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
 const POLYLINE_KEY_HARD_SNAP_M = TRIP_MOTION.hardSnapDistanceM;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
 const BOOTSTRAP_HEADING_LOOKAHEAD_M = 3;
+const MARKER_ROAD_HEADING_HALF_LIFE_MS = 80;
+const MARKER_ROAD_HEADING_MAX_DPS = 720;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
   lng: SharedValue<number>;
+  /** Heading consumed by the existing camera follow pipeline. */
   heading: SharedValue<number>;
+  /** Road tangent consumed only by the rendered 2D marker. */
+  markerRoadHeading: SharedValue<number>;
   targetLat: SharedValue<number>;
   targetLng: SharedValue<number>;
   targetHdg: SharedValue<number>;
@@ -502,11 +508,13 @@ export function useDriveMarkerV3(
   getSeedPoseRef.current = getSeedPose;
   const bootstrappedJsRef = useRef(false);
   const lastTargetJsRef = useRef<NavigationTarget | null>(null);
+  const lastOnRoadTargetAtJsRef = useRef(0);
   const [isBootstrapped, setIsBootstrapped] = useState(false);
 
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
+  const markerRoadHeading = useSharedValue(0);
   const enabledSv = useSharedValue(enabled ? 1 : 0);
   const bootstrapped = useSharedValue(0);
 
@@ -562,6 +570,7 @@ export function useDriveMarkerV3(
     lat.value = safeLat;
     lng.value = safeLng;
     heading.value = safeHdg;
+    markerRoadHeading.value = safeHdg;
     displayArcM.value = Number.isFinite(arcM) ? arcM : 0;
     targetArcM.value = Number.isFinite(arcM) ? arcM : 0;
     targetLat.value = safeLat;
@@ -584,6 +593,7 @@ export function useDriveMarkerV3(
     heading,
     lat,
     lng,
+    markerRoadHeading,
     onRoadSv,
     rawTargetLat,
     rawTargetLng,
@@ -673,12 +683,35 @@ export function useDriveMarkerV3(
             direction,
             refHdg,
           );
+          markerRoadHeading.value = stepHeadingSmoothWorklet(
+            Number.isFinite(markerRoadHeading.value) ? markerRoadHeading.value : refHdg,
+            tangentHdg,
+            dtSec,
+            MARKER_ROAD_HEADING_HALF_LIFE_MS,
+            MARKER_ROAD_HEADING_MAX_DPS,
+          );
           heading.value = stepHeadingSmoothWorklet(
             refHdg,
             tangentHdg,
             dtSec,
             TRIP_MOTION.onRoadHeadingHalfLifeMs,
             TRIP_MOTION.onRoadHeadingMaxDps,
+          );
+        } else {
+          const tangentHdg = tangentHeadingFromDisplayWorklet(
+            roadPtsFlat.value,
+            roadCumM.value,
+            localM,
+            0,
+            direction,
+            markerRoadHeading.value,
+          );
+          markerRoadHeading.value = stepHeadingSmoothWorklet(
+            markerRoadHeading.value,
+            tangentHdg,
+            dtSec,
+            MARKER_ROAD_HEADING_HALF_LIFE_MS,
+            MARKER_ROAD_HEADING_MAX_DPS,
           );
         }
       }
@@ -706,6 +739,7 @@ export function useDriveMarkerV3(
           TRIP_MOTION.headingHalfLifeMs,
           TRIP_MOTION.headingMaxDps,
         );
+        markerRoadHeading.value = heading.value;
       }
     }
   }, false);
@@ -732,6 +766,24 @@ export function useDriveMarkerV3(
 
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
+    const incomingSpeedMs = Number.isFinite(target.speedMs) && target.speedMs > 0
+      ? target.speedMs
+      : 0;
+    if (onRoad) {
+      lastOnRoadTargetAtJsRef.current = nowMs;
+    } else if (shouldHoldTransientOffRoadPose({
+      previousWasOnRoad: Boolean(previousTarget && pathModeOnRoad(previousTarget.pathMode)),
+      hasRoadWindow: roadPtsFlat.value.length >= 4,
+      speedMs: incomingSpeedMs,
+      elapsedSinceRoadMs: nowMs - lastOnRoadTargetAtJsRef.current,
+      allowInstant: target.allowInstant === true,
+    })) {
+      // Zachowaj ostatni łuk i jego styczną, podczas gdy warstwa drogowa jest
+      // ponownie wyznaczana. Nie przełączaj nawet na jedną klatkę na raw GPS.
+      sampleSpeedMs.value = incomingSpeedMs;
+      sourceTimestampMs.value = sourceMs;
+      return;
+    }
     const gpsIntervalMs = Number.isFinite(target.gpsIntervalMs) && Number(target.gpsIntervalMs) > 0
       ? Math.max(TRIP_MOTION.segmentDurationMinMs, Math.min(5_000, Number(target.gpsIntervalMs)))
       : cadenceEwmaMs.value;
@@ -754,7 +806,7 @@ export function useDriveMarkerV3(
     );
     lastTargetAtMs.value = nowMs;
     sourceTimestampMs.value = sourceMs;
-    let resolvedSpeedMs = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
+    let resolvedSpeedMs = incomingSpeedMs;
     if (previousTarget && gpsIntervalMs > 0) {
       const distM = haversineMJs(previousTarget.lat, previousTarget.lng, target.lat, target.lng);
       if (distM > 0.4 && resolvedSpeedMs < MIN_CRUISE_MS) {
@@ -979,6 +1031,8 @@ export function useDriveMarkerV3(
 
   const reset = useCallback((anchor?: { lat: number; lng: number; headingDeg?: number }) => {
     bootstrappedJsRef.current = false;
+    lastTargetJsRef.current = null;
+    lastOnRoadTargetAtJsRef.current = 0;
     setIsBootstrapped(false);
     bootstrapped.value = 0;
     onRoadSv.value = 0;
@@ -1009,6 +1063,7 @@ export function useDriveMarkerV3(
       lat.value = anchor.lat;
       lng.value = anchor.lng;
       heading.value = hdg;
+      markerRoadHeading.value = hdg;
       targetLat.value = anchor.lat;
       targetLng.value = anchor.lng;
       targetHdg.value = hdg;
@@ -1021,6 +1076,7 @@ export function useDriveMarkerV3(
       lat.value = NaN;
       lng.value = NaN;
       heading.value = 0;
+      markerRoadHeading.value = 0;
       targetLat.value = NaN;
       targetLng.value = NaN;
       targetHdg.value = 0;
@@ -1034,6 +1090,7 @@ export function useDriveMarkerV3(
     heading,
     lat,
     lng,
+    markerRoadHeading,
     onRoadSv,
     polylineKeySv,
     rawTargetLat,
@@ -1064,6 +1121,8 @@ export function useDriveMarkerV3(
   const resetTo = useCallback((targetLatVal: number, targetLngVal: number, hdg: number) => {
     if (!Number.isFinite(targetLatVal) || !Number.isFinite(targetLngVal)) return;
     const normHdg = safeHeadingJs(hdg, 0);
+    lastTargetJsRef.current = null;
+    lastOnRoadTargetAtJsRef.current = 0;
     applyInstantPose(
       targetLatVal,
       targetLngVal,
@@ -1133,6 +1192,8 @@ export function useDriveMarkerV3(
     frameCallback.setActive(enabled);
     if (!enabled) {
       bootstrappedJsRef.current = false;
+      lastTargetJsRef.current = null;
+      lastOnRoadTargetAtJsRef.current = 0;
       setIsBootstrapped(false);
     }
     return () => {
@@ -1171,6 +1232,7 @@ export function useDriveMarkerV3(
       lat,
       lng,
       heading,
+      markerRoadHeading,
       targetLat,
       targetLng,
       targetHdg,
@@ -1183,7 +1245,7 @@ export function useDriveMarkerV3(
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, speedMs, targetLat, targetLng, targetHdg],
+    [ensureFrameActive, heading, isBootstrapped, lat, lng, markerRoadHeading, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, speedMs, targetLat, targetLng, targetHdg],
   );
 }
 

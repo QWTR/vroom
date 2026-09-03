@@ -113,6 +113,7 @@ const SETTINGS_TABS = [
   { key: 'session', label: 'Sesja', icon: 'logout' },
 ] as const;
 const TEXT_SIZE_OPTIONS = [
+  { key: 'compact' as const, label: 'Bardzo mały (oryginalny)', sample: 'Aa−−' },
   { key: 'small' as const, label: 'Mały', sample: 'Aa−' },
   { key: 'standard' as const, label: 'Standardowy', sample: 'Aa' },
   { key: 'large' as const, label: 'Duży', sample: 'Aa+' },
@@ -1360,7 +1361,7 @@ export default function SettingsScreen() {
 												gap: 12,
 											}}
 										>
-											<Text variant={option.key === 'veryLarge' ? 'h2' : option.key === 'large' ? 'h3' : option.key === 'small' ? 'bodySmall' : 'body'} style={{ minWidth: 54, color: active ? theme.primaryText : textMain, fontWeight: '700' }}>{option.sample}</Text>
+											<Text variant={option.key === 'veryLarge' ? 'h2' : option.key === 'large' ? 'h3' : option.key === 'small' || option.key === 'compact' ? 'bodySmall' : 'body'} style={{ minWidth: 54, color: active ? theme.primaryText : textMain, fontWeight: '700' }}>{option.sample}</Text>
 											<Text variant="label" style={{ flex: 1, color: active ? theme.primaryText : textMain }}>{option.label}</Text>
 											<MaterialIcons name={active ? 'radio-button-checked' : 'radio-button-unchecked'} size={24} color={active ? theme.primaryText : textDim} />
 										</TouchableOpacity>
@@ -1371,6 +1372,11 @@ export default function SettingsScreen() {
 								<Text variant="h3" style={{ color: textMain }}>Tak wygląda czytelny nagłówek</Text>
 								<Text variant="body" style={{ color: textDim, marginTop: 6 }}>Przykładowy tekst jest większy, ma wyraźny kontrast i wygodny odstęp między wierszami.</Text>
 							</View>
+							{textSize === 'compact' ? (
+								<Text variant="bodySmall" style={{ color: theme.primaryText }}>
+									Tryb oryginalny przywraca małe rozmiary i gęstość interfejsu zbliżoną do wyglądu VROOM sprzed przebudowy czytelności.
+								</Text>
+							) : null}
 						</View>
 					</SettingsCard>
 					<View style={{ height: 12 }} />

@@ -23,6 +23,7 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var latitude');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var longitude');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var heading');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var markerHeading');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var cameraMode');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"worldHeading"');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"screenHeading"');
@@ -62,6 +63,7 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('screenHeading');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('VroomMapCameraFollowerManager');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "cameraMode")');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "markerHeading")');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerPackage.kt']).toContain('ReactPackage');
   });
 

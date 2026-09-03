@@ -2,6 +2,7 @@ import Mapbox from '@rnmapbox/maps';
 import React, { memo, useCallback, useMemo } from 'react';
 import { MAP_LAYER_IDS } from '../../lib/mapScreen/mapLayerContract';
 import { WARNING_CATALOG, type LiveWarning } from '../../lib/warnings/warningCatalog';
+import { MAP_POI_MIN_ZOOM } from '../../lib/mapViewport';
 
 type WarningMapLayersProps = {
   warnings: LiveWarning[];
@@ -54,6 +55,7 @@ export const WarningMapLayers = memo(function WarningMapLayers({
     >
       <Mapbox.CircleLayer
         id={MAP_LAYER_IDS.warningHalo}
+        minZoomLevel={MAP_POI_MIN_ZOOM}
         aboveLayerID={MAP_LAYER_IDS.routeMain}
         style={{
           circleRadius: 24,
@@ -67,6 +69,7 @@ export const WarningMapLayers = memo(function WarningMapLayers({
       />
       <Mapbox.SymbolLayer
         id={MAP_LAYER_IDS.warningIcon}
+        minZoomLevel={MAP_POI_MIN_ZOOM}
         aboveLayerID={MAP_LAYER_IDS.warningHalo}
         style={{
           textField: ['get', 'glyph'],
@@ -82,6 +85,7 @@ export const WarningMapLayers = memo(function WarningMapLayers({
       />
       <Mapbox.SymbolLayer
         id={MAP_LAYER_IDS.warningCount}
+        minZoomLevel={MAP_POI_MIN_ZOOM}
         aboveLayerID={MAP_LAYER_IDS.warningIcon}
         style={{
           textField: ['get', 'countLabel'],

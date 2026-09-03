@@ -170,6 +170,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const latitude = marker.lat.value;
     const longitude = marker.lng.value;
     const heading = marker.heading.value;
+    const markerHeading = marker.markerRoadHeading.value;
     const durationValue = marker.segmentDurationMs.value;
     const segmentDurationMs = Number.isFinite(durationValue) && durationValue > 0
       ? Math.max(200, Math.min(2_000, Math.round(durationValue)))
@@ -183,6 +184,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
       latitude: positionValid ? latitude : 0,
       longitude: positionValid ? longitude : 0,
       heading: positionValid ? ((heading % 360) + 360) % 360 : 0,
+      markerHeading: positionValid && Number.isFinite(markerHeading)
+        ? ((markerHeading % 360) + 360) % 360
+        : (positionValid ? ((heading % 360) + 360) % 360 : 0),
       segmentDurationMs,
     };
   });

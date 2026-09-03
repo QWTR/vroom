@@ -12,6 +12,7 @@ export type MapCanvasProps = {
   onCameraChanged?: (e: any) => void;
   onDidFinishLoadingStyle?: () => void;
   onLayout?: ViewProps['onLayout'];
+  onTouchStart?: ViewProps['onTouchStart'];
   preferredFramesPerSecond?: number;
   children?: ReactNode;
 };
@@ -31,6 +32,7 @@ export const MapCanvas = memo(
       onCameraChanged,
       onDidFinishLoadingStyle,
       onLayout,
+      onTouchStart,
       preferredFramesPerSecond = 60,
       children,
     },
@@ -58,6 +60,7 @@ export const MapCanvas = memo(
         onCameraChanged={onCameraChanged}
         onDidFinishLoadingStyle={onDidFinishLoadingStyle}
         onLayout={onLayout}
+        onTouchStart={onTouchStart}
       >
         {children}
       </Mapbox.MapView>

@@ -1,8 +1,6 @@
 import React, { memo, useCallback, useEffect, useState } from 'react';
 import { View, Image } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
-import { MaterialIcons } from '@expo/vector-icons';
-import { Image as ExpoImage } from 'expo-image';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import {
   LIVE_USER_PIN_SPRITE_H,
@@ -11,7 +9,7 @@ import {
 import type { PremiumVisual } from '../user/PremiumIdentity';
 
 const AVATAR_SIZE = 40;
-const FRAME_SIZE = 46;
+const RING_SIZE = 46;
 
 export type LiveUserPinSpriteData = {
   username: string;
@@ -31,12 +29,6 @@ function pinAccent(data: LiveUserPinSpriteData) {
   return '#00bfff';
 }
 
-function pinBorderColor(data: LiveUserPinSpriteData) {
-  if (data.isPremium) return data.premiumVisual?.accentColors?.[1] ?? '#FFD700';
-  if (data.isFriend) return '#4de92650';
-  return '#00bfff50';
-}
-
 function pinAvatarBg(data: LiveUserPinSpriteData) {
   if (data.isPremium) return '#FFD70020';
   if (data.isFriend) return '#4de92622';
@@ -51,11 +43,9 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   onReady?: (final: boolean) => void;
 }) {
   const avatarUri = normalizeMediaUri(data.avatarUrl);
-  const frameUri = normalizeMediaUri(data.avatarFrameUrl);
   const [avatarError, setAvatarError] = useState(false);
 
-  const accent = pinAccent(data);
-  const borderColor = pinBorderColor(data);
+  const accent = data.stale ? '#747b86' : pinAccent(data);
   const avatarBg = pinAvatarBg(data);
   const showAvatar = !!avatarUri && !avatarError;
 
@@ -90,10 +80,6 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
     notifyReady(true);
   }, [notifyReady]);
 
-  const avatarBorderStyle = data.isPremium
-    ? { borderWidth: 3, borderColor: accent }
-    : { borderWidth: 1.5, borderColor: borderColor as string };
-
   return (
     <View
       style={{
@@ -101,108 +87,42 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
         height: LIVE_USER_PIN_SPRITE_H,
         backgroundColor: 'transparent',
         alignItems: 'center',
-        justifyContent: 'flex-end',
+        justifyContent: 'center',
         overflow: 'hidden',
       }}
     >
-      <View style={{ alignItems: 'center', paddingHorizontal: 4, paddingBottom: 1 }}>
-        {/* Pigułka: nazwa + online + dystans */}
+      <View
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: 26,
+          backgroundColor: 'rgba(7, 10, 15, 0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <View
           style={{
-            backgroundColor: 'rgba(17, 17, 17, 0.9)',
-            borderRadius: 12,
-            paddingHorizontal: 10,
-            paddingVertical: 6,
-            marginBottom: 4,
-            borderWidth: 1.5,
-            borderColor,
-            minWidth: 88,
-            maxWidth: LIVE_USER_PIN_SPRITE_W - 8,
+            width: RING_SIZE,
+            height: RING_SIZE,
+            borderRadius: RING_SIZE / 2,
+            borderWidth: data.isPremium ? 3 : 2,
+            borderColor: accent,
             alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#11151b',
           }}
         >
-          <Text
-            numberOfLines={1}
-            style={{
-              color: data.premiumVisual?.nickColor ?? '#ffffff',
-              fontSize: 12,
-              fontWeight: '700',
-              textAlign: 'center',
-              letterSpacing: 0.3,
-            }}
-          >
-            {data.username}
-          </Text>
-
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 4,
-              marginTop: 3,
-            }}
-          >
-            <View
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: 3,
-                backgroundColor: data.stale ? '#888888' : '#4de926',
-              }}
-            />
-            <Text
-              style={{
-                color: accent,
-                fontSize: 12,
-                fontWeight: '700',
-                textAlign: 'center',
-                letterSpacing: 0.5,
-              }}
-            >
-              {data.distanceLabel}
-            </Text>
-          </View>
-        </View>
-
-        {/* Łącznik pigułka → awatar */}
-        <View
-          style={{
-            width: 2,
-            height: 5,
-            backgroundColor: accent,
-            opacity: 0.55,
-            borderRadius: 1,
-            marginBottom: 2,
-          }}
-        />
-
-        {/* Awatar */}
-        <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
-          {frameUri ? (
-            <ExpoImage
-              source={{ uri: frameUri }}
-              style={{
-                position: 'absolute',
-                width: FRAME_SIZE,
-                height: FRAME_SIZE,
-                top: (AVATAR_SIZE - FRAME_SIZE) / 2,
-                left: (AVATAR_SIZE - FRAME_SIZE) / 2,
-              }}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-            />
-          ) : null}
-
           <View
             style={{
               width: AVATAR_SIZE,
               height: AVATAR_SIZE,
-              borderRadius: 9999,
+              borderRadius: AVATAR_SIZE / 2,
               overflow: 'hidden',
-              backgroundColor: '#3d3d3d',
+              backgroundColor: '#3d434c',
               alignItems: 'center',
               justifyContent: 'center',
-              ...avatarBorderStyle,
+              opacity: data.stale ? 0.62 : 1,
             }}
           >
             <Text
@@ -210,7 +130,6 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
                 color: '#ffffff',
                 fontSize: 14,
                 fontWeight: '800',
-                letterSpacing: 0.5,
                 textAlign: 'center',
               }}
             >
@@ -219,55 +138,25 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
             {showAvatar ? (
               <Image
                 source={{ uri: avatarUri! }}
-                style={{
-                  position: 'absolute',
-                  width: AVATAR_SIZE,
-                  height: AVATAR_SIZE,
-                  borderRadius: 9999,
-                  backgroundColor: avatarBg,
-                }}
+                style={{ position: 'absolute', width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2, backgroundColor: avatarBg }}
                 resizeMode="cover"
                 onLoad={handleAvatarLoad}
                 onError={handleAvatarError}
               />
             ) : null}
           </View>
-
-          {data.isPremium ? (
-            <View
-              style={{
-                position: 'absolute',
-                top: -5,
-                right: -5,
-                backgroundColor: '#FFD700',
-                borderRadius: 8,
-                width: 15,
-                height: 15,
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10,
-                borderWidth: 1,
-                borderColor: '#00000030',
-              }}
-            >
-              <MaterialIcons name="workspace-premium" size={9} color="#000" />
-            </View>
-          ) : null}
         </View>
-
-        {/* Grot pinu */}
         <View
           style={{
-            width: 0,
-            height: 0,
-            borderLeftWidth: 6,
-            borderRightWidth: 6,
-            borderTopWidth: 7,
-            borderStyle: 'solid',
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderTopColor: accent,
-            marginTop: 1,
+            position: 'absolute',
+            right: 2,
+            bottom: 5,
+            width: 12,
+            height: 12,
+            borderRadius: 6,
+            backgroundColor: data.stale ? '#777d86' : '#38e54d',
+            borderWidth: 2,
+            borderColor: '#0b0e13',
           }}
         />
       </View>

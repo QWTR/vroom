@@ -15,7 +15,7 @@ describe('live user pin sprite cache', () => {
       .toBe(buildPinSpriteSignature({ ...base, distanceLabel: '9.9 km' }));
   });
 
-  it('does not rebuild a bitmap when freshness changes', () => {
+  it('rebuilds a bitmap when online freshness status changes', () => {
     const base = {
       id: 8,
       avatarUrl: '',
@@ -26,7 +26,7 @@ describe('live user pin sprite cache', () => {
       distanceLabel: 'LIVE',
     };
     expect(buildPinSpriteSignature({ ...base, stale: false }))
-      .toBe(buildPinSpriteSignature({ ...base, stale: true }));
+      .not.toBe(buildPinSpriteSignature({ ...base, stale: true }));
   });
 
   it('rebuilds a bitmap when the premium visual version changes', () => {
