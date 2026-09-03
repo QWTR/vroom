@@ -19,7 +19,7 @@ describe('buildV3GeometryFromRefs', () => {
       mirrorPolylines: [actualRoad],
     });
     expect(geometry.routePolyline).toHaveLength(2);
-    expect(geometry.roadPolylines.some((road) => road.key === 'mirror_0')).toBe(true);
+    expect(geometry.roadPolylines.some((road) => road.key.startsWith('mirror:'))).toBe(true);
   });
 
   it('suppresses route snapping without reusing old matched route as a road', () => {
@@ -43,7 +43,7 @@ describe('buildV3GeometryFromRefs', () => {
       mirrorPolylines: [actualRoad],
     });
 
-    expect(geometry.roadPolylines[0]?.key).toBe('mirror_0');
+    expect(geometry.roadPolylines[0]?.key).toMatch(/^mirror:/);
     expect(geometry.roadPolylines[1]?.key).toBe('road_match');
   });
 
@@ -62,5 +62,27 @@ describe('buildV3GeometryFromRefs', () => {
     });
 
     expect(second.routePolyline).toBe(first.routePolyline);
+  });
+
+  it('keeps mirror identity stable when cache ordering changes', () => {
+    const otherRoad = [
+      { latitude: 52.24, longitude: 21.03 },
+      { latitude: 52.25, longitude: 21.04 },
+    ];
+    const first = buildV3GeometryFromRefs({
+      matchedGeometry: [],
+      routePoints: [],
+      isNavigating: false,
+      mirrorPolylines: [actualRoad, otherRoad],
+    });
+    const second = buildV3GeometryFromRefs({
+      matchedGeometry: [],
+      routePoints: [],
+      isNavigating: false,
+      mirrorPolylines: [otherRoad, actualRoad],
+    });
+
+    expect(new Set(second.roadPolylines.map((road) => road.key)))
+      .toEqual(new Set(first.roadPolylines.map((road) => road.key)));
   });
 });

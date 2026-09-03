@@ -11,11 +11,11 @@ import {
 } from './mapViewport';
 
 describe('map viewport', () => {
-  it('uses compact individual POI before cards and keeps distant maps clean', () => {
+  it('hides distant map clutter and shows LIVE users only as individual markers', () => {
     expect(MAP_POI_MIN_ZOOM).toBe(11.5);
     expect(MAP_POI_CARD_MIN_ZOOM).toBe(14.5);
     expect(MAP_POI_LABEL_MIN_ZOOM).toBe(MAP_POI_CARD_MIN_ZOOM);
-    expect(MAP_LIVE_MIN_ZOOM).toBeGreaterThanOrEqual(MAP_POI_MIN_ZOOM);
+    expect(MAP_LIVE_MIN_ZOOM).toBe(11.5);
   });
   it('builds center and 20% query overscan', () => {
     const viewport = createMapViewport([[20, 54], [18, 52]], 14, 3)!;

@@ -24,6 +24,7 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var longitude');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var heading');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var markerHeading');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var speedMps');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var cameraMode');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"worldHeading"');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"screenHeading"');
@@ -42,6 +43,8 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('RCT_EXTERN_MODULE');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).not.toContain('navigationSample');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('latitude');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('speedMps');
+    expect((IOS_SOURCE_FILES['VroomMapCameraFollower.swift'].match(/mapboxMap\.setCamera\(/g) ?? [])).toHaveLength(1);
   });
 
   it('keeps embedded iOS sources identical to the canonical Swift files', () => {
@@ -64,6 +67,9 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('VroomMapCameraFollowerManager');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "cameraMode")');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "markerHeading")');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "speedMps"');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('updateMarkerSource(mapboxMap, targetLatitude, targetLongitude');
+    expect((ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt'].match(/mapboxMap\.setCamera\(/g) ?? [])).toHaveLength(1);
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerPackage.kt']).toContain('ReactPackage');
   });
 

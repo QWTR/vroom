@@ -16,6 +16,7 @@ export {
   detectIntersectionTurn,
   makeRoadPolyline,
   packRoadPolyline,
+  polylineGeometryRevision,
   resolveSnap,
   type SnapEngineConfig,
   type SnapResolveInput,

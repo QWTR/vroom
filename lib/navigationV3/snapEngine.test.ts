@@ -63,6 +63,20 @@ describe('resolveSnap', () => {
     expect(out.result.pathMode).toBe('onRoad');
     expect(out.result.roadBlend).toBeGreaterThan(0.9);
     expect(out.result.arcM).not.toBeNull();
+    expect(out.result.geometryRevision).toBe(straightRoad.geometryRevision);
+    expect(out.result.arcWindow?.geometryRevision).toBe(straightRoad.geometryRevision);
+  });
+
+  it('separates logical road identity from a concrete geometry revision', () => {
+    const refreshed = makeRoadPolyline('road-a', [
+      { lat: 52.0, lng: 21.0 },
+      { lat: 52.001, lng: 21.00001 },
+      { lat: 52.002, lng: 21.0 },
+    ])!;
+    expect(refreshed.key).toBe(straightRoad.key);
+    expect(refreshed.geometryRevision).not.toBe(straightRoad.geometryRevision);
+    expect(makeRoadPolyline('other-logical-id', straightRoad.points)?.geometryRevision)
+      .toBe(straightRoad.geometryRevision);
   });
 
   it('returns off-road with zero blend when no geometry', () => {

@@ -555,6 +555,7 @@ function buildMetaPinRequests(
       id,
       signature: buildPinSpriteSignature({
         id,
+        username,
         avatarUrl: avatarUri ?? '',
         avatarFrameUrl: frameUri ?? '',
         isPremium: !!meta.isPremium,

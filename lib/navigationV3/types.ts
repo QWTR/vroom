@@ -14,12 +14,16 @@ export type RawGpsFix = {
 };
 
 export type RoadPolyline = {
+  /** Stable logical road/route identity used by branch locking. */
   key: string;
+  /** Identity of this concrete coordinate frame. Changes when points are replaced/trimmed. */
+  geometryRevision: string;
   points: { lat: number; lng: number }[];
   cumM: number[];
 };
 
 export type ArcWindowSlice = {
+  geometryRevision: string;
   points: { lat: number; lng: number }[];
   cumM: number[];
   baseArcM: number;
@@ -38,6 +42,7 @@ export type SnapResult = {
   segmentIndex: number;
   arcM: number | null;
   polylineKey: string | null;
+  geometryRevision: string | null;
   arcWindow: ArcWindowSlice | null;
   /** Ewidentny skręt z polilinii — trigger dynamicznego map-match. */
   intersectionTurnDetected?: boolean;
@@ -72,6 +77,7 @@ export type NavigationTarget = {
   targetArcM: number | null;
   arcWindow: ArcWindowSlice | null;
   polylineKey: string | null;
+  geometryRevision: string | null;
   allowInstant: boolean;
   /** Czas od poprzedniego fixu GPS (ms) — synchronizacja animacji markera. */
   gpsIntervalMs?: number;

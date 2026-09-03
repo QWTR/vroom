@@ -13,6 +13,12 @@ private struct VroomRenderedPose {
 }
 
 private let vroomMapCameraDefaultSegmentMs = 1_000.0
+private let vroomCameraCenterHalfLifeMs = 90.0
+private let vroomCameraBearingHalfLifeMs = 90.0
+private let vroomCameraBearingDeadbandDeg = 0.25
+private let vroomCameraMovingMaxErrorM = 0.75
+private let vroomCameraStoppedMaxErrorM = 0.25
+private let vroomCameraMovingSpeedMps = 0.83
 
 @objc(VroomMapCameraFollowerView)
 final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
@@ -22,7 +28,12 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
 
   @objc var enabled = false {
     didSet {
-      if enabled && !oldValue { framingInitialized = false; lastFrameTimestamp = 0 }
+      if enabled && !oldValue {
+        framingInitialized = false
+        poseInitialized = false
+        cameraReentry = true
+        lastFrameTimestamp = 0
+      }
       markDirty(forceSource: enabled)
     }
   }
@@ -44,6 +55,7 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
   @objc var longitude: NSNumber = 0 { didSet { markDirty() } }
   @objc var heading: NSNumber = 0 { didSet { markDirty() } }
   @objc var markerHeading: NSNumber = 0 { didSet { markDirty() } }
+  @objc var speedMps: NSNumber = 0 { didSet { markDirty() } }
   @objc var segmentDurationMs: NSNumber = NSNumber(value: vroomMapCameraDefaultSegmentMs) { didSet { markDirty() } }
   @objc var zoom: NSNumber = 18 { didSet { markDirty() } }
   @objc var pitch: NSNumber = 58 { didSet { markDirty() } }
@@ -57,6 +69,8 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
   private var dirty = true
   private var forceSourceRefresh = true
   private var framingInitialized = false
+  private var poseInitialized = false
+  private var cameraReentry = false
   private var displayedLatitude = Double.nan
   private var displayedLongitude = Double.nan
   private var displayedHeading = 0.0
@@ -172,8 +186,12 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
       ensureArrowImage(mapView)
       nextSourceHealthCheck = now + 1
     }
-    apply(to: mapView, timestamp: now)
     dirty = false
+    apply(to: mapView, timestamp: now)
+    if !hasPendingWork() {
+      displayLink?.invalidate()
+      displayLink = nil
+    }
   }
 
   private func apply(to mapView: MapView, timestamp: CFTimeInterval) {
@@ -193,17 +211,6 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
     }
     lastFrameTimestamp = timestamp
 
-    advanceDisplayedPose(
-      targetLat: targetLat,
-      targetLng: targetLng,
-      targetHeading: targetHdg,
-      dtMs: dtMs
-    )
-
-    let cameraWorldHeading = Self.normalizeHeading(displayedHeading)
-    let markerWorldHeading = Self.normalizeHeading(targetMarkerHdg)
-    ensureArrowImage(mapView)
-
     let mode = normalizedCameraMode()
     if enabled && mode != "free" {
       if !framingInitialized {
@@ -216,6 +223,35 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
         displayedPaddingRight = camera.padding.right
         framingInitialized = true
       }
+    }
+
+    if !poseInitialized {
+      if enabled {
+        let camera = mapView.mapboxMap.cameraState
+        displayedLatitude = camera.center.latitude
+        displayedLongitude = camera.center.longitude
+        displayedHeading = Self.normalizeHeading(camera.bearing)
+      } else {
+        displayedLatitude = targetLat
+        displayedLongitude = targetLng
+        displayedHeading = Self.normalizeHeading(targetHdg)
+      }
+      poseInitialized = true
+    }
+    advanceDisplayedPose(
+      targetLat: targetLat,
+      targetLng: targetLng,
+      targetHeading: targetHdg,
+      targetSpeedMps: max(0, speedMps.doubleValue),
+      dtMs: dtMs
+    )
+
+    let cameraWorldHeading = Self.normalizeHeading(displayedHeading)
+    let markerWorldHeading = Self.normalizeHeading(targetMarkerHdg)
+    ensureArrowImage(mapView)
+
+    var appliedCameraBearing = Self.normalizeHeading(mapView.mapboxMap.cameraState.bearing)
+    if enabled && mode != "free" {
       let alpha = 1 - exp(-dtMs / 120)
       displayedZoom += (zoom.doubleValue - displayedZoom) * alpha
       displayedPitch += (pitch.doubleValue - displayedPitch) * alpha
@@ -235,15 +271,15 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
         bearing: mode == "northUp" ? 0 : cameraWorldHeading,
         pitch: displayedPitch
       ))
+      appliedCameraBearing = mode == "northUp" ? 0 : cameraWorldHeading
     }
 
-    let cameraBearing = Self.normalizeHeading(mapView.mapboxMap.cameraState.bearing)
-    let screenHeading = Self.normalizeHeading(markerWorldHeading - cameraBearing)
+    let screenHeading = Self.normalizeHeading(markerWorldHeading - appliedCameraBearing)
     updateMarkerSource(
       mapView,
       pose: VroomRenderedPose(
-        latitude: displayedLatitude,
-        longitude: displayedLongitude,
+        latitude: targetLat,
+        longitude: targetLng,
         worldHeading: markerWorldHeading,
         screenHeading: screenHeading
       )
@@ -254,11 +290,43 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
     targetLat: Double,
     targetLng: Double,
     targetHeading: Double,
-    dtMs _: Double
+    targetSpeedMps: Double,
+    dtMs: Double
   ) {
-    displayedLatitude = targetLat
-    displayedLongitude = targetLng
-    displayedHeading = Self.normalizeHeading(targetHeading)
+    let center = Self.advanceCenter(
+      currentLat: displayedLatitude,
+      currentLng: displayedLongitude,
+      targetLat: targetLat,
+      targetLng: targetLng,
+      targetHeading: targetHeading,
+      speedMps: targetSpeedMps,
+      dtMs: dtMs,
+      clampTrackingError: !cameraReentry
+    )
+    displayedLatitude = center.latitude
+    displayedLongitude = center.longitude
+    displayedHeading = Self.advanceBearing(current: displayedHeading, target: targetHeading, dtMs: dtMs)
+    if cameraReentry && Self.distanceMeters(displayedLatitude, displayedLongitude, targetLat, targetLng) <= vroomCameraMovingMaxErrorM {
+      cameraReentry = false
+    }
+  }
+
+  private func hasPendingWork() -> Bool {
+    guard enabled, poseInitialized else { return dirty }
+    let centerPending = Self.distanceMeters(
+      displayedLatitude,
+      displayedLongitude,
+      latitude.doubleValue,
+      longitude.doubleValue
+    ) > 0.01
+    let bearingPending = abs(Self.shortestHeadingDelta(from: displayedHeading, to: heading.doubleValue)) > vroomCameraBearingDeadbandDeg
+    let framingPending = abs(displayedZoom - zoom.doubleValue) > 0.002
+      || abs(displayedPitch - pitch.doubleValue) > 0.03
+      || abs(displayedPaddingTop - max(0, paddingTop.doubleValue)) > 0.25
+      || abs(displayedPaddingBottom - max(0, paddingBottom.doubleValue)) > 0.25
+      || abs(displayedPaddingLeft - max(0, paddingLeft.doubleValue)) > 0.25
+      || abs(displayedPaddingRight - max(0, paddingRight.doubleValue)) > 0.25
+    return dirty || centerPending || bearingPending || framingPending
   }
 
   private func ensureMarkerInfrastructure(_ mapView: MapView, now: CFTimeInterval) {
@@ -343,6 +411,59 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
     lastMarkerHeading = screenHeading
     lastMarkerWorldHeading = worldHeading
     forceSourceRefresh = false
+  }
+
+  private static func distanceMeters(_ aLat: Double, _ aLng: Double, _ bLat: Double, _ bLng: Double) -> Double {
+    guard aLat.isFinite, aLng.isFinite, bLat.isFinite, bLng.isFinite else { return .infinity }
+    let meanLat = (aLat + bLat) * 0.5 * .pi / 180
+    let north = (bLat - aLat) * 111_320
+    let east = (bLng - aLng) * 111_320 * max(0.15, cos(meanLat))
+    return hypot(north, east)
+  }
+
+  private static func advanceCenter(
+    currentLat: Double,
+    currentLng: Double,
+    targetLat: Double,
+    targetLng: Double,
+    targetHeading: Double,
+    speedMps: Double,
+    dtMs: Double,
+    clampTrackingError: Bool
+  ) -> CLLocationCoordinate2D {
+    guard currentLat.isFinite, currentLng.isFinite else {
+      return CLLocationCoordinate2D(latitude: targetLat, longitude: targetLng)
+    }
+    let boundedDt = min(50, max(1, dtMs))
+    let frameSeconds = boundedDt / 1_000
+    let predictedDistance = max(0, speedMps) * frameSeconds
+    let headingRad = normalizeHeading(targetHeading) * .pi / 180
+    let predictedLat = targetLat + cos(headingRad) * predictedDistance / 111_320
+    let lngScale = 111_320 * max(0.15, cos(targetLat * .pi / 180))
+    let predictedLng = targetLng + sin(headingRad) * predictedDistance / lngScale
+    let alpha = 1 - exp(-log(2) * boundedDt / vroomCameraCenterHalfLifeMs)
+    var nextLat = currentLat + (predictedLat - currentLat) * alpha
+    var nextLng = currentLng + (predictedLng - currentLng) * alpha
+    if clampTrackingError {
+      let maxError = speedMps >= vroomCameraMovingSpeedMps
+        ? vroomCameraMovingMaxErrorM
+        : vroomCameraStoppedMaxErrorM
+      let remaining = distanceMeters(nextLat, nextLng, targetLat, targetLng)
+      if remaining > maxError {
+        let correction = (remaining - maxError) / remaining
+        nextLat += (targetLat - nextLat) * correction
+        nextLng += (targetLng - nextLng) * correction
+      }
+    }
+    return CLLocationCoordinate2D(latitude: nextLat, longitude: nextLng)
+  }
+
+  private static func advanceBearing(current: Double, target: Double, dtMs: Double) -> Double {
+    let delta = shortestHeadingDelta(from: current, to: target)
+    if abs(delta) <= vroomCameraBearingDeadbandDeg { return normalizeHeading(current) }
+    let boundedDt = min(50, max(1, dtMs))
+    let alpha = 1 - exp(-log(2) * boundedDt / vroomCameraBearingHalfLifeMs)
+    return normalizeHeading(current + delta * alpha)
   }
 
   private static func normalizeHeading(_ value: Double) -> Double {

@@ -16,7 +16,9 @@ let loopStarted = false;
 let cancelled = false;
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 let appStateSub: { remove: () => void } | null = null;
-const appStateRef = { current: AppState.currentState as AppStateStatus };
+// W starszej architekturze RN currentState może być chwilowo null przy starcie.
+// Hook montuje się w widocznej aplikacji, więc nie blokujemy przez to pierwszego pinga.
+const appStateRef = { current: (AppState.currentState ?? 'active') as AppStateStatus };
 
 async function getAuthToken(): Promise<string | null> {
   return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -107,6 +109,9 @@ function startPresenceLoop() {
     const prev = appStateRef.current;
     const cameToForeground = prev.match(/inactive|background/) && s === 'active';
     const wentToBackground = prev === 'active' && !!s.match(/inactive|background/);
+    // Event przekazuje już nowy stan. Ustaw ref przed wywołaniem funkcji,
+    // których guard sprawdza, czy aplikacja jest na pierwszym planie.
+    appStateRef.current = s;
     if (cameToForeground) {
       void pingThenFetch();
     } else if (wentToBackground) {
@@ -114,7 +119,6 @@ function startPresenceLoop() {
       // przez pełne okno serwera. force=true, bo appState właśnie przestaje być 'active'.
       void ping(true);
     }
-    appStateRef.current = s;
     scheduleRefresh();
   });
 }

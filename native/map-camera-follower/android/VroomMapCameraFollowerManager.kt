@@ -24,6 +24,8 @@ class VroomMapCameraFollowerManager : SimpleViewManager<VroomMapCameraFollower>(
   @ReactProp(name = "longitude") fun setLongitude(view: VroomMapCameraFollower, value: Double) = view.setLongitude(value)
   @ReactProp(name = "heading") fun setHeading(view: VroomMapCameraFollower, value: Double) = view.setHeading(value)
   @ReactProp(name = "markerHeading") fun setMarkerHeading(view: VroomMapCameraFollower, value: Double) = view.setMarkerHeading(value)
+  @ReactProp(name = "speedMps", defaultDouble = 0.0)
+  fun setSpeedMps(view: VroomMapCameraFollower, value: Double) = view.setSpeedMps(value)
   @ReactProp(name = "segmentDurationMs", defaultDouble = 1_000.0)
   fun setSegmentDurationMs(view: VroomMapCameraFollower, value: Double) = view.setSegmentDurationMs(value)
   @ReactProp(name = "zoom") fun setZoom(view: VroomMapCameraFollower, value: Double) = view.setZoom(value)

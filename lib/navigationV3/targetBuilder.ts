@@ -117,6 +117,7 @@ export function buildNavigationTarget(
     targetArcM: snap.arcM,
     arcWindow: snap.arcWindow,
     polylineKey: snap.polylineKey,
+    geometryRevision: snap.geometryRevision,
     allowInstant,
     gpsIntervalMs: intervalMs,
     sourceTimestampMs: Number.isFinite(sourceTimestampMs) ? sourceTimestampMs : undefined,

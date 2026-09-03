@@ -117,15 +117,17 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 const PROXIMITY_THRESHOLD_M     = 500;
 const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
-const LIVE_USERS_RADIUS_KM = 350;
+const LIVE_USERS_RADIUS_KM = 750;
 const LIVE_USERS_TAKE = 400;
 /** Brak aktualizacji pozycji — usuń zombie (snapshot / prune). */
-const LIVE_USER_STALE_MS = 30_000;
+const LIVE_USER_STALE_MS = 90_000;
+const LIVE_USER_FRESH_MS = 15_000;
 /** Opóźnienie przed usunięciem po user:offline (chroni przed miganiem). */
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
-const LIVE_USER_EVENT_STALE_MS = 30_000;
+const LIVE_USER_EVENT_STALE_MS = 90_000;
+const LIVE_LOCATION_HEARTBEAT_MS = 25_000;
 const USERS_REFRESH_MS = 45_000;
 const SOCKET_USERS_FALLBACK_MS = 1_500;
 const LIVE_USERS_REST_FRESH_MS = 40_000;
@@ -160,7 +162,7 @@ export function useLiveMap(
   const [warnings,        setWarnings]        = useState<LiveWarning[]>([]);
   const [visibleWarnings, setVisibleWarnings] = useState<LiveWarning[]>([]);
   const [connected,       setConnected]       = useState(false);
-  const [sharingStatus,   setSharingStatus]   = useState<'off' | 'connecting' | 'on'>(
+  const [sharingStatus,   setSharingStatus]   = useState<'off' | 'connecting' | 'on' | 'error'>(
     isSharing ? 'connecting' : 'off',
   );
 
@@ -179,6 +181,7 @@ export function useLiveMap(
   const lastSnapshotAtRef  = useRef(0);
   const hasUsersFromSocketRef = useRef(false);
   const liveJoinWithGpsRef = useRef(false);
+  const liveJoinedRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeGenerationRef = useRef(0);
   const pendingLocationPayloadRef = useRef<Record<string, unknown> | null>(null);
@@ -303,7 +306,7 @@ export function useLiveMap(
       );
       if (now - last >= LIVE_USER_STALE_MS) {
         removeLiveUser(id);
-      } else if (now - last >= 5_000) {
+      } else if (now - last >= LIVE_USER_FRESH_MS) {
         const meta = store.getMeta(id);
         const pos = store.getPosition(id);
         if (meta && pos && meta.stale !== true) {
@@ -506,6 +509,8 @@ export function useLiveMap(
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected) return;
+    liveJoinedRef.current = false;
+    if (isSharingRef.current) setSharingStatus('connecting');
     const pending = pendingLocationPayloadRef.current;
     const loc = userLocationRef.current;
     const previousFix = latestOwnFixRef.current;
@@ -519,12 +524,23 @@ export function useLiveMap(
         fixAgeMs: Math.max(0, Date.now() - previousFix.fixAt),
       } : {}),
     } : { protocolVersion: 2 });
-    socket.emit('live:join', payload);
+    socket.timeout(5_000).emit('live:join', payload, (error: Error | null, ack?: { joined?: boolean }) => {
+      if (socketRef.current !== socket || !socket.connected) return;
+      if (error || ack?.joined !== true) {
+        liveJoinedRef.current = false;
+        if (isSharingRef.current) setSharingStatus('error');
+        return;
+      }
+      liveJoinedRef.current = true;
+      setSharingStatus(isSharingRef.current ? 'on' : 'off');
+    });
     emitPendingLocation();
   }, [emitPendingLocation]);
 
   const leaveLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
+    liveJoinedRef.current = false;
+    setSharingStatus('off');
     if (!socket?.connected) return;
     socket.emit('live:leave');
   }, []);
@@ -546,7 +562,7 @@ export function useLiveMap(
     isSharingRef.current = isSharing;
     if (!isSharing) {
       setSharingStatus('off');
-    } else if (connected && liveUsersEnabled) {
+    } else if (connected && liveUsersEnabled && liveJoinedRef.current) {
       setSharingStatus('on');
     } else if (isSharing) {
       setSharingStatus('connecting');
@@ -775,7 +791,7 @@ export function useLiveMap(
   useEffect(() => {
     if (!mapSessionActive) return;
     (async () => {
-      const token = await AsyncStorage.getItem('token');
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) return;
       tokenRef.current = token;
 
@@ -803,7 +819,9 @@ export function useLiveMap(
       });
 
       socket.on('disconnect', (reason) => {
+        liveJoinedRef.current = false;
         setConnected(false);
+        setSharingStatus(isSharingRef.current ? 'connecting' : 'off');
         if (
           reason === 'io server disconnect'
           && mapSessionActiveRef.current
@@ -813,7 +831,11 @@ export function useLiveMap(
         }
       });
 
-      socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
+      socket.on('connect_error', (err) => {
+        liveJoinedRef.current = false;
+        if (isSharingRef.current) setSharingStatus('error');
+        console.log('❌ connect_error:', err.message);
+      });
 
       socket.on('user:location', (data: any) => {
         if (!liveUsersEnabledRef.current) return;
@@ -1098,6 +1120,16 @@ export function useLiveMap(
     return () => clearInterval(interval);
   }, [liveUsersEnabled, fetchLiveUsersRest]);
 
+  // Niezależny heartbeat utrzymuje na mapie również kierowcę stojącego w miejscu.
+  useEffect(() => {
+    if (!mapSessionActive || !isSharing) return;
+    const interval = setInterval(() => {
+      if (!allowBgRef.current && !isForegroundActive()) return;
+      queueCurrentLocation('live_heartbeat');
+    }, LIVE_LOCATION_HEARTBEAT_MS);
+    return () => clearInterval(interval);
+  }, [mapSessionActive, isSharing, isForegroundActive, queueCurrentLocation]);
+
   // Usuń tylko naprawdę przestarzałych (brak socket/API przez STALE_MS).
   useEffect(() => {
     if (!liveUsersEnabled) return;
@@ -1221,7 +1253,7 @@ export function useLiveMap(
     const forceOn = desired === true;
     if (forceOn) {
       isSharingRef.current = true;
-      setSharingStatus(connected && liveUsersEnabled ? 'on' : 'connecting');
+      setSharingStatus(connected && liveUsersEnabled && liveJoinedRef.current ? 'on' : 'connecting');
       if (!tokenRef.current) return true;
       if (!socketRef.current?.connected) {
         socketRef.current?.connect();
@@ -1239,7 +1271,7 @@ export function useLiveMap(
         queueCurrentLocation('sharing_enabled');
       }
       await fetchInitialData(tokenRef.current);
-      setSharingStatus('on');
+      setSharingStatus(liveJoinedRef.current ? 'on' : 'connecting');
       return true;
     }
     if (forceOff) {
@@ -1270,7 +1302,7 @@ export function useLiveMap(
         if (ok) break;
       }
       if (!ok || !data) {
-        setSharingStatus(isSharingRef.current ? 'on' : 'off');
+        setSharingStatus(isSharingRef.current ? (liveJoinedRef.current ? 'on' : 'error') : 'off');
         return isSharingRef.current;
       }
       const nextShare = forceOff ? false : !!data.shareLocation;
@@ -1297,7 +1329,7 @@ export function useLiveMap(
         }
         await fetchInitialData(tokenRef.current);
         toggleRetryRef.current = 0;
-        setSharingStatus('on');
+        setSharingStatus(liveJoinedRef.current ? 'on' : 'connecting');
         Toast.show({ type: 'success', text1: '📍 Lokalizacja widoczna', text2: 'Inni widzą Cię na mapie' });
       } else {
         forceLocalSharingOff();
@@ -1310,7 +1342,7 @@ export function useLiveMap(
         forceLocalSharingOff();
         return false;
       }
-      setSharingStatus(isSharingRef.current ? 'on' : 'off');
+      setSharingStatus(isSharingRef.current ? (liveJoinedRef.current ? 'on' : 'error') : 'off');
       return isSharingRef.current;
     } finally {
       toggleInFlightRef.current = false;
@@ -1475,7 +1507,7 @@ export function useLiveMap(
     if (!mapSessionActiveRef.current) return;
     let token = tokenRef.current;
     if (!token) {
-      token = await AsyncStorage.getItem('token');
+      token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) return;
       tokenRef.current = token;
     }
@@ -1498,7 +1530,7 @@ export function useLiveMap(
           source: 'session_resume',
         }, { force: true });
       queueCurrentLocation('session_resume');
-      setSharingStatus('on');
+      setSharingStatus(liveJoinedRef.current ? 'on' : 'connecting');
     } catch {
       /* ignore */
     }

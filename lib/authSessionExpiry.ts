@@ -147,9 +147,15 @@ export function createAuthSessionAwareFetch(baseFetch: typeof fetch): typeof fet
   const wrappedFetch = (async (input: FetchInput, init?: FetchInit) => {
     const requestToken = getRequestBearerToken(input, init);
     const response = await baseFetch(input, init);
+    let unverifiedEmail = false;
+
+    if (response.status === 403 && requestToken && isVroomApiRequest(input)) {
+      const payload = await response.clone().json().catch(() => null);
+      unverifiedEmail = payload?.code === 'EMAIL_NOT_VERIFIED';
+    }
 
     if (
-      response.status === 401
+      (response.status === 401 || unverifiedEmail)
       && requestToken
       && isVroomApiRequest(input)
     ) {

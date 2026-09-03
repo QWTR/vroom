@@ -3495,7 +3495,7 @@ function MapScreenInner() {
   });
 
   const {
-    liveUserIds, liveMapStore, warnings, connected,
+    liveUserIds, liveMapStore, warnings, connected, sharingStatus,
     sendLocation, toggleSharing, resumeLiveSession, addWarning, confirmWarning, cancelWarning, dismissWarning,
   } = useLiveMap(
     isSharing,
@@ -3735,7 +3735,6 @@ function MapScreenInner() {
     shouldPauseTripCameraFollow,
     resumeTripCameraFollow,
     syncUserExploreView,
-    notifyUserMapInteraction,
     getLastAppliedCameraZoom,
     touchProgrammaticCameraApply,
     getUserZoomOverride,
@@ -9565,7 +9564,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       drLngRef.current = cached.longitude;
       setUserLocation({ latitude: cached.latitude, longitude: cached.longitude });
       bumpActiveMarker(cached.latitude, cached.longitude, { forcePublish: true });
-      resetBrowseCamera({ latitude: cached.latitude, longitude: cached.longitude });
+      if (!isDrivingRef.current && !isNavigatingRef.current) {
+        resetBrowseCamera({ latitude: cached.latitude, longitude: cached.longitude });
+      }
     }
   }, [
     restartGPSWatcher,
@@ -13624,9 +13625,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           onToggleDriving={handleToggleDrivingMode}
           onOpenSearch={() => { setSearchModalVisible(true); setMapFabModalVisible(false); }}
           isSharing={isSharing}
+          liveStatus={sharingStatus}
           onToggleSharing={handleToggleSharing}
           onCenterOnUser={handleCenterOnUser}
-          connected={connected}
           onOpenFabModal={() => setMapFabModalVisible(true)}
           onOpenReport={() => setReportVisible(true)}
           upcomingWarning={upcomingWarning}
@@ -13791,16 +13792,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             const userInteracting = gestureActive || e?.properties?.isUserInteraction === true;
             if (userInteracting) markMapInteractionStartedForFps();
             const tripActive = isDrivingRef.current || isNavigatingRef.current;
-            const pitchRaw = e?.properties?.pitch;
-            const pitchLive = Number.isFinite(pitchRaw) ? Number(pitchRaw) : undefined;
             if (tripActive && gestureActive) {
-              // 60fps follow aktualizuje kamerę co klatkę — nie filtruj programmatic guard
-              // (inaczej pinch/pan nigdy nie włącza wolnej kamery).
+              // Native V3 follower is the sole owner of the active trip camera.
+              // Do not arm the legacy hook's delayed recenter at the same time.
               cameraV3.notifyUserMapInteraction(zoomLive ?? undefined);
-              notifyUserMapInteraction(
-                zoomLive ?? undefined,
-                pitchLive,
-              );
             } else if (
               gestureActive
               && (Platform.OS === 'ios' ? (e?.properties?.isUserInteraction !== false) : true)
@@ -14214,9 +14209,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           onToggleDriving={handleToggleDrivingMode}
           onOpenSearch={() => { setSearchModalVisible(true); setMapFabModalVisible(false); }}
           isSharing={isSharing}
+          liveStatus={sharingStatus}
           onToggleSharing={handleToggleSharing}
           onCenterOnUser={handleCenterOnUser}
-          connected={connected}
           onOpenFabModal={() => setMapFabModalVisible(true)}
           onOpenReport={() => setReportVisible(true)}
           upcomingWarning={upcomingWarning}

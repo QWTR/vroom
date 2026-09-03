@@ -171,6 +171,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const longitude = marker.lng.value;
     const heading = marker.heading.value;
     const markerHeading = marker.markerRoadHeading.value;
+    const speedMps = marker.speedMs.value;
     const durationValue = marker.segmentDurationMs.value;
     const segmentDurationMs = Number.isFinite(durationValue) && durationValue > 0
       ? Math.max(200, Math.min(2_000, Math.round(durationValue)))
@@ -187,6 +188,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       markerHeading: positionValid && Number.isFinite(markerHeading)
         ? ((markerHeading % 360) + 360) % 360
         : (positionValid ? ((heading % 360) + 360) % 360 : 0),
+      speedMps: Number.isFinite(speedMps) ? Math.max(0, speedMps) : 0,
       segmentDurationMs,
     };
   });

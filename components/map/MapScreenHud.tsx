@@ -58,9 +58,9 @@ export type MapScreenHudProps = {
   onToggleDriving: () => void;
   onOpenSearch: () => void;
   isSharing: boolean;
+  liveStatus: 'off' | 'connecting' | 'on' | 'error';
   onToggleSharing: () => void;
   onCenterOnUser: () => void;
-  connected: boolean;
   onOpenFabModal: () => void;
   onOpenReport: () => void;
   upcomingWarning?: UpcomingWarning | null;
@@ -97,9 +97,9 @@ export const MapScreenHud = memo(function MapScreenHud({
   onToggleDriving,
   onOpenSearch,
   isSharing,
+  liveStatus,
   onToggleSharing,
   onCenterOnUser,
-  connected,
   onOpenFabModal,
   onOpenReport,
   upcomingWarning,
@@ -258,7 +258,7 @@ export const MapScreenHud = memo(function MapScreenHud({
             <MaterialIcons name="my-location" size={22} color={theme.textMuted} />
           </TouchableOpacity>
 
-          {connected && isSharing && (
+          {isSharing && liveStatus !== 'off' && (
             <View style={{
               position: 'absolute',
               top: -36,
@@ -279,8 +279,19 @@ export const MapScreenHud = memo(function MapScreenHud({
               shadowOpacity: 0.25,
               shadowRadius: 6,
             }}>
-              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.online }} />
-              <Text style={{ color: theme.online, fontSize: 12, fontWeight: '700' }}>LIVE</Text>
+              <View style={{
+                width: 7,
+                height: 7,
+                borderRadius: 4,
+                backgroundColor: liveStatus === 'on' ? theme.online : liveStatus === 'error' ? '#E33835' : '#F5B942',
+              }} />
+              <Text style={{
+                color: liveStatus === 'on' ? theme.online : liveStatus === 'error' ? '#E33835' : '#F5B942',
+                fontSize: 12,
+                fontWeight: '700',
+              }}>
+                {liveStatus === 'on' ? 'LIVE' : liveStatus === 'error' ? 'BŁĄD LIVE' : 'ŁĄCZENIE…'}
+              </Text>
             </View>
           )}
 

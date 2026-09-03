@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteVisual';
 
-/** Compact avatar atlas entry. Position updates never change this bitmap. */
-export const LIVE_USER_PIN_SPRITE_W = 56;
+/** One self-contained LIVE marker. Position updates never change this bitmap. */
+export const LIVE_USER_PIN_SPRITE_W = 136;
 export const LIVE_USER_PIN_SPRITE_H = 56;
-export const LIVE_USER_PIN_DISPLAY_PT = 40;
+export const LIVE_USER_PIN_DISPLAY_PT = 116;
 
 export function liveUserPinIconSize(): number {
   return LIVE_USER_PIN_DISPLAY_PT / LIVE_USER_PIN_SPRITE_W;
@@ -40,6 +40,7 @@ export function fillPinCaptureQueue(
 
 export function buildPinSpriteSignature(input: {
   id: number;
+  username: string;
   avatarUrl: string;
   avatarFrameUrl: string;
   isPremium: boolean;
@@ -51,6 +52,7 @@ export function buildPinSpriteSignature(input: {
 }): string {
   return [
     input.id,
+    input.username.trim(),
     input.avatarUrl,
     input.avatarFrameUrl,
     input.isPremium ? '1' : '0',
@@ -58,7 +60,7 @@ export function buildPinSpriteSignature(input: {
     input.initials,
     input.stale ? 'stale' : 'online',
     input.visualVersion ?? 'free',
-    'v6-compact',
+    'v7-profile-label',
   ].join('|');
 }
 

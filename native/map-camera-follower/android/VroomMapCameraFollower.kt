@@ -13,7 +13,69 @@ import com.mapbox.maps.EdgeInsets
 import com.rnmapbox.rnmbx.components.AbstractMapFeature
 import com.rnmapbox.rnmbx.components.RemovalReason
 import com.rnmapbox.rnmbx.components.mapview.RNMBXMapView
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.hypot
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.sin
+
+internal data class MapCameraCenter(val latitude: Double, val longitude: Double)
+
+private const val CAMERA_CENTER_HALF_LIFE_MS = 90.0
+private const val CAMERA_BEARING_HALF_LIFE_MS = 90.0
+private const val CAMERA_BEARING_DEADBAND_DEG = 0.25
+private const val CAMERA_MOVING_MAX_ERROR_M = 0.75
+private const val CAMERA_STOPPED_MAX_ERROR_M = 0.25
+private const val CAMERA_MOVING_SPEED_MPS = 0.83
+
+internal fun mapCameraDistanceMeters(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Double {
+  val meanLat = (aLat + bLat) * 0.5 * PI / 180.0
+  val north = (bLat - aLat) * 111_320.0
+  val east = (bLng - aLng) * 111_320.0 * max(0.15, cos(meanLat))
+  return hypot(north, east)
+}
+
+internal fun mapCameraAdvanceCenter(
+  currentLat: Double,
+  currentLng: Double,
+  targetLat: Double,
+  targetLng: Double,
+  targetHeading: Double,
+  speedMps: Double,
+  dtMs: Double,
+  clampTrackingError: Boolean = true,
+): MapCameraCenter {
+  if (!currentLat.isFinite() || !currentLng.isFinite()) return MapCameraCenter(targetLat, targetLng)
+  val frameSeconds = dtMs.coerceIn(1.0, 50.0) / 1_000.0
+  val predictedDistanceM = speedMps.coerceAtLeast(0.0) * frameSeconds
+  val headingRad = mapCameraNormalizeHeading(targetHeading) * PI / 180.0
+  val predictedLat = targetLat + cos(headingRad) * predictedDistanceM / 111_320.0
+  val lngScale = 111_320.0 * max(0.15, cos(targetLat * PI / 180.0))
+  val predictedLng = targetLng + sin(headingRad) * predictedDistanceM / lngScale
+  val alpha = 1.0 - exp(-ln(2.0) * dtMs.coerceIn(1.0, 50.0) / CAMERA_CENTER_HALF_LIFE_MS)
+  var nextLat = currentLat + (predictedLat - currentLat) * alpha
+  var nextLng = currentLng + (predictedLng - currentLng) * alpha
+  if (clampTrackingError) {
+    val maxErrorM = if (speedMps >= CAMERA_MOVING_SPEED_MPS) CAMERA_MOVING_MAX_ERROR_M else CAMERA_STOPPED_MAX_ERROR_M
+    val remainingM = mapCameraDistanceMeters(nextLat, nextLng, targetLat, targetLng)
+    if (remainingM > maxErrorM) {
+      val correction = (remainingM - maxErrorM) / remainingM
+      nextLat += (targetLat - nextLat) * correction
+      nextLng += (targetLng - nextLng) * correction
+    }
+  }
+  return MapCameraCenter(nextLat, nextLng)
+}
+
+internal fun mapCameraAdvanceBearing(current: Double, target: Double, dtMs: Double): Double {
+  val delta = mapCameraShortestHeadingDelta(current, target)
+  if (abs(delta) <= CAMERA_BEARING_DEADBAND_DEG) return mapCameraNormalizeHeading(current)
+  val alpha = 1.0 - exp(-ln(2.0) * dtMs.coerceIn(1.0, 50.0) / CAMERA_BEARING_HALF_LIFE_MS)
+  return mapCameraNormalizeHeading(current + delta * alpha)
+}
 
 internal fun mapCameraDpToPx(dp: Double, density: Double): Double =
   dp.coerceAtLeast(0.0) * density.coerceAtLeast(0.0)
@@ -65,6 +127,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var targetLongitude = 0.0
   private var targetHeading = 0.0
   private var targetMarkerHeading = 0.0
+  private var targetSpeedMps = 0.0
   private var segmentDurationMs = DEFAULT_SEGMENT_MS
   private var zoom = 18.0
   private var pitch = 58.0
@@ -76,6 +139,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var framePosted = false
   private var framingInitialized = false
   private var poseInitialized = false
+  private var cameraReentry = false
   private var displayedLatitude = Double.NaN
   private var displayedLongitude = Double.NaN
   private var displayedHeading = 0.0
@@ -97,6 +161,8 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   fun setFollowerEnabled(value: Boolean) {
     if (value && !enabled) {
       framingInitialized = false
+      poseInitialized = false
+      cameraReentry = true
       lastFrameNanos = 0L
       dirty = true
     }
@@ -136,6 +202,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   fun setLongitude(value: Double) = updateTarget { targetLongitude = value }
   fun setHeading(value: Double) = updateTarget { targetHeading = value }
   fun setMarkerHeading(value: Double) = updateTarget { targetMarkerHeading = value }
+  fun setSpeedMps(value: Double) = updateTarget { targetSpeedMps = value.coerceAtLeast(0.0) }
   fun setSegmentDurationMs(value: Double) {
     segmentDurationMs = value.coerceIn(MIN_SEGMENT_MS, MAX_SEGMENT_MS)
     dirty = true
@@ -198,7 +265,10 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       || kotlin.math.abs(displayedPaddingRight - paddingRight) > 0.25
   )
 
-  private fun hasPendingWork(): Boolean = hasPendingFraming()
+  private fun hasPendingWork(): Boolean = hasPendingFraming() || (enabled && poseInitialized && (
+    mapCameraDistanceMeters(displayedLatitude, displayedLongitude, targetLatitude, targetLongitude) > 0.01
+      || abs(mapCameraShortestHeadingDelta(displayedHeading, targetHeading)) > CAMERA_BEARING_DEADBAND_DEG
+  ))
 
   private fun applyLatestPose(frameTimeNanos: Long) {
     if (!positionValid || !targetLatitude.isFinite() || !targetLongitude.isFinite() || !targetHeading.isFinite() || !targetMarkerHeading.isFinite() || !zoom.isFinite()) {
@@ -216,8 +286,6 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
     } else 16.0
     lastFrameNanos = frameTimeNanos
 
-    advanceDisplayedPose(dtMs)
-
     if (enabled && !framingInitialized) {
       val camera = mapboxMap.cameraState
       displayedZoom = camera.zoom
@@ -229,11 +297,27 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       framingInitialized = true
     }
 
+    if (!poseInitialized) {
+      if (enabled) {
+        val camera = mapboxMap.cameraState
+        displayedLatitude = camera.center.latitude()
+        displayedLongitude = camera.center.longitude()
+        displayedHeading = mapCameraNormalizeHeading(camera.bearing)
+      } else {
+        displayedLatitude = targetLatitude
+        displayedLongitude = targetLongitude
+        displayedHeading = mapCameraNormalizeHeading(targetHeading)
+      }
+      poseInitialized = true
+    }
+    advanceDisplayedPose(dtMs)
+
     dirty = false
     val cameraWorldHeading = mapCameraNormalizeHeading(displayedHeading)
     val markerWorldHeading = mapCameraNormalizeHeading(targetMarkerHeading)
     ensureArrowImage(mapboxMap)
 
+    var appliedCameraBearing = mapCameraNormalizeHeading(mapboxMap.cameraState.bearing)
     if (enabled && cameraMode != "free") {
       val alpha = 1.0 - exp(-dtMs / 120.0)
       displayedZoom += (zoom - displayedZoom) * alpha
@@ -251,18 +335,30 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
           .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
           .build(),
       )
+      appliedCameraBearing = if (cameraMode == "northUp") 0.0 else cameraWorldHeading
     }
 
-    val cameraBearing = mapCameraNormalizeHeading(mapboxMap.cameraState.bearing)
-    val screenHeading = mapCameraScreenHeading(markerWorldHeading, cameraBearing)
-    updateMarkerSource(mapboxMap, displayedLatitude, displayedLongitude, markerWorldHeading, screenHeading)
+    val screenHeading = mapCameraScreenHeading(markerWorldHeading, appliedCameraBearing)
+    updateMarkerSource(mapboxMap, targetLatitude, targetLongitude, markerWorldHeading, screenHeading)
   }
 
-  private fun advanceDisplayedPose(@Suppress("UNUSED_PARAMETER") dtMs: Double) {
-    displayedLatitude = targetLatitude
-    displayedLongitude = targetLongitude
-    displayedHeading = mapCameraNormalizeHeading(targetHeading)
-    poseInitialized = true
+  private fun advanceDisplayedPose(dtMs: Double) {
+    val center = mapCameraAdvanceCenter(
+      displayedLatitude,
+      displayedLongitude,
+      targetLatitude,
+      targetLongitude,
+      targetHeading,
+      targetSpeedMps,
+      dtMs,
+      clampTrackingError = !cameraReentry,
+    )
+    displayedLatitude = center.latitude
+    displayedLongitude = center.longitude
+    displayedHeading = mapCameraAdvanceBearing(displayedHeading, targetHeading, dtMs)
+    if (cameraReentry && mapCameraDistanceMeters(displayedLatitude, displayedLongitude, targetLatitude, targetLongitude) <= CAMERA_MOVING_MAX_ERROR_M) {
+      cameraReentry = false
+    }
   }
 
   private fun updateMarkerSource(

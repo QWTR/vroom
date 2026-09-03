@@ -18,4 +18,4 @@ jobs:
     type: build
     params:
       platform: ios
-      profile: development-simulator
+      profile: simulator

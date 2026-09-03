@@ -7,8 +7,8 @@ import {
 } from '../../hooks/liveFleetSpatialIndex';
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
-import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 import { MAP_LIVE_MIN_ZOOM } from '../../lib/mapViewport';
+import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 
 type Props = {
   store: LiveMapStore;

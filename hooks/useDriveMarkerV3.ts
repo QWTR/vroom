@@ -9,14 +9,16 @@ import { NAV_V3 } from '../lib/navigationV3/config';
 import type { ArcWindowSlice, NavigationTarget, PathMode } from '../lib/navigationV3/types';
 import { TRIP_MOTION } from '../lib/navigationV3/motionContract';
 import { shouldHoldTransientOffRoadPose } from '../lib/navigationV3/roadPoseRetention';
+import {
+  exactRoadSegmentHeading,
+  roadHeadingDeltaAbs,
+  shouldAcceptArcGeometryTransition,
+} from '../lib/navigationV3/markerRoadGeometry';
 
 const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
-const POLYLINE_KEY_HARD_SNAP_M = TRIP_MOTION.hardSnapDistanceM;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
 const BOOTSTRAP_HEADING_LOOKAHEAD_M = 3;
-const MARKER_ROAD_HEADING_HALF_LIFE_MS = 80;
-const MARKER_ROAD_HEADING_MAX_DPS = 720;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -69,6 +71,7 @@ export function coldStartNavigationTarget(
     targetArcM: null,
     arcWindow: null,
     polylineKey: null,
+    geometryRevision: null,
     allowInstant: true,
   };
 }
@@ -95,11 +98,13 @@ function safeCoordJs(v: unknown, fallback: number): number {
 function packArcWindowFeed(
   window: ArcWindowSlice | null | undefined,
   polylineKey: string,
+  geometryRevision: string | null | undefined,
 ): {
   ptsFlat: number[];
   cumM: number[];
   baseArcM: number;
   polylineKey: string;
+  geometryRevision: string;
 } | null {
   if (!window || window.points.length < 2 || window.cumM.length < 2) return null;
   const ptsFlat: number[] = [];
@@ -114,6 +119,7 @@ function packArcWindowFeed(
     cumM: window.cumM.slice(),
     baseArcM: window.baseArcM,
     polylineKey,
+    geometryRevision: geometryRevision || window.geometryRevision || polylineKey,
   };
 }
 
@@ -372,6 +378,44 @@ function tangentHeadingFromDisplayWorklet(
   return bearingBetweenWorklet(behind.lat, behind.lng, ahead.lat, ahead.lng);
 }
 
+/**
+ * Exact tangent of the segment occupied by the rendered marker. A tiny probe
+ * resolves vertices deterministically without averaging the two sides of a
+ * bend, which otherwise makes the arrow cut across the road.
+ */
+function exactRoadSegmentHeadingWorklet(
+  ptsFlat: number[],
+  cum: number[],
+  localM: number,
+  travelDirection: number,
+  fallbackHdg: number,
+): number {
+  'worklet';
+  const count = cum.length;
+  if (count < 2 || ptsFlat.length < count * 2) {
+    return safeHeadingWorklet(fallbackHdg, 0);
+  }
+  const total = cum[count - 1];
+  const direction = travelDirection < 0 ? -1 : 1;
+  const probeM = clampWorklet(localM + direction * 0.02, 0, total);
+  let segment = 0;
+  if (direction > 0) {
+    while (segment < count - 2 && cum[segment + 1] <= probeM) segment += 1;
+  } else {
+    segment = count - 2;
+    while (segment > 0 && cum[segment] >= probeM) segment -= 1;
+  }
+  const aLat = ptsFlat[segment * 2];
+  const aLng = ptsFlat[segment * 2 + 1];
+  const bLat = ptsFlat[(segment + 1) * 2];
+  const bLng = ptsFlat[(segment + 1) * 2 + 1];
+  if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) {
+    return safeHeadingWorklet(fallbackHdg, 0);
+  }
+  const forward = bearingBetweenWorklet(aLat, aLng, bLat, bLng);
+  return normalizeHeadingW(direction > 0 ? forward : forward + 180);
+}
+
 function stepHeadingSmoothWorklet(
   cur: number,
   target: number,
@@ -524,6 +568,7 @@ export function useDriveMarkerV3(
   const roadPtsFlat = useSharedValue<number[]>([]);
   const roadCumM = useSharedValue<number[]>([]);
   const polylineKeySv = useSharedValue('');
+  const geometryRevisionSv = useSharedValue('');
   const onRoadSv = useSharedValue(0);
   const roadBlendSv = useSharedValue(0);
   /** Rendered velocity consumed by camera/HUD. */
@@ -673,6 +718,13 @@ export function useDriveMarkerV3(
       if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
         lat.value = roadPose.lat;
         lng.value = roadPose.lng;
+        markerRoadHeading.value = exactRoadSegmentHeadingWorklet(
+          roadPtsFlat.value,
+          roadCumM.value,
+          localM,
+          direction,
+          Number.isFinite(markerRoadHeading.value) ? markerRoadHeading.value : targetHdg.value,
+        );
         if (motion.speedMs >= TRIP_MOTION.stoppedSpeedMs) {
           const refHdg = Number.isFinite(heading.value) ? heading.value : targetHdg.value;
           const tangentHdg = tangentHeadingFromDisplayWorklet(
@@ -683,35 +735,12 @@ export function useDriveMarkerV3(
             direction,
             refHdg,
           );
-          markerRoadHeading.value = stepHeadingSmoothWorklet(
-            Number.isFinite(markerRoadHeading.value) ? markerRoadHeading.value : refHdg,
-            tangentHdg,
-            dtSec,
-            MARKER_ROAD_HEADING_HALF_LIFE_MS,
-            MARKER_ROAD_HEADING_MAX_DPS,
-          );
           heading.value = stepHeadingSmoothWorklet(
             refHdg,
             tangentHdg,
             dtSec,
             TRIP_MOTION.onRoadHeadingHalfLifeMs,
             TRIP_MOTION.onRoadHeadingMaxDps,
-          );
-        } else {
-          const tangentHdg = tangentHeadingFromDisplayWorklet(
-            roadPtsFlat.value,
-            roadCumM.value,
-            localM,
-            0,
-            direction,
-            markerRoadHeading.value,
-          );
-          markerRoadHeading.value = stepHeadingSmoothWorklet(
-            markerRoadHeading.value,
-            tangentHdg,
-            dtSec,
-            MARKER_ROAD_HEADING_HALF_LIFE_MS,
-            MARKER_ROAD_HEADING_MAX_DPS,
           );
         }
       }
@@ -847,7 +876,11 @@ export function useDriveMarkerV3(
     }
 
     const arcFeed = onRoad && target.arcWindow && target.polylineKey
-      ? packArcWindowFeed(target.arcWindow, target.polylineKey)
+      ? packArcWindowFeed(
+        target.arcWindow,
+        target.polylineKey,
+        target.geometryRevision ?? target.arcWindow.geometryRevision,
+      )
       : null;
     const useArc = onRoad
       && arcFeed != null
@@ -885,6 +918,7 @@ export function useDriveMarkerV3(
         roadCumM.value = arcFeed.cumM;
         baseArcM.value = arcFeed.baseArcM;
         polylineKeySv.value = arcFeed.polylineKey;
+        geometryRevisionSv.value = arcFeed.geometryRevision;
         const arcM = target.targetArcM as number;
         travelDirectionSv.value = travelDirectionForArcJs(
           arcFeed.ptsFlat,
@@ -922,8 +956,16 @@ export function useDriveMarkerV3(
           rawLat,
           rawLng,
         );
+        markerRoadHeading.value = exactRoadSegmentHeading(
+          target.arcWindow!.points,
+          arcFeed.cumM,
+          localM,
+          travelDirectionSv.value,
+          instantHdg,
+        );
       } else {
         onRoadSv.value = 0;
+        geometryRevisionSv.value = '';
         applyInstantPose(target.lat, target.lng, tgtHdg, 0, false, visualBlend, target.rawLat, target.rawLng);
       }
       return;
@@ -931,41 +973,85 @@ export function useDriveMarkerV3(
 
     if (useArc && arcFeed) {
       const key = arcFeed.polylineKey;
-      const keyChanged = key.length > 0 && key !== polylineKeySv.value;
-      const directionUninitialized = polylineKeySv.value.length === 0;
-      roadPtsFlat.value = arcFeed.ptsFlat;
-      roadCumM.value = arcFeed.cumM;
-      baseArcM.value = arcFeed.baseArcM;
-      polylineKeySv.value = key;
-      onRoadSv.value = 1;
+      const revision = arcFeed.geometryRevision;
+      const hasCurrentGeometry = polylineKeySv.value.length > 0
+        && geometryRevisionSv.value.length > 0
+        && roadPtsFlat.value.length >= 4;
+      const geometryChanged = hasCurrentGeometry
+        && (key !== polylineKeySv.value || revision !== geometryRevisionSv.value);
+      const directionUninitialized = !hasCurrentGeometry;
       const incomingArcM = target.targetArcM as number;
-      // Resolve polyline orientation once. Refreshed arc windows keep the same
-      // travel direction, preventing a noisy heading from producing a 180° flip.
-      const nextDirection = directionUninitialized
-        ? travelDirectionForArcJs(
-          arcFeed.ptsFlat,
-          arcFeed.cumM,
-          arcFeed.baseArcM,
-          incomingArcM,
-          tgtHdg,
-        )
-        : travelDirectionSv.value < 0 ? -1 : 1;
-      travelDirectionSv.value = nextDirection;
-      const previousArcM = targetArcM.value;
-      if (keyChanged) {
-        // Arc windows are refreshed while navigating. Reproject the current
-        // rendered pose before calculating the new monotonic target.
-        const continuity = projectPointToWindowArcJs(
+
+      // A new arc has its own coordinate system. Project the currently rendered
+      // marker first; never carry displayArcM numerically between geometries.
+      const continuity = geometryChanged
+        ? projectPointToWindowArcJs(
           lat.value,
           lng.value,
           arcFeed.ptsFlat,
           arcFeed.cumM,
           arcFeed.baseArcM,
+        )
+        : null;
+      const transitionArcM = continuity?.arcM ?? incomingArcM;
+      const inferredDirection = travelDirectionForArcJs(
+        arcFeed.ptsFlat,
+        arcFeed.cumM,
+        arcFeed.baseArcM,
+        transitionArcM,
+        tgtHdg,
+      );
+      const candidateRoadHeading = exactRoadSegmentHeading(
+        target.arcWindow!.points,
+        arcFeed.cumM,
+        transitionArcM - arcFeed.baseArcM,
+        inferredDirection,
+        tgtHdg,
+      );
+      if (geometryChanged && !shouldAcceptArcGeometryTransition({
+        hasCurrentGeometry,
+        allowInstant,
+        projectionDistanceM: continuity?.distanceM ?? null,
+        candidateHeadingDeg: candidateRoadHeading,
+        travelHeadingDeg: tgtHdg,
+      })) {
+        // Keep following the last accepted road. The incoming fix may still be
+        // a valid GPS sample, but it cannot redefine the marker's arc system.
+        return;
+      }
+
+      let nextDirection = directionUninitialized || geometryChanged
+        ? inferredDirection
+        : travelDirectionSv.value < 0 ? -1 : 1;
+      if (!directionUninitialized && !geometryChanged && inferredDirection !== nextDirection) {
+        const currentDirectionHeading = exactRoadSegmentHeading(
+          target.arcWindow!.points,
+          arcFeed.cumM,
+          incomingArcM - arcFeed.baseArcM,
+          nextDirection,
+          tgtHdg,
         );
-        if (continuity && continuity.distanceM <= POLYLINE_KEY_HARD_SNAP_M) {
-          cancelAnimation(displayArcM);
-          displayArcM.value = continuity.arcM;
+        // Repair a persisted reversed orientation only with strong evidence;
+        // ordinary GPS heading noise must not flip the marker by 180 degrees.
+        if (
+          roadHeadingDeltaAbs(currentDirectionHeading, tgtHdg) > 120
+          && roadHeadingDeltaAbs(candidateRoadHeading, tgtHdg) < 60
+        ) {
+          nextDirection = inferredDirection;
         }
+      }
+
+      roadPtsFlat.value = arcFeed.ptsFlat;
+      roadCumM.value = arcFeed.cumM;
+      baseArcM.value = arcFeed.baseArcM;
+      polylineKeySv.value = key;
+      geometryRevisionSv.value = revision;
+      onRoadSv.value = 1;
+      travelDirectionSv.value = nextDirection;
+      const previousArcM = targetArcM.value;
+      if (geometryChanged) {
+        cancelAnimation(displayArcM);
+        displayArcM.value = continuity?.arcM ?? incomingArcM;
       }
       const predictedArcM = incomingArcM + nextDirection * segmentLeadM;
       const renderedArcM = Number.isFinite(displayArcM.value)
@@ -974,7 +1060,7 @@ export function useDriveMarkerV3(
       const monotonicArcM = nextDirection > 0
         ? Math.max(predictedArcM, renderedArcM)
         : Math.min(predictedArcM, renderedArcM);
-      const arcM = keyChanged || !Number.isFinite(previousArcM)
+      const arcM = geometryChanged || !Number.isFinite(previousArcM)
         ? monotonicArcM
         : nextDirection > 0
           ? Math.max(monotonicArcM, previousArcM)
@@ -987,6 +1073,7 @@ export function useDriveMarkerV3(
       roadPtsFlat.value = [];
       roadCumM.value = [];
       polylineKeySv.value = '';
+      geometryRevisionSv.value = '';
       displayArcM.value = 0;
       targetArcM.value = 0;
       baseArcM.value = 0;
@@ -999,9 +1086,11 @@ export function useDriveMarkerV3(
     applyInstantPose,
     baseArcM,
     displayArcM,
+    geometryRevisionSv,
     heading,
     lat,
     lng,
+    markerRoadHeading,
     onRoadSv,
     polylineKeySv,
     rawTargetLat,
@@ -1040,6 +1129,7 @@ export function useDriveMarkerV3(
     roadPtsFlat.value = [];
     roadCumM.value = [];
     polylineKeySv.value = '';
+    geometryRevisionSv.value = '';
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
@@ -1087,6 +1177,7 @@ export function useDriveMarkerV3(
     baseArcM,
     bootstrapped,
     displayArcM,
+    geometryRevisionSv,
     heading,
     lat,
     lng,
@@ -1137,6 +1228,7 @@ export function useDriveMarkerV3(
     roadPtsFlat.value = [];
     roadCumM.value = [];
     polylineKeySv.value = '';
+    geometryRevisionSv.value = '';
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
@@ -1144,6 +1236,7 @@ export function useDriveMarkerV3(
     applyInstantPose,
     baseArcM,
     displayArcM,
+    geometryRevisionSv,
     onRoadSv,
     polylineKeySv,
     roadCumM,
@@ -1221,11 +1314,12 @@ export function useDriveMarkerV3(
     roadPtsFlat.value = [];
     roadCumM.value = [];
     polylineKeySv.value = '';
+    geometryRevisionSv.value = '';
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
     frameCallback.setActive(true);
-  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
+  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, geometryRevisionSv, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
 
   return useMemo(
     () => ({
@@ -1261,6 +1355,7 @@ export function snapResultToNavigationTarget(
     arcM: number | null;
     arcWindow: ArcWindowSlice | null;
     polylineKey: string | null;
+    geometryRevision?: string | null;
   },
   speedMs: number,
   allowInstant = false,
@@ -1277,6 +1372,7 @@ export function snapResultToNavigationTarget(
     targetArcM: snap.arcM,
     arcWindow: snap.arcWindow,
     polylineKey: snap.polylineKey,
+    geometryRevision: snap.geometryRevision ?? snap.arcWindow?.geometryRevision ?? null,
     allowInstant,
   };
 }

@@ -105,4 +105,28 @@ describe('auth session expiry', () => {
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
   });
+
+  it('ends a visually active session rejected because email is not verified', async () => {
+    mocks.storage.set('userToken', 'unverified-token');
+    mocks.storage.set('token', 'unverified-token');
+    mocks.storage.set('user', '{"id":9}');
+    const listener = vi.fn();
+    const unsubscribe = subscribeToSessionExpired(listener);
+    const authFetch = createAuthSessionAwareFetch(
+      vi.fn(async () => new Response(JSON.stringify({ code: 'EMAIL_NOT_VERIFIED' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch,
+    );
+
+    const response = await authFetch('https://api.test/api/profile/ping', {
+      headers: { Authorization: 'Bearer unverified-token' },
+    });
+
+    expect(response.status).toBe(403);
+    expect(mocks.storage.has('userToken')).toBe(false);
+    expect(mocks.storage.has('token')).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
 });

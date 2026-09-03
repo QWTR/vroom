@@ -140,7 +140,7 @@ function buildSnapArcWindow(
   arc: ReturnType<typeof buildPolylineArc>,
   arcM: number,
   speedMs: number,
-): ArcWindowSlice | null {
+): Omit<ArcWindowSlice, 'geometryRevision'> | null {
   if (!arc || dense.length < 2 || arc.totalM <= 0) return null;
 
   // Navigation GPS can arrive every few seconds. Keep enough geometry behind
@@ -288,9 +288,32 @@ function buildCumM(points: { lat: number; lng: number }[]): number[] {
   return cumM;
 }
 
+export function polylineGeometryRevision(points: { lat: number; lng: number }[]): string {
+  // FNV-1a over quantized coordinates. It is deterministic, cheap and changes
+  // whenever an arc coordinate frame is replaced or trimmed.
+  let hash = 0x811c9dc5;
+  const mix = (value: number) => {
+    const text = Math.round(value * 1e6).toString(36);
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+  };
+  for (const point of points) {
+    mix(point.lat);
+    mix(point.lng);
+  }
+  return `${points.length}:${(hash >>> 0).toString(36)}`;
+}
+
 function packRoadPolyline(key: string, points: { lat: number; lng: number }[]): RoadPolyline | null {
   if (points.length < 2) return null;
-  return { key, points, cumM: buildCumM(points) };
+  return {
+    key,
+    geometryRevision: polylineGeometryRevision(points),
+    points,
+    cumM: buildCumM(points),
+  };
 }
 
 type PreparedPolyline = {
@@ -322,6 +345,7 @@ function preparePolyline(polyline: RoadPolyline): PreparedPolyline | null {
 
 type PolylineProjection = {
   polylineKey: string;
+  geometryRevision: string;
   lat: number;
   lng: number;
   headingDeg: number;
@@ -369,6 +393,7 @@ function projectOnPolyline(
 
   const arcWindow: ArcWindowSlice | null = windowRaw
     ? {
+      geometryRevision: polyline.geometryRevision,
       points: windowRaw.points,
       cumM: windowRaw.cumM,
       baseArcM: windowRaw.baseArcM,
@@ -378,6 +403,7 @@ function projectOnPolyline(
 
   return {
     polylineKey: polyline.key,
+    geometryRevision: polyline.geometryRevision,
     lat: proj.lat,
     lng: proj.lng,
     headingDeg: proj.heading,
@@ -442,6 +468,7 @@ function scoreGlobalProjection(
     bestScore = score;
     best = {
       polylineKey: polyline.key,
+      geometryRevision: polyline.geometryRevision,
       lat: proj.lat,
       lng: proj.lng,
       headingDeg: proj.heading,
@@ -456,6 +483,7 @@ function scoreGlobalProjection(
     const windowRaw = buildSnapArcWindow(dense, arc, best.arcM, Math.max(0, speedMs));
     if (windowRaw) {
       best.arcWindow = {
+        geometryRevision: polyline.geometryRevision,
         points: windowRaw.points,
         cumM: windowRaw.cumM,
         baseArcM: windowRaw.baseArcM,
@@ -614,6 +642,7 @@ function findBestProjection(
         return {
           projection: {
             polylineKey: nextState.lastPolylineKey,
+            geometryRevision: '',
             lat: prev.lat,
             lng: prev.lng,
             headingDeg: nextState.lastSegmentHeadingDeg,
@@ -683,6 +712,7 @@ function buildOffRoadStickyResult(
         segmentIndex: state.lastSegmentIndex,
         arcM: null,
         polylineKey: null,
+        geometryRevision: null,
         arcWindow: null,
       },
       state: nextState,
@@ -729,6 +759,7 @@ function buildOffRoadStickyResult(
       segmentIndex: state.lastSegmentIndex,
       arcM: null,
       polylineKey: onRoad ? state.lastPolylineKey || null : null,
+      geometryRevision: null,
       arcWindow: null,
     },
     state: nextState,
@@ -850,6 +881,7 @@ export function resolveSnap(
       segmentIndex: projection.segmentIndex,
       arcM: projection.arcM,
       polylineKey: projection.polylineKey,
+      geometryRevision: projection.geometryRevision,
       arcWindow: projection.arcWindow,
       intersectionTurnDetected,
     },

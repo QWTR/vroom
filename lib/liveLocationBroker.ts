@@ -48,11 +48,11 @@ function significant(packet: LiveLocationPacket, force: boolean): boolean {
   if (force || !lastAccepted) return true;
   if (packet.shareLocation !== undefined && packet.shareLocation !== lastAccepted.shareLocation) return true;
   if (packet.shareLocation === false && packet.lat == null) return false;
-  if (packet.fixId && packet.fixId === lastAccepted.fixId) return false;
   const now = Date.now();
   const tier = motionTier(packet.speedMps);
-  const heartbeatMs = tier === 'moving' ? 20_000 : 45_000;
+  const heartbeatMs = tier === 'moving' ? 20_000 : 25_000;
   if (now - lastAccepted.sentAt >= heartbeatMs) return true;
+  if (packet.fixId && packet.fixId === lastAccepted.fixId) return false;
   const minimumDistance = tier === 'moving' ? 12 : 25;
   if (distanceMeters(lastAccepted, packet) >= minimumDistance) return true;
   if (motionTier(lastAccepted.speedMps) !== tier) return true;

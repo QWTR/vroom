@@ -1,4 +1,8 @@
-import { makeRoadPolyline, type RoadPolyline } from '../navigationV3';
+import {
+  makeRoadPolyline,
+  polylineGeometryRevision,
+  type RoadPolyline,
+} from '../navigationV3';
 
 export type V3GeometryResult = {
   roadPolylines: RoadPolyline[];
@@ -45,8 +49,11 @@ export function buildV3GeometryFromRefs(input: {
   // Prefer the local/visible road mirror first. It is closest to the rendered
   // OSM road and prevents stale map-match geometry from locking the marker onto
   // a parallel/offscreen road.
-  for (let i = 0; i < input.mirrorPolylines.length; i += 1) {
-    addPolyline(`mirror_${i}`, input.mirrorPolylines[i]!);
+  for (const points of input.mirrorPolylines) {
+    const normalized = points.map((point) => ({ lat: point.latitude, lng: point.longitude }));
+    // Never use array order as road identity. Mirror ordering changes whenever
+    // the visible geometry cache refreshes and used to look like a branch jump.
+    addPolyline(`mirror:${polylineGeometryRevision(normalized)}`, points);
   }
   // During navigation this ref can still contain the old route geometry.
   // Never feed it back as a generic road candidate after an off-route turn.
