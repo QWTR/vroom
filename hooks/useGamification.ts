@@ -6,6 +6,7 @@ import { queryClient } from '../lib/query/client';
 import {
   ackGamificationReward,
   claimGeoDrop,
+  isIdempotentGeoDropClaim,
   fetchDropStatus,
   fetchNearbyDrops,
   fetchPendingGamificationRewards,
@@ -327,6 +328,15 @@ export function useGamification() {
 
       const result = await claimGeoDrop(dropId, ping);
       if (result.ok) {
+        // The server returns a successful idempotent replay for an already
+        // collected drop. Clean up stale map state without showing the chest a
+        // second time.
+        if (isIdempotentGeoDropClaim(result)) {
+          purgeDrop(dropId);
+          claimingDropIdsRef.current.delete(dropId);
+          void pollPendingRewards(true);
+          return;
+        }
         presentDropClaimSuccess(dropId, {
           nitroGranted: result.nitroGranted,
           rarity: result.rarity,

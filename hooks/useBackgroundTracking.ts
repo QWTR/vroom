@@ -10,7 +10,6 @@ import { haversineKm } from '../scripts/navigationUtils';
 import { syncProfileStatsFromServer, applyOptimisticProfileDistanceKm } from '../lib/profileStatsSync';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 import {
-  startVroomBgForegroundNotification,
   stopVroomBgForegroundNotification,
 } from '../lib/vroomBgForegroundService';
 import { BackgroundDriveController, resolveNativeDistanceOwnership } from '../lib/backgroundDriveController';
@@ -28,6 +27,7 @@ import {
   markLedgerFinalizationPending,
   mergeForegroundLedgerSnapshot,
   mergeNativeLedgerSnapshot,
+  selectTripRouteForFinalization,
   resolveTripSessionIdentity,
   saveTripSessionLedger,
   shouldSnapshotLedger,
@@ -930,11 +930,14 @@ async function finalizeTripSessionOnce(
   const emergencyRoute = matchingEmergency
     ? compactTripRoute(matchingEmergency.trackedPoints ?? [])
     : [];
-  const selectedRoute = foregroundRoute.length >= 2
-    ? foregroundRoute
-    : nativeRoute.length >= 2
-      ? nativeRoute
-      : emergencyRoute;
+  // The native service spans the whole drive, including the time when React
+  // Native is suspended. A foreground trace can have points on both sides of a
+  // background gap, so it must only be a fallback here.
+  const selectedRoute = selectTripRouteForFinalization({
+    nativeRoute,
+    foregroundRoute,
+    emergencyRoute,
+  });
   const seed = previous?.tripSessionId === effectiveSessionId
     ? { ...previous, routePoints: [] }
     : createTripSessionLedger({ tripSessionId: effectiveSessionId, startedAt: session.startedAt, mode: input.mode });
@@ -1955,9 +1958,12 @@ export function useBackgroundTracking(
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
 
-      const { status: fg } = await Location.requestForegroundPermissionsAsync();
+      // Lifecycle/background transitions must never launch a permission UI.
+      // On Android 11+ requesting background access can open system settings
+      // and pull focus away from the app the driver just selected.
+      const { status: fg } = await Location.getForegroundPermissionsAsync();
       if (fg !== 'granted') return;
-      const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+      const { status: bg } = await Location.getBackgroundPermissionsAsync();
       if (bg !== 'granted') return;
       const [navFlag, stationaryFlag, driveFlag] = await Promise.all([
         AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
@@ -2158,9 +2164,11 @@ export function useBackgroundTracking(
       if (s === 'inactive' || s === 'background') {
         if (s === 'background') void flushTracePendingKmToStorage();
         persistAppActive(false);
-        if (forceEnabledRef.current && bgEnabledRef.current) {
+        // `inactive` is often only a transient system overlay/notification
+        // shade. Start/reconcile tracking after the real background event.
+        if (s === 'background' && forceEnabledRef.current && bgEnabledRef.current) {
           void startBackgroundTracking();
-        } else if (!bgEnabled) {
+        } else if (s === 'background' && !bgEnabled) {
           stopBackgroundTracking();
         }
       }

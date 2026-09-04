@@ -6,6 +6,7 @@ import {
   mergeNativeLedgerSnapshot,
   compactTripRoute,
   resolveTripSessionIdentity,
+  selectTripRouteForFinalization,
   shouldSnapshotLedger,
 } from './tripSessionLedger';
 
@@ -23,12 +24,39 @@ describe('trip session ledger', () => {
       mode: 'navigation',
       distanceKm: 30,
       checkpointKm: 30,
-      routePoints: [{ latitude: 52.01, longitude: 21.01 }, { latitude: 52.02, longitude: 21.02 }],
+      routePoints: [
+        { latitude: 52, longitude: 21 },
+        { latitude: 52.01, longitude: 21.01 },
+        { latitude: 52.02, longitude: 21.02 },
+      ],
     });
 
     expect(resumed.distanceKm).toBe(30);
     expect(resumed.checkpointKm).toBe(30);
     expect(resumed.routePoints).toHaveLength(3);
+  });
+
+  it('replaces repeated full native snapshots instead of appending loops', () => {
+    const first = mergeNativeLedgerSnapshot(null, {
+      tripSessionId: 'trip_native_route',
+      distanceKm: 1,
+      routePoints: [{ latitude: 52, longitude: 21 }, { latitude: 52.01, longitude: 21.01 }],
+    });
+    const second = mergeNativeLedgerSnapshot(first, {
+      tripSessionId: 'trip_native_route',
+      distanceKm: 2,
+      routePoints: [
+        { latitude: 52, longitude: 21 },
+        { latitude: 52.01, longitude: 21.01 },
+        { latitude: 52.02, longitude: 21.02 },
+      ],
+    });
+
+    expect(second.routePoints).toEqual([
+      { latitude: 52, longitude: 21 },
+      { latitude: 52.01, longitude: 21.01 },
+      { latitude: 52.02, longitude: 21.02 },
+    ]);
   });
 
   it('keeps one session across navigation and Free Drive', () => {
@@ -112,5 +140,21 @@ describe('trip session ledger', () => {
     expect(compacted.length).toBeLessThanOrEqual(1_500);
     expect(compacted[0]).toEqual(route[0]);
     expect(compacted.at(-1)).toEqual(route.at(-1));
+  });
+
+  it('uses the continuous native route when the app was minimized', () => {
+    const foregroundRoute = [
+      { latitude: 52, longitude: 21 },
+      { latitude: 52.3, longitude: 21.3 },
+    ];
+    const nativeRoute = [
+      { latitude: 52, longitude: 21 },
+      { latitude: 52.1, longitude: 21.05 },
+      { latitude: 52.2, longitude: 21.15 },
+      { latitude: 52.3, longitude: 21.3 },
+    ];
+
+    expect(selectTripRouteForFinalization({ foregroundRoute, nativeRoute }))
+      .toEqual(nativeRoute);
   });
 });

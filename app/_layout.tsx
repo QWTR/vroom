@@ -448,6 +448,10 @@ function RootLayoutInner() {
     if (lastNotifRouteRef.current?.key === navKey && now - lastNotifRouteRef.current.ts < 2500) return;
     lastNotifRouteRef.current = { key: navKey, ts: now };
     await markNotificationOpened(data);
+    if (String(data.type || '') === 'daily_duel_available') {
+      await queryClient.cancelQueries({ queryKey: ['daily-duel', 'card'], exact: true });
+      queryClient.removeQueries({ queryKey: ['daily-duel', 'card'], exact: true });
+    }
     const target = resolveNotificationUrl(data);
     if (target.split('?')[0] === '/notifications') allowNotificationCenterEntry();
     setTimeout(() => router.push(target as any), 250);

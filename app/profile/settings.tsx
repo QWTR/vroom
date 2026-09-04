@@ -46,7 +46,7 @@ import { BackgroundLocationDisclosureModal } from '../../components/privacy/Back
 import { NavigationVoiceSettingsModal } from '../../components/modals/NavigationVoiceSettingsModal';
 import { BACKGROUND_LOCATION_TASK, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
 import { BackgroundDriveController } from '../../lib/backgroundDriveController';
-import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
+import { stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
 import {
   hasAcceptedBackgroundLocationDisclosure,
   isBackgroundLocationEnablePending,
@@ -536,9 +536,6 @@ export default function SettingsScreen() {
             await mirrorBackgroundTrackingSetting(true);
             await setBackgroundLocationEnablePending(false);
             setBackgroundPermissionBlocked(false);
-            if (Platform.OS === 'android') {
-              await startVroomBgForegroundNotification();
-            }
             Toast.show({ type: 'success', text1: 'Praca w tle włączona' });
           }
         }
@@ -606,9 +603,6 @@ export default function SettingsScreen() {
     }
     await setBackgroundLocationEnablePending(false);
     await mirrorBackgroundTrackingSetting(true);
-    if (Platform.OS === 'android') {
-      await startVroomBgForegroundNotification();
-    }
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
@@ -664,9 +658,6 @@ export default function SettingsScreen() {
     }
     await setBackgroundLocationEnablePending(false);
     await mirrorBackgroundTrackingSetting(true);
-    if (Platform.OS === 'android') {
-      await startVroomBgForegroundNotification();
-    }
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 

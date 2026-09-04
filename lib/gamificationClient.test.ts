@@ -21,6 +21,7 @@ import {
   fetchCityTerritoryDetail,
   flushGamificationPingOutbox,
   ingestGamificationPing,
+  isIdempotentGeoDropClaim,
 } from './gamificationClient';
 import { clearAuthTokenMemory } from './api/authTokenMemory';
 
@@ -83,6 +84,14 @@ describe('gamification discovery ping outbox', () => {
     expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(8);
   });
 
+});
+
+describe('geo drop claim presentation', () => {
+  it('recognizes an idempotent replay so the reward modal is not shown twice', () => {
+    expect(isIdempotentGeoDropClaim({ ok: true, alreadyClaimed: true })).toBe(true);
+    expect(isIdempotentGeoDropClaim({ ok: true })).toBe(false);
+    expect(isIdempotentGeoDropClaim({ ok: false, alreadyClaimed: true })).toBe(false);
+  });
 });
 
 describe('own profile gamification summary', () => {

@@ -24,4 +24,20 @@ describe('Android native trip checkpoint contract', () => {
     expect(source).toContain('persistNativeStatsLastFix(prefs, location)');
     expect(source).toContain('KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION');
   });
+
+  it('keeps background route telemetry in the reusable native source', () => {
+    expect(source).toContain('route.put(routePointJson(last, "native"))');
+    expect(source).toContain('route.put(routePointJson(location, "native"))');
+    expect(source).toContain('.put("recordedAt", if (location.time > 0)');
+    expect(source).toContain('.put("source", source)');
+  });
+
+  it('does not keep an idle foreground service alive for the setting alone', () => {
+    expect(source).toContain('if (!active) {\n      // The background-work preference is not a drive.');
+    expect(source).toContain('return START_NOT_STICKY');
+    expect(source).toContain('if (!readState(context).optBoolean("active", false)) return');
+    expect(source).toContain('NotificationManager.IMPORTANCE_LOW');
+    expect(source).not.toContain('Notification.FOREGROUND_SERVICE_IMMEDIATE');
+    expect(source).not.toContain('PendingIntent.FLAG_MUTABLE');
+  });
 });

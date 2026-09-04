@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import Toast from 'react-native-toast-message';
 import type {
   DailyDuelCarSide,
@@ -43,6 +43,8 @@ export function useDailyDuel(pollMs = 30000, options: UseDailyDuelOptions = {}) 
     enabled,
     staleTime: 20_000,
     refetchInterval: enabled ? pollMs : false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
   });
   const historyQuery = useQuery({
     queryKey: dailyDuelKeys.history,
@@ -56,6 +58,18 @@ export function useDailyDuel(pollMs = 30000, options: UseDailyDuelOptions = {}) 
     enabled: enabled && includeSubmission,
     staleTime: 60_000,
   });
+
+  // The query cache is persisted between launches. Refresh immediately whenever
+  // this screen becomes visible or the app returns from the background so a
+  // duel from yesterday can never sit at 00:00:00 until a manual reload.
+  useEffect(() => {
+    if (!enabled) return;
+    void queryClient.refetchQueries({
+      queryKey: dailyDuelKeys.card,
+      exact: true,
+      type: 'active',
+    });
+  }, [enabled, queryClient]);
 
   const voteMutation = useMutation({
     networkMode: 'online',

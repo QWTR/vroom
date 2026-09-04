@@ -73,8 +73,14 @@ class VroomBgTrackingService : Service() {
     val auth = readCheckpointAuth(applicationContext)
     apiUrl = auth.first
     authToken = auth.second
-    startForeground(NOTIFICATION_ID, buildNotification(active))
-    if (active) startNativeLocationUpdates(trackingMode, tripSessionId)
+    if (!active) {
+      // The background-work preference is not a drive. Do not leave a sticky
+      // foreground service alive until an actual trip starts.
+      stopSelfSafely()
+      return START_NOT_STICKY
+    }
+    startForeground(NOTIFICATION_ID, buildNotification(true))
+    startNativeLocationUpdates(trackingMode, tripSessionId)
     return START_STICKY
   }
 
@@ -129,16 +135,11 @@ class VroomBgTrackingService : Service() {
     val launchIntent = Intent(this, MainActivity::class.java).apply {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }
-    val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      PendingIntent.FLAG_MUTABLE
-    } else {
-      0
-    }
     val contentIntent = PendingIntent.getActivity(
       this,
       0,
       launchIntent,
-      PendingIntent.FLAG_UPDATE_CURRENT or mutableFlag,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
     val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -176,10 +177,6 @@ class VroomBgTrackingService : Service() {
       .setOnlyAlertOnce(true)
       .setCategory(Notification.CATEGORY_SERVICE)
       .addAction(R.drawable.ic_bg_tracking_stat, "Zakończ", stopPending)
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
-    }
 
     return builder.build()
   }
@@ -304,7 +301,7 @@ class VroomBgTrackingService : Service() {
       channel = NotificationChannel(
         CHANNEL_ID,
         "Jazda Wiroom",
-        NotificationManager.IMPORTANCE_HIGH,
+        NotificationManager.IMPORTANCE_LOW,
       ).apply {
         description = "Aktywne sledzenie GPS podczas jazdy"
         lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -326,7 +323,7 @@ class VroomBgTrackingService : Service() {
     const val EXTRA_API_URL = "apiUrl"
     const val EXTRA_AUTH_TOKEN = "authToken"
     const val MODE_FREE_DRIVE = "freeDrive"
-    private const val CHANNEL_ID = "wiroom_active_drive_tracking_v2"
+    private const val CHANNEL_ID = "wiroom_active_drive_tracking_v3"
     private const val NOTIFICATION_ID = 481_756
     private const val PREFS = "vroom_bg_tracking"
     private const val KEY_STATE = "drive_state"
@@ -360,6 +357,7 @@ class VroomBgTrackingService : Service() {
     @Volatile private var nativeCheckpointInFlight = false
 
     fun start(context: Context) {
+      if (!readState(context).optBoolean("active", false)) return
       val intent = Intent(context, VroomBgTrackingService::class.java)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         context.startForegroundService(intent)
@@ -656,7 +654,7 @@ class VroomBgTrackingService : Service() {
             stats.put("distanceKm", stats.optDouble("distanceKm", 0.0) + segmentKm)
             val route = stats.optJSONArray("routePoints") ?: JSONArray()
             if (route.length() == 0) {
-              route.put(JSONObject().put("latitude", lastLat).put("longitude", lastLon))
+              route.put(routePointJson(last, "native"))
             }
             val lastRoute = route.optJSONObject(route.length() - 1)
             val routeMovedKm = if (lastRoute != null) {
@@ -670,7 +668,7 @@ class VroomBgTrackingService : Service() {
               Double.POSITIVE_INFINITY
             }
             if (routeMovedKm >= ROUTE_POINT_SPACING_KM) {
-              route.put(JSONObject().put("latitude", lat).put("longitude", lon))
+              route.put(routePointJson(location, "native"))
             }
             stats.put(
               "routePoints",
@@ -720,6 +718,31 @@ class VroomBgTrackingService : Service() {
       .put("longitude", location.longitude)
       .put("time", if (location.time > 0) location.time else System.currentTimeMillis())
       .put("accuracy", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
+      .put("speedKmh", if (location.hasSpeed() && location.speed >= 0f) location.speed.toDouble() * 3.6 else JSONObject.NULL)
+      .put("altitudeM", if (location.hasAltitude()) location.altitude else JSONObject.NULL)
+      .put("headingDeg", if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
+
+    private fun routePointJson(location: Location, source: String): JSONObject = JSONObject()
+      .put("latitude", location.latitude)
+      .put("longitude", location.longitude)
+      .put("recordedAt", if (location.time > 0) location.time else System.currentTimeMillis())
+      .put("speedKmh", if (location.hasSpeed() && location.speed >= 0f) location.speed.toDouble() * 3.6 else JSONObject.NULL)
+      .put("altitudeM", if (location.hasAltitude()) location.altitude else JSONObject.NULL)
+      .put("accuracyM", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
+      .put("headingDeg", if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
+      .put("source", source)
+      .put("accepted", true)
+
+    private fun routePointJson(fix: JSONObject, source: String): JSONObject = JSONObject()
+      .put("latitude", fix.optDouble("latitude"))
+      .put("longitude", fix.optDouble("longitude"))
+      .put("recordedAt", fix.optLong("time", System.currentTimeMillis()))
+      .put("speedKmh", fix.opt("speedKmh") ?: JSONObject.NULL)
+      .put("altitudeM", fix.opt("altitudeM") ?: JSONObject.NULL)
+      .put("accuracyM", fix.opt("accuracy") ?: JSONObject.NULL)
+      .put("headingDeg", fix.opt("headingDeg") ?: JSONObject.NULL)
+      .put("source", source)
+      .put("accepted", true)
 
     private fun emptyNativeStats(): JSONObject =
       JSONObject()

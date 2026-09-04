@@ -309,6 +309,7 @@ export async function claimGeoDrop(
   },
 ): Promise<{
   ok: boolean;
+  alreadyClaimed?: boolean;
   error?: string;
   nitroGranted?: number;
   rarity?: string;
@@ -333,6 +334,7 @@ export async function claimGeoDrop(
     });
     return { ok: true, ...(data as object) } as {
       ok: boolean;
+      alreadyClaimed?: boolean;
       nitroGranted?: number;
       rarity?: string;
       dropId?: number;
@@ -347,6 +349,13 @@ export async function claimGeoDrop(
       error: error instanceof ApiRequestError ? error.code || error.message : 'NETWORK_ERROR',
     };
   }
+}
+
+export function isIdempotentGeoDropClaim(result: {
+  ok: boolean;
+  alreadyClaimed?: boolean;
+}): boolean {
+  return result.ok && result.alreadyClaimed === true;
 }
 
 export async function sendDropNavigateIntent(input: {

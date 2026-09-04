@@ -56,6 +56,23 @@ export function compactTripRoute(points: DriveTelemetryPoint[]) {
   return compactDriveTelemetry(points, MAX_ROUTE_POINTS);
 }
 
+/**
+ * Native tracking is the only trace that stays continuous while the JS runtime
+ * is suspended. Prefer it at finalization; the other snapshots are recovery
+ * fallbacks for older binaries or unavailable native tracking.
+ */
+export function selectTripRouteForFinalization(input: {
+  nativeRoute?: DriveTelemetryPoint[];
+  foregroundRoute?: DriveTelemetryPoint[];
+  emergencyRoute?: DriveTelemetryPoint[];
+}): DriveTelemetryPoint[] {
+  const nativeRoute = compactTripRoute(input.nativeRoute ?? []);
+  if (nativeRoute.length >= 2) return nativeRoute;
+  const foregroundRoute = compactTripRoute(input.foregroundRoute ?? []);
+  if (foregroundRoute.length >= 2) return foregroundRoute;
+  return compactTripRoute(input.emergencyRoute ?? []);
+}
+
 function mergeRoute(
   current: DriveTelemetryPoint[],
   next: DriveTelemetryPoint[],
@@ -192,7 +209,12 @@ export function mergeNativeLedgerSnapshot(
     mode: nextMode,
     distanceKm,
     checkpointKm: Math.max(base.checkpointKm, nativeCheckpoint),
-    routePoints: mergeRoute(base.routePoints, native.routePoints ?? []),
+    // Android/iOS expose the complete native route snapshot for the session,
+    // not a delta. Appending every poll would replay the already-seen prefix
+    // and draw loops in the saved activity.
+    routePoints: native.routePoints?.length
+      ? compactTripRoute(native.routePoints)
+      : base.routePoints,
     speedSamples: nativeSamples.length ? nativeSamples : base.speedSamples,
     maxSpeedKmh: Math.max(base.maxSpeedKmh, safeNumber(native.maxSpeedKmh), ...nativeSamples, 0),
     finalization: base.finalization.state === 'saved' ? { state: 'open' } : base.finalization,
