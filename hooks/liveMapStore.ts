@@ -52,6 +52,7 @@ export function createLiveMapStore() {
   let userIdsSnapshot: number[] = [];
 
   const userIdsListeners = new Set<() => void>();
+  const metaListeners = new Map<number, Set<() => void>>();
   const positionListeners = new Map<number, Set<() => void>>();
   const fleetDeltaListeners = new Set<(ids: number[]) => void>();
   const pendingFleetDeltaIds = new Set<number>();
@@ -78,6 +79,10 @@ export function createLiveMapStore() {
 
   const notifyPosition = (id: number) => {
     positionListeners.get(id)?.forEach((l) => l());
+  };
+
+  const notifyMeta = (id: number) => {
+    metaListeners.get(id)?.forEach((l) => l());
   };
 
   const publishUserIds = () => {
@@ -125,7 +130,24 @@ export function createLiveMapStore() {
   };
 
   const setMeta = (meta: LiveUserMeta) => {
+    const previous = metaById.get(meta.id);
     metaById.set(meta.id, meta);
+    const previousVisualVersion = previous?.premiumVisual?.visualVersion ?? null;
+    const nextVisualVersion = meta.premiumVisual?.visualVersion ?? null;
+    if (
+      !previous
+      || previous.username !== meta.username
+      || previous.avatarUrl !== meta.avatarUrl
+      || previous.avatarFrameUrl !== meta.avatarFrameUrl
+      || previous.isPremium !== meta.isPremium
+      || previous.isFriend !== meta.isFriend
+      || previous.online !== meta.online
+      || previous.stale !== meta.stale
+      || previous.motionTier !== meta.motionTier
+      || previousVisualVersion !== nextVisualVersion
+    ) {
+      notifyMeta(meta.id);
+    }
   };
 
   const setPosition = (
@@ -206,6 +228,7 @@ export function createLiveMapStore() {
     if (!metaById.has(id)) return false;
     metaById.delete(id);
     positions.delete(id);
+    metaListeners.delete(id);
     positionListeners.delete(id);
     removeUserIdFromList(id);
     return true;
@@ -305,6 +328,11 @@ export function createLiveMapStore() {
       positionListeners.get(userId)!.add(listener);
       return () => positionListeners.get(userId)?.delete(listener);
     },
+    subscribeMeta(userId: number, listener: () => void) {
+      if (!metaListeners.has(userId)) metaListeners.set(userId, new Set());
+      metaListeners.get(userId)!.add(listener);
+      return () => metaListeners.get(userId)?.delete(listener);
+    },
     getPosition(userId: number) {
       return positions.get(userId) ?? null;
     },
@@ -327,6 +355,7 @@ export function createLiveMapStore() {
       positions.clear();
       userIds = [];
       userIdsSnapshot = [];
+      metaListeners.clear();
       positionListeners.clear();
       pendingFleetDeltaIds.clear();
       if (fleetDeltaTimer) {
@@ -360,8 +389,8 @@ export function useLiveUserPosition(store: LiveMapStore, userId: number) {
 
 export function useLiveUserMeta(store: LiveMapStore, userId: number) {
   const subscribe = useCallback(
-    (listener: () => void) => store.subscribeUserIds(listener),
-    [store],
+    (listener: () => void) => store.subscribeMeta(userId, listener),
+    [store, userId],
   );
   const getSnapshot = useCallback(
     () => store.getMeta(userId),

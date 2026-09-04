@@ -1,44 +1,52 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { formatLiveMarkerUsername, liveUserMarkerMetrics } from '../../lib/liveUserMarkerUi';
 
-const source = readFileSync(resolve(process.cwd(), 'components/map/LiveUsersFleetLayer.tsx'), 'utf8');
+const layerSource = readFileSync(resolve(process.cwd(), 'components/map/LiveUsersFleetLayer.tsx'), 'utf8');
+const markerSource = readFileSync(resolve(process.cwd(), 'components/map/LiveUserMapMarker.tsx'), 'utf8');
 const controllerSource = readFileSync(
   resolve(process.cwd(), 'components/map/LiveFleetMapController.tsx'),
   'utf8',
 );
 const liveMapSource = readFileSync(resolve(process.cwd(), 'hooks/useLiveMap.ts'), 'utf8');
 
-describe('LIVE fleet layer contract', () => {
-  it('renders every user individually without clustering or counters', () => {
-    expect(source).not.toContain('cluster={');
-    expect(source).not.toContain('clusterProperties');
-    expect(source).not.toContain('point_count');
+describe('LIVE native marker contract', () => {
+  it('renders real MarkerView UI without bitmap capture or map symbol sprites', () => {
+    expect(layerSource).not.toContain('CircleLayer');
+    expect(layerSource).not.toContain('SymbolLayer');
+    expect(layerSource).not.toContain('ShapeSource');
+    expect(layerSource).not.toContain('useLiveUserPinSprites');
+    expect(markerSource).toContain('<Mapbox.MarkerView');
+    expect(markerSource).not.toContain('ViewShot');
   });
 
-  it('uses the same identity marker at every zoom without overview dots', () => {
-    expect(source).not.toContain('CircleLayer');
-    expect(source).not.toContain('MAP_LIVE_DETAIL_MIN_ZOOM');
-    expect(controllerSource).not.toContain('MAP_LIVE_DETAIL_MIN_ZOOM');
-    expect(source).toContain('useLiveUserPinSprites(metaPinRequests)');
-    expect(source).toContain('<Mapbox.SymbolLayer id="liveFleetHotPins" style={pinStyle as any} />');
-    expect(source).toContain('<Mapbox.SymbolLayer id="liveFleetColdPins" style={pinStyle as any} />');
+  it('keeps the marker compact at country and street zoom', () => {
+    expect(liveUserMarkerMetrics(3).avatar).toBe(34);
+    expect(liveUserMarkerMetrics(3).labelWidth).toBe(72);
+    expect(liveUserMarkerMetrics(18).avatar).toBe(42);
+    expect(liveUserMarkerMetrics(18).labelWidth).toBe(88);
+    expect(markerSource).toContain('minWidth: 48');
+    expect(markerSource).toContain('minHeight: 48');
   });
 
-  it('scales one marker smoothly and preserves overlap and tap area', () => {
-    expect(source).toContain('0, 0.72');
-    expect(source).toContain('5, 0.78');
-    expect(source).toContain('11.5, 0.88');
-    expect(source).toContain('15.5, 0.98');
-    expect(source).toContain('18, 1.04');
-    expect(source).toContain('iconAllowOverlap: true');
-    expect(source).toContain('hitbox={{ width: 160, height: 64 }}');
+  it('shows avatar above identity, Premium status and Nitro avatar decoration', () => {
+    expect(markerSource.indexOf('styles.avatarStage')).toBeLessThan(markerSource.indexOf('styles.label'));
+    expect(markerSource).toContain("premium ? 'PREMIUM · LIVE' : 'LIVE'");
+    expect(markerSource).toContain('<ShopAvatarDecoration item={frameItem}');
+    expect(markerSource).toContain('cachePolicy="memory-disk"');
   });
 
-  it('does not hide received users while native viewport bounds are unavailable', () => {
+  it('truncates long names without growing the marker', () => {
+    expect(formatLiveMarkerUsername('123456789012345')).toBe('123456789012345');
+    expect(formatLiveMarkerUsername('1234567890123456')).toBe('12345678901234…');
+  });
+
+  it('keeps stale users visible and culls only outside the expanded viewport', () => {
+    expect(markerSource).toContain('stale && styles.stale');
+    expect(controllerSource).toContain('expandBoundsByMeters(effectiveViewportBounds, 1_500)');
+    expect(controllerSource).toContain('visibleMarkerIds');
     expect(controllerSource).toContain('LIVE_FLEET_FALLBACK_VIEWPORT');
-    expect(controllerSource).toContain('const renderEnabled = enabled;');
-    expect(controllerSource).not.toContain('enabled && viewportReady');
   });
 
   it('updates identity metadata without replacing marker coordinates', () => {

@@ -2,11 +2,12 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import Mapbox from '@rnmapbox/maps';
 import {
   EMPTY_VIEWPORT,
+  expandBoundsByMeters,
+  isInViewport,
   normalizeViewportBounds,
   type ViewportBounds,
 } from '../../hooks/liveFleetSpatialIndex';
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
-import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 
 type Props = {
@@ -57,13 +58,23 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const lastViewportKeyRef = useRef('');
   const viewportQueryInFlightRef = useRef(false);
   const viewportQueryQueuedRef = useRef(false);
+  const visibleMarkerIdsRef = useRef<number[]>([]);
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds>(EMPTY_VIEWPORT);
   const [viewportZoom, setViewportZoom] = useState(0);
+  const [positionRevision, setPositionRevision] = useState(0);
 
   const fleetUserIds = useMemo(
     () => liveUserIds.filter((id) => String(id) !== String(selfUserId)),
     [liveUserIds, selfUserId],
   );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const unsubscribe = store.subscribeFleetDeltas(() => setPositionRevision((revision) => revision + 1));
+    return () => {
+      unsubscribe();
+    };
+  }, [enabled, store]);
 
   const commitViewport = useCallback((next: ViewportBounds) => {
     if (next.valid !== 1) return;
@@ -152,29 +163,40 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
 
   const effectiveZoom = Number.isFinite(zoom) ? Number(zoom) : viewportZoom;
   const renderEnabled = enabled;
-  const effectiveViewportBounds = viewportBounds.valid === 1
-    ? viewportBounds
-    : LIVE_FLEET_FALLBACK_VIEWPORT;
-  const animator = useLiveFleetAnimator(
-    store,
-    fleetUserIds,
-    renderEnabled,
-    anchor,
-    effectiveViewportBounds,
-    effectiveZoom,
+  const effectiveViewportBounds = useMemo(
+    () => viewportBounds.valid === 1 ? viewportBounds : LIVE_FLEET_FALLBACK_VIEWPORT,
+    [viewportBounds],
+  );
+  const markerViewportBounds = useMemo(
+    () => expandBoundsByMeters(effectiveViewportBounds, 1_500),
+    [effectiveViewportBounds],
+  );
+  const visibleMarkerIds = useMemo(
+    () => {
+      void positionRevision;
+      const next = fleetUserIds.filter((id) => {
+        const position = store.getPosition(id);
+        return !!position && isInViewport(position.lat, position.lng, markerViewportBounds);
+      });
+      const previous = visibleMarkerIdsRef.current;
+      if (next.length === previous.length && next.every((id, index) => id === previous[index])) {
+        return previous;
+      }
+      visibleMarkerIdsRef.current = next;
+      return next;
+    },
+    // positionRevision is a batched 50 ms signal. The resulting ID list changes
+    // only when a user enters or leaves the expanded viewport.
+    [fleetUserIds, markerViewportBounds, positionRevision, store],
   );
 
   return (
-    <>
-      {/* ShapeSource zostaje zamontowany także dla chwilowo pustej klatki.
-          Remount przy każdym 0 -> 1 powodował widoczne mruganie ikon w Mapbox. */}
-      <LiveUsersFleetLayer
-        hotAnimatedShapeProps={animator.hotAnimatedShapeProps}
-        coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
-        metaPinRequests={animator.metaPinRequests}
-        visible={renderEnabled}
-        onUserPress={onUserPress}
-      />
-    </>
+    <LiveUsersFleetLayer
+      store={store}
+      userIds={visibleMarkerIds}
+      visible={renderEnabled}
+      zoom={effectiveZoom}
+      onUserPress={onUserPress}
+    />
   );
 });
