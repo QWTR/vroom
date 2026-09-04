@@ -9,18 +9,23 @@ import {
   liveUserPinImageKey,
   useLiveUserPinSprites,
 } from '../../hooks/useLiveUserPinSprites';
-import { MAP_LIVE_DETAIL_MIN_ZOOM } from '../../lib/mapViewport';
 import { LiveUserPinSpriteCapture } from './LiveUserPinSpriteCapture';
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
-const ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 11.5, 0.74, 15.5, 0.86, 18, 0.92] as any;
+const ICON_SIZE = [
+  'interpolate', ['linear'], ['zoom'],
+  0, 0.72,
+  5, 0.78,
+  11.5, 0.88,
+  15.5, 0.98,
+  18, 1.04,
+] as any;
 
 type Props = {
   hotAnimatedShapeProps: { shape?: string };
   coldAnimatedShapeProps: { shape?: string };
   metaPinRequests: FleetMetaPinRequest[];
   visible: boolean;
-  detailed: boolean;
   onUserPress: (userId: number) => void;
 };
 
@@ -33,25 +38,13 @@ const pinStyle = {
   iconOptional: true,
   iconPitchAlignment: 'viewport' as const,
   iconRotationAlignment: 'viewport' as const,
-  symbolSortKey: 10,
+  symbolSortKey: ['coalesce', ['get', 'markerPriority'], 10] as any,
 };
 
-const overviewStyle = {
-  circleRadius: ['interpolate', ['linear'], ['zoom'], 0, 4.5, 7, 6, 11.49, 8] as any,
-  circleColor: ['coalesce', ['get', 'pinColor'], '#00BFFF'] as any,
-  circleOpacity: ['case', ['==', ['get', 'stale'], 1], 0.62, 1] as any,
-  circleStrokeColor: '#FFFFFF',
-  circleStrokeWidth: ['interpolate', ['linear'], ['zoom'], 0, 1.5, 11.49, 2.25] as any,
-  circleStrokeOpacity: 0.96,
-  circlePitchAlignment: 'viewport' as const,
-  circlePitchScale: 'viewport' as const,
-  circleSortKey: 10,
-};
-
-function LiveUsersFleetLayerInner({ hotAnimatedShapeProps, coldAnimatedShapeProps, metaPinRequests, visible, detailed, onUserPress }: Props) {
-  // Nie generuj kosztownych avatarów podczas widoku kraju. Po przybliżeniu
-  // powstają raz na zmianę profilu/statusu, nigdy na aktualizację pozycji.
-  const { images, pendingCaptures, handleCapture } = useLiveUserPinSprites(detailed ? metaPinRequests : []);
+function LiveUsersFleetLayerInner({ hotAnimatedShapeProps, coldAnimatedShapeProps, metaPinRequests, visible, onUserPress }: Props) {
+  // Tożsamość użytkownika jest przygotowywana niezależnie od zoomu. Dzięki temu
+  // Mapbox nigdy nie przełącza kropki na opóźniony sprite po zakończeniu gestu.
+  const { images, pendingCaptures, handleCapture } = useLiveUserPinSprites(metaPinRequests);
   const handlePress = useCallback((event: any) => {
     const userId = Number(event.features?.[0]?.properties?.id);
     if (Number.isFinite(userId)) onUserPress(userId);
@@ -66,13 +59,11 @@ function LiveUsersFleetLayerInner({ hotAnimatedShapeProps, coldAnimatedShapeProp
         ))}
       </View>
       {Object.keys(images).length > 0 ? <Mapbox.Images images={images} /> : null}
-      <ReanimatedShapeSource id="liveFleetHotSource" animatedProps={hotAnimatedShapeProps as never} onPress={handlePress} hitbox={{ width: 136, height: 60 }}>
-        <Mapbox.CircleLayer id="liveFleetHotOverview" maxZoomLevel={MAP_LIVE_DETAIL_MIN_ZOOM} style={overviewStyle as any} />
-        <Mapbox.SymbolLayer id="liveFleetHotPins" minZoomLevel={MAP_LIVE_DETAIL_MIN_ZOOM} style={pinStyle as any} />
+      <ReanimatedShapeSource id="liveFleetHotSource" animatedProps={hotAnimatedShapeProps as never} onPress={handlePress} hitbox={{ width: 160, height: 64 }}>
+        <Mapbox.SymbolLayer id="liveFleetHotPins" style={pinStyle as any} />
       </ReanimatedShapeSource>
-      <ReanimatedShapeSource id="liveFleetColdSource" animatedProps={coldAnimatedShapeProps as never} onPress={handlePress} hitbox={{ width: 136, height: 60 }}>
-        <Mapbox.CircleLayer id="liveFleetColdOverview" maxZoomLevel={MAP_LIVE_DETAIL_MIN_ZOOM} style={overviewStyle as any} />
-        <Mapbox.SymbolLayer id="liveFleetColdPins" minZoomLevel={MAP_LIVE_DETAIL_MIN_ZOOM} style={pinStyle as any} />
+      <ReanimatedShapeSource id="liveFleetColdSource" animatedProps={coldAnimatedShapeProps as never} onPress={handlePress} hitbox={{ width: 160, height: 64 }}>
+        <Mapbox.SymbolLayer id="liveFleetColdPins" style={pinStyle as any} />
       </ReanimatedShapeSource>
     </>
   );

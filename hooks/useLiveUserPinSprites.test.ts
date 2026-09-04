@@ -37,6 +37,14 @@ describe('live user pin sprite cache', () => {
       .not.toBe(buildPinSpriteSignature({ ...base, visualVersion: 'v2' }));
   });
 
+  it('rebuilds a bitmap when the avatar or equipped frame changes', () => {
+    const base = { id: 11, username: 'Zary', avatarUrl: 'https://cdn.example/old.png', avatarFrameUrl: '', isPremium: true, isFriend: false, initials: 'ZA', distanceLabel: 'LIVE' };
+    expect(buildPinSpriteSignature(base))
+      .not.toBe(buildPinSpriteSignature({ ...base, avatarUrl: 'https://cdn.example/new.png' }));
+    expect(buildPinSpriteSignature(base))
+      .not.toBe(buildPinSpriteSignature({ ...base, avatarFrameUrl: 'https://cdn.example/frame.png' }));
+  });
+
   it('rebuilds a bitmap when the username shown inside the marker changes', () => {
     const base = { id: 10, avatarUrl: '', avatarFrameUrl: '', isPremium: false, isFriend: false, initials: 'AB', distanceLabel: 'LIVE' };
     expect(buildPinSpriteSignature({ ...base, username: 'Anna' }))

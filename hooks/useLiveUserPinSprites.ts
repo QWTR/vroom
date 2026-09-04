@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteVisual';
 
 /** One self-contained LIVE marker. Position updates never change this bitmap. */
-export const LIVE_USER_PIN_SPRITE_W = 136;
-export const LIVE_USER_PIN_SPRITE_H = 56;
-export const LIVE_USER_PIN_DISPLAY_PT = 116;
+export const LIVE_USER_PIN_SPRITE_W = 160;
+export const LIVE_USER_PIN_SPRITE_H = 64;
+export const LIVE_USER_PIN_DISPLAY_PT = 160;
 
 export function liveUserPinIconSize(): number {
   return LIVE_USER_PIN_DISPLAY_PT / LIVE_USER_PIN_SPRITE_W;
@@ -60,7 +60,7 @@ export function buildPinSpriteSignature(input: {
     input.initials,
     input.stale ? 'stale' : 'online',
     input.visualVersion ?? 'free',
-    'v7-profile-label',
+    'v8-persistent-identity',
   ].join('|');
 }
 

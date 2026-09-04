@@ -11704,6 +11704,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           status: 'Online' as const,
           isFriend: meta.isFriend ?? false,
           isPremium: meta.isPremium ?? false,
+          premiumVisual: meta.premiumVisual ?? null,
         } as User;
       })
       .filter((u): u is User => u != null);
@@ -11857,6 +11858,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         status: 'Online',
         isFriend: meta.isFriend ?? false,
         isPremium: meta.isPremium ?? false,
+        premiumVisual: meta.premiumVisual ?? null,
       };
     }
     handleUserMarkerPress(user);

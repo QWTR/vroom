@@ -989,6 +989,36 @@ export function useLiveMap(
         }
       });
 
+      socket.on('live:user:identity', (data: any) => {
+        if (!liveUsersEnabledRef.current) return;
+        const id = Number(data?.id);
+        if (!Number.isFinite(id)) return;
+        const existingMeta = store.getMeta(id);
+        const existingPos = store.getPosition(id);
+        if (!existingMeta || !existingPos) return;
+
+        store.setMeta({
+          ...existingMeta,
+          username: typeof data?.username === 'string' && data.username.trim()
+            ? data.username
+            : existingMeta.username,
+          avatarUrl: data?.avatarUrl !== undefined
+            ? (typeof data.avatarUrl === 'string' && data.avatarUrl.trim() ? data.avatarUrl : null)
+            : existingMeta.avatarUrl,
+          avatarFrameUrl: data?.avatarFrameUrl !== undefined
+            ? (typeof data.avatarFrameUrl === 'string' && data.avatarFrameUrl.trim() ? data.avatarFrameUrl : null)
+            : existingMeta.avatarFrameUrl,
+          isFriend: data?.isFriend ?? existingMeta.isFriend,
+          isPremium: data?.isPremium ?? existingMeta.isPremium,
+          premiumVisual: data?.premiumVisual !== undefined
+            ? data.premiumVisual
+            : existingMeta.premiumVisual,
+        });
+        // Meta nie zmienia współrzędnych, ale ten lekki sygnał przebudowuje
+        // wyłącznie sprite użytkownika w animatorze floty.
+        store.setPosition(id, existingPos.lat, existingPos.lng, true);
+      });
+
       socket.on('live:users:snapshot', (data: any) => {
         const users = parseLiveUserList(data);
         const rawCount = users.length;

@@ -7,7 +7,6 @@ import {
 } from '../../hooks/liveFleetSpatialIndex';
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
-import { MAP_LIVE_DETAIL_MIN_ZOOM } from '../../lib/mapViewport';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 
 type Props = {
@@ -156,7 +155,6 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const effectiveViewportBounds = viewportBounds.valid === 1
     ? viewportBounds
     : LIVE_FLEET_FALLBACK_VIEWPORT;
-  const detailedMarkers = effectiveZoom >= MAP_LIVE_DETAIL_MIN_ZOOM;
   const animator = useLiveFleetAnimator(
     store,
     fleetUserIds,
@@ -175,7 +173,6 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
         coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
         metaPinRequests={animator.metaPinRequests}
         visible={renderEnabled}
-        detailed={detailedMarkers}
         onUserPress={onUserPress}
       />
     </>

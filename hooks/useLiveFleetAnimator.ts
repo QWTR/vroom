@@ -154,6 +154,7 @@ export type LiveFleetFeature = {
     scaleZ?: number;
     minZoom?: number;
     stale?: number;
+    markerPriority?: number;
   };
 };
 
@@ -473,6 +474,7 @@ function buildGeoJsonLive(
         stale: s.stale,
         pinColor: s.pinColor,
         username: s.username,
+        markerPriority: (s.isPremium ? 30 : s.isFriend ? 20 : 10) - (s.stale ? 5 : 0),
       },
     });
   }

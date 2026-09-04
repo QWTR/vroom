@@ -12,6 +12,7 @@ import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 import { LinearGradient } from 'expo-linear-gradient';
+import { normalizeMediaUri } from '../../lib/mediaUri';
 
 interface UserInfoModalProps {
   visible:       boolean;
@@ -66,8 +67,12 @@ export const UserInfoModal = memo(
       })();
     }, [visible, user?.id]);
 
+    const identityIsPremium = profileVisuals
+      ? profileVisuals.isPremiumProfile
+      : !!user?.isPremium;
+
     useEffect(() => {
-      if (!visible || !profileVisuals?.isPremiumProfile) {
+      if (!visible || !identityIsPremium) {
         premiumPulse.stopAnimation();
         premiumPulse.setValue(0);
         return;
@@ -80,21 +85,27 @@ export const UserInfoModal = memo(
       );
       anim.start();
       return () => anim.stop();
-    }, [visible, profileVisuals?.isPremiumProfile, premiumPulse]);
+    }, [visible, identityIsPremium, premiumPulse]);
 
     useModalBackHandler(visible, onClose);
     if (!user) return null;
 
     const isOnline  = user.status === 'Online';
-    const hasAvatar = user.avatar && user.avatar.startsWith('http');
-    const showPremiumTheme = !!profileVisuals?.isPremiumProfile;
-    const accentColor = showPremiumTheme ? (profileVisuals?.nickColor || theme.primary) : theme.primary;
+    const avatarUri = normalizeMediaUri(user.avatar);
+    const avatarFrameUri = normalizeMediaUri(user.avatarFrameUrl);
+    const hasAvatar = !!avatarUri;
+    const showPremiumTheme = identityIsPremium;
+    const accentColor = showPremiumTheme
+      ? (profileVisuals?.nickColor || user.premiumVisual?.nickColor || user.premiumVisual?.accentColors?.[0] || '#FFD447')
+      : theme.primary;
     const premiumGradientRaw = showPremiumTheme && Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
       ? profileVisuals.profilePremiumExtras.customHeroGradient.colors.filter((c: unknown): c is string => typeof c === 'string')
       : null;
     const premiumGradientColors = (premiumGradientRaw && premiumGradientRaw.length >= 2
       ? [premiumGradientRaw[0], premiumGradientRaw[1]]
-      : [`${accentColor}66`, '#00000000']) as [string, string];
+      : (user.premiumVisual?.accentColors?.length === 2
+        ? user.premiumVisual.accentColors
+        : [`${accentColor}66`, '#00000000'])) as [string, string];
     const glowOpacity = premiumPulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.34] });
     return (
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -153,7 +164,7 @@ export const UserInfoModal = memo(
               <View style={[styles.userInfoAvatarWrap, { overflow: 'visible' }]}>
                 {hasAvatar ? (
                   <Image
-                    source={{ uri: user.avatar as string }}
+                    source={{ uri: avatarUri! }}
                     style={{ width: '100%', height: '100%', borderRadius: 999 }}
                     resizeMode="cover"
                   />
@@ -162,6 +173,13 @@ export const UserInfoModal = memo(
                     {user.name?.slice(0, 2).toUpperCase() ?? '👤'}
                   </Text>
                 )}
+                {!shopCosmetics?.avatarFrame && avatarFrameUri ? (
+                  <Image
+                    source={{ uri: avatarFrameUri }}
+                    style={{ position: 'absolute', width: 64, height: 64 }}
+                    resizeMode="contain"
+                  />
+                ) : null}
                 <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={56} />
               </View>
 

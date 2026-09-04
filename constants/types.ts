@@ -1,3 +1,5 @@
+import type { PremiumVisual } from '../components/user/PremiumIdentity';
+
 export interface User {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export interface User {
   distance?: number;
   isFriend?: boolean;
   isPremium?: boolean;
+  premiumVisual?: PremiumVisual | null;
 }
 
 export interface LocationState {
