@@ -393,6 +393,7 @@ import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
 import { LiveFleetMapController } from '../../components/map/LiveFleetMapController';
 import { ConvoyMapLayer } from '../../components/map/ConvoyMapLayer';
+import { VroomCbRadioPanel } from '../../components/map/VroomCbRadioPanel';
 import { MapFabActionsModal } from '../../components/map/MapFabActionsModal';
 import { CameraPickOverlay } from '../../components/map/CameraPickOverlay';
 import { ManualTargetPickOverlay } from '../../components/map/ManualTargetPickOverlay';
@@ -14251,6 +14252,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             </View>
           </TouchableOpacity>
         )}
+
+        <VroomCbRadioPanel
+          location={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : null}
+          activeConvoy={activeConvoy}
+        />
 
         <MapFabActionsModal
           visible={mapFabModalVisible}

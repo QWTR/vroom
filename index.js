@@ -1,3 +1,7 @@
-import './lib/networkDiagnostics';
-import './lib/notifications/runtime';
-import 'expo-router/entry';
+import { registerGlobals } from '@livekit/react-native';
+
+registerGlobals();
+
+require('./lib/networkDiagnostics');
+require('./lib/notifications/runtime');
+require('expo-router/entry');

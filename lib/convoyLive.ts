@@ -23,6 +23,8 @@ export type ConvoyParticipant = {
   connection?: string;
   user: PublicUserIdentity;
   position?: ConvoyPosition | null;
+  voiceMuted?: boolean;
+  voiceApproved?: boolean;
 };
 
 export type ConvoySnapshot = {
@@ -36,8 +38,12 @@ export type ConvoySnapshot = {
     route?: ConvoyRoute | null;
     meetingLat?: number | null;
     meetingLng?: number | null;
+    voiceEnabled: boolean;
+    voiceMode: 'open' | 'cb' | 'moderated';
+    admissionMode: 'instant' | 'lobby';
   };
   participants: ConvoyParticipant[];
+  waiting?: ConvoyParticipant[];
   summary?: { participantCount: number; stats?: unknown; visibleUntil: string } | null;
 };
 

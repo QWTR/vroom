@@ -23,6 +23,7 @@ import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { ReadabilityProvider } from '../contexts/ReadabilityContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider } from '../contexts/PremiumContext';
+import { RadioProvider } from '../contexts/RadioContext';
 import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
 import { AppTutorialProvider, useAppTutorial } from '../contexts/AppTutorialContext';
 import { PerformanceProvider } from '../contexts/PerformanceContext';
@@ -206,15 +207,17 @@ export default function RootLayout() {
           <PerformanceProvider>
             <SettingsProvider>
               <PremiumProvider>
-                <StartupGatesProvider>
-                  <AppTutorialProvider>
-                    <ErrorBoundary>
-                      <SocialQueueBootstrap />
-                      <SharedSocketBootstrap />
-                      <RootLayoutInner />
-                    </ErrorBoundary>
-                  </AppTutorialProvider>
-                </StartupGatesProvider>
+                <RadioProvider>
+                  <StartupGatesProvider>
+                    <AppTutorialProvider>
+                      <ErrorBoundary>
+                        <SocialQueueBootstrap />
+                        <SharedSocketBootstrap />
+                        <RootLayoutInner />
+                      </ErrorBoundary>
+                    </AppTutorialProvider>
+                  </StartupGatesProvider>
+                </RadioProvider>
               </PremiumProvider>
             </SettingsProvider>
           </PerformanceProvider>

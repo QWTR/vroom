@@ -5,6 +5,7 @@ import { getAuthTokenCached } from './api/authTokenMemory';
 let socket: Socket | null = null;
 let connecting: Promise<Socket | null> | null = null;
 const rooms = new Map<string, { count: number; joinEvent: string; leaveEvent: string; payload: unknown }>();
+const backgroundHolds = new Set<string>();
 
 export async function ensureSharedSocket(): Promise<Socket | null> {
   if (socket) {
@@ -37,7 +38,17 @@ export function currentSharedSocket(): Socket | null {
 }
 
 export function pauseSharedSocket(): void {
+  if (backgroundHolds.size > 0) return;
   socket?.disconnect();
+}
+
+export function setSharedSocketBackgroundHold(key: string, active: boolean): void {
+  if (active) {
+    backgroundHolds.add(key);
+    void ensureSharedSocket();
+  } else {
+    backgroundHolds.delete(key);
+  }
 }
 
 export function destroySharedSocket(): void {
@@ -46,6 +57,7 @@ export function destroySharedSocket(): void {
   socket = null;
   connecting = null;
   rooms.clear();
+  backgroundHolds.clear();
 }
 
 export async function subscribeSharedSocket<T>(event: string, listener: (payload: T) => void): Promise<() => void> {

@@ -2,7 +2,7 @@ import { apiRequest } from './api/client';
 
 export type PremiumFeatureFlags = {
   premiumOfferV2: boolean; premiumIdentityV1: boolean; driveReplayV1: boolean; smartStartV1: boolean;
-  garageProV1: boolean; marketWatchV1: boolean; convoyLiveV1: boolean; routeStudioV1: boolean;
+  garageProV1: boolean; marketWatchV1: boolean; convoyLiveV1: boolean; cbRadioV1: boolean; routeStudioV1: boolean;
   scenicBetaV1: boolean; offlineCorridorsV1: boolean;
 };
 
