@@ -140,6 +140,8 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const vadHotSamplesRef = useRef(0);
   const vadLastVoiceAtRef = useRef(0);
   const vadNoiseFloorRef = useRef(0.01);
+  const vadSampleBusyRef = useRef(false);
+  const vadSampleErrorsRef = useRef(0);
   const transmitBusyRef = useRef(false);
   const transmittingRef = useRef(false);
   const awaitingModeratedGrantRef = useRef(false);
@@ -196,15 +198,37 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     vadHotSamplesRef.current = 0;
     vadLastVoiceAtRef.current = 0;
     vadNoiseFloorRef.current = 0.01;
+    vadSampleBusyRef.current = false;
+    vadSampleErrorsRef.current = 0;
   }, []);
 
   const forceLocalMute = useCallback(async () => {
     const room = roomRef.current;
-    if (!room) return;
-    try { await room.localParticipant.setMicrophoneEnabled(false); } catch {}
     const vadTrack = vadTrackRef.current;
+    vadTrackRef.current = null;
+    if (vadTimerRef.current) clearInterval(vadTimerRef.current);
+    vadTimerRef.current = null;
+    if (room) {
+      try { await room.localParticipant.setMicrophoneEnabled(false); } catch {}
+    }
     if (vadTrack) {
-      try { await room.localParticipant.unpublishTrack(vadTrack, false); } catch {}
+      try { await room?.localParticipant.unpublishTrack(vadTrack, false); } catch {}
+      vadTrack.stop();
+    }
+    setVadArmedState(false);
+    await stopRadioForegroundService().catch(() => {});
+    setIsTransmitting(false);
+    transmittingRef.current = false;
+    awaitingModeratedGrantRef.current = false;
+  }, []);
+
+  const finishLocalTransmission = useCallback(async () => {
+    const room = roomRef.current;
+    // During VAD the published track must remain alive so sender statistics
+    // continue exposing the local microphone level. Redis leases at the relay
+    // decide whether its frames are audible to anyone.
+    if (room && !vadTrackRef.current) {
+      try { await room.localParticipant.setMicrophoneEnabled(false); } catch {}
     }
     setIsTransmitting(false);
     transmittingRef.current = false;
@@ -381,7 +405,11 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     const room = roomRef.current;
     if (!room) throw new Error('Brak połączenia audio.');
     if (vadTrackRef.current) {
-      await room.localParticipant.publishTrack(vadTrackRef.current, { source: 'microphone' as any, audioPreset: { maxBitrate: 32_000 } });
+      const publication = Array.from(room.localParticipant.audioTrackPublications.values())
+        .find((candidate) => candidate.track === vadTrackRef.current);
+      if (!publication) {
+        await room.localParticipant.publishTrack(vadTrackRef.current, { source: 'microphone' as any, audioPreset: { maxBitrate: 32_000 } });
+      }
     } else {
       await room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, { audioPreset: { maxBitrate: 32_000 } });
     }
@@ -412,19 +440,26 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
 
   const stopTransmission = useCallback(async () => {
     if (!roomRef.current) return;
-    await forceLocalMute();
+    await finishLocalTransmission();
     await socketAck('radio:speak-release', {}).catch(() => {});
-  }, [forceLocalMute]);
+  }, [finishLocalTransmission]);
 
   const startVadMonitor = useCallback(async () => {
     if (!roomRef.current || vadTrackRef.current) return;
+    const room = roomRef.current;
     const track = await createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+    await room.localParticipant.publishTrack(track, { source: 'microphone' as any, audioPreset: { maxBitrate: 32_000 } });
     vadTrackRef.current = track;
     vadTimerRef.current = setInterval(async () => {
+      if (vadSampleBusyRef.current) return;
       const activeTrack = vadTrackRef.current;
       if (!activeTrack) return;
+      vadSampleBusyRef.current = true;
       try {
-        const level = maxAudioLevel(await activeTrack.getRTCStatsReport());
+        const statsLevel = maxAudioLevel(await activeTrack.getRTCStatsReport());
+        const participantLevel = Number(roomRef.current?.localParticipant.audioLevel || 0);
+        const level = Math.max(statsLevel, Number.isFinite(participantLevel) ? participantLevel : 0);
+        vadSampleErrorsRef.current = 0;
         const sensitivity = preferencesRef.current.vadSensitivity;
         const threshold = Math.max(0.008, vadNoiseFloorRef.current * (2.5 - sensitivity * 0.012));
         const now = Date.now();
@@ -439,7 +474,15 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
           vadHotSamplesRef.current = 0;
           if (transmittingRef.current && vadLastVoiceAtRef.current > 0 && now - vadLastVoiceAtRef.current > 1_200) void stopTransmission();
         }
-      } catch {}
+      } catch (cause: any) {
+        vadSampleErrorsRef.current += 1;
+        if (vadSampleErrorsRef.current === 5) {
+          console.error('[VROOM_CB_VAD]', cause?.stack || cause?.message || String(cause));
+          setError('Wykrywanie mowy nie może odczytać poziomu mikrofonu.');
+        }
+      } finally {
+        vadSampleBusyRef.current = false;
+      }
     }, 180);
   }, [startTransmission, stopTransmission]);
 
@@ -453,6 +496,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
         await startVadMonitor();
       } catch (cause: any) {
         setVadArmedState(false);
+        await stopVadMonitor();
         await stopRadioForegroundService().catch(() => {});
         setError(cause?.message || 'Brak dostępu do mikrofonu.');
       }
@@ -539,7 +583,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     void ensureSharedSocket().then((socket) => {
       if (!socket) return;
       const onSnapshot = (next: RadioSnapshot | null) => setSnapshot(next ? snapshotFromJoin(next) : null);
-      const onReleased = () => { void forceLocalMute(); };
+      const onReleased = () => { void finishLocalTransmission(); };
       const onGranted = () => {
         if (!awaitingModeratedGrantRef.current) return;
         awaitingModeratedGrantRef.current = false;
@@ -567,7 +611,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       };
     });
     return () => cleanup();
-  }, [disconnect, forceLocalMute, publishGrantedMicrophone, resumeRadioSession]);
+  }, [disconnect, finishLocalTransmission, forceLocalMute, publishGrantedMicrophone, resumeRadioSession]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
