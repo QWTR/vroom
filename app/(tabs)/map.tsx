@@ -394,6 +394,13 @@ import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModa
 import { LiveFleetMapController } from '../../components/map/LiveFleetMapController';
 import { ConvoyMapLayer } from '../../components/map/ConvoyMapLayer';
 import { VroomCbRadioPanel } from '../../components/map/VroomCbRadioPanel';
+import { ConvoyNoticeOverlay } from '../../components/map/ConvoyNoticeOverlay';
+import {
+  buildConvoyMeetingIntent,
+  buildConvoyRouteIntent,
+  resolveConvoyHudOffsets,
+  type ConvoyNoticeAction,
+} from '../../lib/convoyUi';
 import { MapFabActionsModal } from '../../components/map/MapFabActionsModal';
 import { CameraPickOverlay } from '../../components/map/CameraPickOverlay';
 import { ManualTargetPickOverlay } from '../../components/map/ManualTargetPickOverlay';
@@ -1687,6 +1694,12 @@ function MapScreenInner() {
 
   // ── State – nawigacja ─────────────────────────────────────
   const [isNavigating, setIsNavigating] = useState(false);
+  const [convoyNavigationMode, setConvoyNavigationMode] = useState<'meeting' | 'route' | null>(null);
+  const [convoyRouteRunning, setConvoyRouteRunning] = useState(false);
+  const [primaryHudHeight, setPrimaryHudHeight] = useState(0);
+  const [convoyDockHeight, setConvoyDockHeight] = useState(0);
+  const [convoyNoticeHeight, setConvoyNoticeHeight] = useState(0);
+  const [offRouteHudHeight, setOffRouteHudHeight] = useState(0);
   const [navHudVisible, setNavHudVisible] = useState(false);
   const wasNavigatingRef = useRef(false);
   const [navStartLoc,  setNavStartLoc]  = useState<LocationState | null>(null);
@@ -1879,7 +1892,7 @@ function MapScreenInner() {
   useEffect(() => {
     isPremiumRef.current = isPremium;
   }, [isPremium]);
-  const { activeConvoy } = useActiveConvoyMap({
+  const { activeConvoy, convoyNotices, dismissConvoyNotice } = useActiveConvoyMap({
     currentUserId,
     isPremium,
     location: userLocation,
@@ -11848,22 +11861,28 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (!user) {
       const meta = liveMapStore.getMeta(userId);
       const pos = liveMapStore.getPosition(userId);
-      if (!meta || !pos) return;
+      const convoyParticipant = activeConvoy?.participants.find((participant) => participant.userId === userId);
+      const convoyPosition = convoyParticipant?.position;
+      const resolvedPosition = Number.isFinite(Number(convoyPosition?.lat)) && Number.isFinite(Number(convoyPosition?.lng))
+        ? { lat: Number(convoyPosition?.lat), lng: Number(convoyPosition?.lng) }
+        : pos;
+      const identity = convoyParticipant?.user ?? meta;
+      if (!identity || !resolvedPosition) return;
       user = {
         id: String(userId),
-        name: meta.username,
-        latitude: pos.lat,
-        longitude: pos.lng,
-        avatar: meta.avatarUrl ?? '',
-        avatarFrameUrl: meta.avatarFrameUrl ?? '',
+        name: identity.username,
+        latitude: resolvedPosition.lat,
+        longitude: resolvedPosition.lng,
+        avatar: identity.avatarUrl ?? '',
+        avatarFrameUrl: convoyParticipant?.user.avatarFrameUrl ?? meta?.avatarFrameUrl ?? '',
         status: 'Online',
-        isFriend: meta.isFriend ?? false,
-        isPremium: meta.isPremium ?? false,
-        premiumVisual: meta.premiumVisual ?? null,
+        isFriend: meta?.isFriend ?? false,
+        isPremium: identity.isPremium ?? false,
+        premiumVisual: identity.premiumVisual ?? null,
       };
     }
     handleUserMarkerPress(user);
-  }, [nearbyUsers, handleUserMarkerPress, liveMapStore]);
+  }, [activeConvoy, nearbyUsers, handleUserMarkerPress, liveMapStore]);
 
   const handleNavigateToUser = useCallback(() => {
     if (!selectedUser || !userLocation) return;
@@ -12102,6 +12121,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     }
 
     approachingRouteStartRef.current = false;
+    if (convoyNavigationMode === 'route') setConvoyRouteRunning(true);
 
     setIsOffroadRoute(loaded.isOffroad);
     isOffroadRef.current = loaded.isOffroad;
@@ -12115,12 +12135,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     setStartLocation(loaded.start);
     setEndLocation(loaded.end);
-    autoStartRouteAfterApproachRef.current = false;
+    setRouteInfo(null);
+    autoStartRouteAfterApproachRef.current = convoyNavigationMode === 'route';
 
     Toast.show({
       type: 'success',
-      text1: '🏁 TRYB GOTOWOŚCI',
-      text2: 'Rozpocznij jazdę lub kliknij Ruszaj',
+      text1: convoyNavigationMode === 'route' ? '🏁 TRASA KONWOJU' : '🏁 TRYB GOTOWOŚCI',
+      text2: convoyNavigationMode === 'route'
+        ? 'Uruchamiam wspólną trasę.'
+        : 'Rozpocznij jazdę lub kliknij Ruszaj',
     });
     navigationVoice.enqueue({
       id: `route-start-zone:${loadedRouteRef.current?.routeId ?? 'active'}`,
@@ -12130,6 +12153,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     transitioningToRouteRunRef.current = false;
   }, [
+    convoyNavigationMode,
     dismissNavigationNotification,
     flushNavigationStatsOnce,
     onNavigationCancel,
@@ -12958,12 +12982,16 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     ) * 1000;
     if (distToStart > 100 && !(isDrivingRef.current || isNavigatingRef.current)) {
       approachingRouteStartRef.current = true;
+      autoStartRouteAfterApproachRef.current = convoyNavigationMode === 'route';
+      if (convoyNavigationMode === 'route') setConvoyRouteRunning(false);
       setEndLocation(startLocation);
       setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
+      setRouteInfo(null);
       return;
     }
+    if (convoyNavigationMode === 'route') setConvoyRouteRunning(true);
     beginNavigation();
-  }, [startLocation, endLocation, userLocation, beginNavigation, readLiveTripPose]);
+  }, [startLocation, endLocation, userLocation, beginNavigation, convoyNavigationMode, readLiveTripPose]);
 
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async (opts?: { silent?: boolean; clearRoute?: boolean }) => {
@@ -13017,6 +13045,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     clearDropNavigationTarget();
     approachingRouteStartRef.current = false;
     autoStartRouteAfterApproachRef.current = false;
+    setConvoyNavigationMode(null);
+    setConvoyRouteRunning(false);
 
     if (wasApproaching && loadedRouteRef.current) {
       const lr = loadedRouteRef.current;
@@ -13480,7 +13510,83 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     isOffroadRef.current                = false;
     offroadLoadedPointsRef.current      = [];  // ← NOWE
     offroadPointsRef.current            = [];  // ← NOWE
+    setConvoyNavigationMode(null);
+    setConvoyRouteRunning(false);
   }, [isNavigating, stopNavigation, resetTimer]);
+
+  const applyConvoyMeetingNavigation = useCallback(() => {
+    const intent = buildConvoyMeetingIntent(activeConvoy, userLocation);
+    if (!intent) {
+      Toast.show({ type: 'error', text1: 'PUNKT ZBIÓRKI', text2: 'Brak punktu lub aktualnej pozycji GPS.' });
+      return;
+    }
+    loadedRouteRef.current = null;
+    pendingRouteRef.current = null;
+    setConvoyNavigationMode('meeting');
+    setConvoyRouteRunning(false);
+    setIsOffroadRoute(false);
+    isOffroadRef.current = false;
+    setStartLocation(intent.start);
+    setEndLocation(intent.end);
+    setSelectedRouteIndex(0);
+    setRouteInfo(null);
+  }, [activeConvoy, userLocation]);
+
+  const applyConvoyRouteNavigation = useCallback(() => {
+    const intent = buildConvoyRouteIntent(activeConvoy, userLocation);
+    if (!intent) {
+      Toast.show({ type: 'error', text1: 'TRASA KONWOJU', text2: 'Brak trasy lub aktualnej pozycji GPS.' });
+      return;
+    }
+    loadedRouteRef.current = {
+      routeId: intent.routeId,
+      routeName: intent.routeName,
+      start: intent.sharedStart,
+      end: intent.sharedEnd,
+      isOffroad: intent.isOffroad,
+      points: intent.points,
+    };
+    pendingRouteRef.current = { id: intent.routeId, name: intent.routeName };
+    setLeaderboardRouteId(intent.routeId);
+    setLeaderboardRouteName(intent.routeName);
+    setConvoyNavigationMode('route');
+    setConvoyRouteRunning(false);
+    setIsOffroadRoute(intent.isOffroad);
+    isOffroadRef.current = intent.isOffroad;
+    offroadLoadedPointsRef.current = intent.isOffroad ? intent.points : [];
+    setStartLocation(intent.sharedStart);
+    setEndLocation(intent.sharedEnd);
+    setSelectedRouteIndex(0);
+    setRouteInfo(null);
+  }, [activeConvoy, userLocation]);
+
+  const runConvoyNavigationAction = useCallback((action: ConvoyNoticeAction) => {
+    const apply = action === 'meeting' ? applyConvoyMeetingNavigation : applyConvoyRouteNavigation;
+    if (!isNavigating) {
+      apply();
+      return;
+    }
+    Alert.alert(
+      'Zmienić aktywną nawigację?',
+      'Bieżąca nawigacja zostanie zatrzymana i zastąpiona planem konwoju.',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        { text: 'Zmień trasę', onPress: () => { void stopNavigation({ silent: true, clearRoute: true }).then(apply); } },
+      ],
+    );
+  }, [applyConvoyMeetingNavigation, applyConvoyRouteNavigation, isNavigating, stopNavigation]);
+
+  const openConvoyPlanMenu = useCallback(() => {
+    const actions: { text: string; onPress?: () => void; style?: 'cancel' }[] = [];
+    if (activeConvoy?.convoy.meetingLat != null && activeConvoy.convoy.meetingLng != null) {
+      actions.push({ text: 'Nawiguj do punktu zbiórki', onPress: () => runConvoyNavigationAction('meeting') });
+    }
+    if ((activeConvoy?.convoy.route?.points?.length ?? 0) >= 2) {
+      actions.push({ text: 'Załaduj trasę konwoju', onPress: () => runConvoyNavigationAction('route') });
+    }
+    actions.push({ text: 'Anuluj', style: 'cancel' });
+    Alert.alert('Plan konwoju', 'Wybierz cel nawigacji.', actions);
+  }, [activeConvoy, runConvoyNavigationAction]);
 
   // ─────────────────────────────────────────────────────────
   // RENDER GUARDS
@@ -13582,6 +13688,14 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   const showSideControls = !isRoutePreviewOpen && !isBuilding;
   const sideControlsBottom = insets.bottom + 16;
   const isDropRouteActive = !!dropNavigationTargetId;
+  const convoyHudOffsets = resolveConvoyHudOffsets({
+    controlsTop: 12,
+    primaryHeight: primaryHudHeight,
+    dockHeight: activeConvoy ? (convoyDockHeight || 52) : convoyDockHeight,
+    noticeHeight: convoyNotices.length ? (convoyNoticeHeight || 64) : 0,
+    alertHeight: isNavigating && offRoute && !isOffroadRef.current ? (offRouteHudHeight || 48) : 0,
+    navigating: isNavigating,
+  });
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -13619,6 +13733,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           isBuilding={isBuilding}
           showSideControls={showSideControls}
           sideControlsBottom={sideControlsBottom}
+          speedPanelTop={isBuilding ? undefined : convoyHudOffsets.speedPanelTop}
           effectiveSpeedLimit={effectiveSpeedLimit}
           speedLimitTolerance={SPEED_LIMIT_TOLERANCE}
           liveDistanceKm={liveDistanceKm}
@@ -13915,16 +14030,22 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
           <LiveFleetMapController
             store={liveMapStore}
-            enabled={liveUsersEnabled}
+            enabled={liveUsersEnabled || !!activeConvoy}
             anchor={liveUsersAnchor}
             selfUserId={currentUserId}
             mapRef={mapRef}
             mapIdleNonce={fleetMapIdleNonce}
             zoom={currentZoom}
             onUserPress={handleLiveUserPress}
+            convoyParticipants={activeConvoy?.participants ?? []}
+            convoyHostId={activeConvoy?.convoy.hostId ?? null}
           />
 
-          <ConvoyMapLayer snapshot={activeConvoy} />
+          <ConvoyMapLayer
+            snapshot={activeConvoy}
+            onMeetingPress={() => runConvoyNavigationAction('meeting')}
+            showSharedRoute={!convoyRouteRunning}
+          />
 
           <MapActiveRouteLayers
             remainingRoutePoints={navigationUiReady && !arrived ? remainingRoutePoints : []}
@@ -14010,7 +14131,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (
-          <View pointerEvents="box-none" style={styles.navigationPanelTop}>
+          <View
+            pointerEvents="box-none"
+            style={styles.navigationPanelTop}
+            onLayout={(event) => setPrimaryHudHeight(event.nativeEvent.layout.height)}
+          >
             <HudPanelShell>
               {isOffroadRef.current ? (
                 <View style={styles.instructionBox}>
@@ -14117,7 +14242,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                   </View>
                 </View>
               )}
-              <TouchableOpacity style={hudStyles.closeBtn} onPress={stopNavigation}>
+              <TouchableOpacity style={hudStyles.closeBtn} onPress={() => { void stopNavigation(); }}>
                 <MaterialIcons name="close" size={18} color={theme.textMuted} />
               </TouchableOpacity>
             </HudPanelShell>
@@ -14126,7 +14251,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
-          <View style={[styles.hudOffRouteBanner, { top: insets.top + 100 }]}>
+          <View
+            onLayout={(event) => setOffRouteHudHeight(event.nativeEvent.layout.height)}
+            style={[styles.hudOffRouteBanner, { top: convoyHudOffsets.alertTop }]}
+          >
             <MaterialIcons name="warning" size={22} color={theme.warning} />
             <Text style={styles.hudOffRouteText}>
               {(rerouteLoading || rerouteOrigin != null || reroutePendingRef.current)
@@ -14200,6 +14328,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           isBuilding={isBuilding}
           showSideControls={showSideControls}
           sideControlsBottom={sideControlsBottom}
+          speedPanelTop={isBuilding ? undefined : convoyHudOffsets.speedPanelTop}
           effectiveSpeedLimit={effectiveSpeedLimit}
           speedLimitStatus={speedLimitResolution.status}
           canReportSpeedLimit={canReportSpeedLimit}
@@ -14224,38 +14353,22 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           }}
         />
 
-        {activeConvoy && (
-          <TouchableOpacity
-            onPress={() => router.push('/convoy' as any)}
-            activeOpacity={0.88}
-            style={{
-              position: 'absolute',
-              top: 66,
-              left: 12,
-              zIndex: 24,
-              minHeight: 38,
-              maxWidth: '72%',
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: '#FFD44788',
-              backgroundColor: isDark ? '#15130df2' : '#fff9e8f2',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <MaterialCommunityIcons name="car-multiple" size={18} color="#FFD447" />
-            <View style={{ flexShrink: 1 }}>
-              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '900' }}>{activeConvoy.convoy.name}</Text>
-              <Text style={{ color: '#FFD447', fontSize: 12, marginTop: 2 }}>LIVE · {activeConvoy.participants.length}/50 · DOTKNIJ, ABY OTWORZYĆ</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-
         <VroomCbRadioPanel
           location={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : null}
           activeConvoy={activeConvoy}
+          currentUserId={currentUserId}
+          top={convoyHudOffsets.dockTop}
+          onLayoutHeight={setConvoyDockHeight}
+          onConvoyPress={() => router.push('/convoy' as any)}
+          onPlanPress={openConvoyPlanMenu}
+        />
+
+        <ConvoyNoticeOverlay
+          notices={convoyNotices}
+          top={convoyHudOffsets.noticeTop}
+          onDismiss={dismissConvoyNotice}
+          onAction={runConvoyNavigationAction}
+          onHeightChange={setConvoyNoticeHeight}
         />
 
         <MapFabActionsModal
@@ -14300,6 +14413,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         {!isNavigating && !isBuilding && (
           <TouchableOpacity
             style={styles.topSearchButton}
+            onLayout={(event) => setPrimaryHudHeight(event.nativeEvent.layout.height)}
             onPress={() => setSearchModalVisible(true)}
             activeOpacity={0.8}
           >

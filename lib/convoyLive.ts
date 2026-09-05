@@ -3,6 +3,7 @@ import type { PublicUserIdentity } from '../components/user/PremiumIdentity';
 export type ConvoyRoute = {
   id: number;
   name: string;
+  isOffroad?: boolean;
   points?: { latitude: number; longitude: number; order?: number }[];
   waypoints?: { latitude: number; longitude: number; order?: number; label?: string | null }[];
 };
@@ -21,10 +22,31 @@ export type ConvoyParticipant = {
   role: string;
   quickStatus?: string | null;
   connection?: string;
-  user: PublicUserIdentity;
+  convoyHostId?: number;
+  user: PublicUserIdentity & { avatarFrameUrl?: string | null };
   position?: ConvoyPosition | null;
   voiceMuted?: boolean;
   voiceApproved?: boolean;
+};
+
+export type ConvoyStatusEvent = {
+  eventId?: string;
+  convoyId?: string;
+  userId: number;
+  status: string;
+  sentAt?: string | number;
+  connection?: string;
+};
+
+export type ConvoyPlanEvent = {
+  eventId?: string;
+  convoyId?: string;
+  actorId: number;
+  sentAt?: string | number;
+  changed?: Array<'route' | 'meeting'>;
+  routeId?: number | null;
+  meetingLat?: number | null;
+  meetingLng?: number | null;
 };
 
 export type ConvoySnapshot = {
@@ -34,6 +56,7 @@ export type ConvoySnapshot = {
     name: string;
     hostId: number;
     status: string;
+    maxParticipants?: number;
     expiresAt: string;
     route?: ConvoyRoute | null;
     meetingLat?: number | null;

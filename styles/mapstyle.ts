@@ -85,14 +85,9 @@ export function makeMapStyles(
       alignItems: 'flex-start',
       pointerEvents: 'box-none',
     },
-    /** Nawigacja — pod panelem instrukcji skrętu. */
-    hudSpeedTilePosNav: {
-      top: 188,
-    },
-    /** Swobodna jazda — tuż pod paskiem wyszukiwania (wyżej niż przy nawigacji). */
-    hudSpeedTilePosFreeDrive: {
-      top: 160,
-    },
+    /** Pozycje trybów są mierzone w stosie HUD w map.tsx. */
+    hudSpeedTilePosNav: {},
+    hudSpeedTilePosFreeDrive: {},
     /** Pod czerwonym banerem trybu tworzenia trasy. */
     hudSpeedTilePosBuilding: {
       top: 56,

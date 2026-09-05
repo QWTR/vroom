@@ -1,9 +1,19 @@
 import Mapbox from '@rnmapbox/maps';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../ui/AppText';
 import type { ConvoySnapshot } from '../../lib/convoyLive';
-import { CONVOY_STATUS_LABELS } from '../../lib/convoyLive';
 
-export function ConvoyMapLayer({ snapshot }: { snapshot: ConvoySnapshot | null }) {
+export function ConvoyMapLayer({
+  snapshot,
+  onMeetingPress,
+  showSharedRoute = true,
+}: {
+  snapshot: ConvoySnapshot | null;
+  onMeetingPress?: () => void;
+  showSharedRoute?: boolean;
+}) {
   const routeShape = useMemo(() => {
     const coordinates = (snapshot?.convoy.route?.points ?? [])
       .slice()
@@ -17,28 +27,8 @@ export function ConvoyMapLayer({ snapshot }: { snapshot: ConvoySnapshot | null }
     } : null;
   }, [snapshot]);
 
-  const participantShape = useMemo(() => ({
-    type: 'FeatureCollection' as const,
-    features: (snapshot?.participants ?? []).flatMap((participant) => {
-      const lat = Number(participant.position?.lat);
-      const lng = Number(participant.position?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
-      const status = participant.quickStatus ? CONVOY_STATUS_LABELS[participant.quickStatus] : null;
-      return [{
-        type: 'Feature' as const,
-        id: `convoy-user-${participant.userId}`,
-        properties: {
-          userId: participant.userId,
-          label: `${participant.user.username}${status ? ` · ${status}` : ''}`,
-          host: participant.userId === snapshot?.convoy.hostId,
-          paused: participant.connection === 'paused',
-        },
-        geometry: { type: 'Point' as const, coordinates: [lng, lat] },
-      }];
-    }),
-  }), [snapshot]);
-
   const meetingShape = useMemo(() => {
+    if (snapshot?.convoy.meetingLat == null || snapshot?.convoy.meetingLng == null) return null;
     const lat = Number(snapshot?.convoy.meetingLat);
     const lng = Number(snapshot?.convoy.meetingLng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -47,18 +37,45 @@ export function ConvoyMapLayer({ snapshot }: { snapshot: ConvoySnapshot | null }
 
   if (!snapshot || snapshot.convoy.status !== 'active') return null;
   return <>
-    {routeShape && <Mapbox.ShapeSource id="convoy-active-route-source" shape={routeShape}>
+    {routeShape && showSharedRoute && <Mapbox.ShapeSource id="convoy-active-route-source" shape={routeShape}>
       <Mapbox.LineLayer id="convoy-active-route-glow" style={{ lineColor: '#FFD44755', lineWidth: 10, lineCap: 'round', lineJoin: 'round' }} />
       <Mapbox.LineLayer id="convoy-active-route-line" style={{ lineColor: '#FFD447', lineWidth: 4, lineCap: 'round', lineJoin: 'round' }} />
     </Mapbox.ShapeSource>}
-    {meetingShape && <Mapbox.ShapeSource id="convoy-meeting-source" shape={meetingShape}>
-      <Mapbox.CircleLayer id="convoy-meeting-ring" style={{ circleRadius: 12, circleColor: '#FFD44722', circleStrokeColor: '#FFD447', circleStrokeWidth: 3 }} />
-      <Mapbox.SymbolLayer id="convoy-meeting-label" style={{ textField: ['get', 'label'] as any, textSize: 9, textColor: '#FFD447', textHaloColor: '#090909', textHaloWidth: 2, textOffset: [0, 2.2] }} />
-    </Mapbox.ShapeSource>}
-    <Mapbox.ShapeSource id="convoy-participants-source" shape={participantShape}>
-      <Mapbox.CircleLayer id="convoy-participants-glow" style={{ circleRadius: 14, circleColor: ['case', ['get', 'host'], '#FFD44733', ['get', 'paused'], '#ff922b33', '#31c8ff33'] as any }} />
-      <Mapbox.CircleLayer id="convoy-participants-dot" style={{ circleRadius: 8, circleColor: ['case', ['get', 'host'], '#FFD447', ['get', 'paused'], '#ff922b', '#31c8ff'] as any, circleStrokeColor: '#090909', circleStrokeWidth: 2 }} />
-      <Mapbox.SymbolLayer id="convoy-participants-label" style={{ textField: ['get', 'label'] as any, textSize: 10, textColor: '#ffffff', textHaloColor: '#090909', textHaloWidth: 2, textOffset: [0, 2] }} />
-    </Mapbox.ShapeSource>
+    {meetingShape && <Mapbox.MarkerView
+      coordinate={meetingShape.geometry.coordinates as [number, number]}
+      anchor={{ x: 0.5, y: 1 }}
+      allowOverlap
+    >
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Nawiguj do punktu zbiórki" onPress={onMeetingPress} activeOpacity={0.82} style={styles.meetingMarker}>
+        <View style={styles.meetingIcon}>
+          <MaterialCommunityIcons name="flag-checkered" size={20} color="#171200" />
+        </View>
+        <Text style={styles.meetingLabel}>PUNKT ZBIÓRKI</Text>
+      </TouchableOpacity>
+    </Mapbox.MarkerView>}
   </>;
 }
+
+const styles = StyleSheet.create({
+  meetingMarker: { alignItems: 'center', minWidth: 96, minHeight: 52 },
+  meetingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFD447',
+    borderWidth: 3,
+    borderColor: '#090909',
+  },
+  meetingLabel: {
+    marginTop: 2,
+    color: '#FFD447',
+    backgroundColor: '#090909E8',
+    borderRadius: 7,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    fontSize: 8,
+    fontFamily: 'Manrope_700Bold',
+  },
+});

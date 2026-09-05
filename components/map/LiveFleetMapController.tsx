@@ -9,6 +9,8 @@ import {
 } from '../../hooks/liveFleetSpatialIndex';
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
+import type { ConvoyParticipant } from '../../lib/convoyLive';
+import { mergeLiveAndConvoyUserIds } from '../../lib/convoyUi';
 
 type Props = {
   store: LiveMapStore;
@@ -19,6 +21,8 @@ type Props = {
   mapIdleNonce: number;
   zoom?: number;
   onUserPress: (userId: number) => void;
+  convoyParticipants?: ConvoyParticipant[];
+  convoyHostId?: number | null;
 };
 
 // getVisibleBounds() can fail while a Mapbox style is being attached or
@@ -52,6 +56,8 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   mapIdleNonce,
   zoom,
   onUserPress,
+  convoyParticipants = [],
+  convoyHostId,
 }: Props) {
   const liveUserIds = useLiveMapUserIds(store);
   const lastValidBoundsRef = useRef<ViewportBounds>(EMPTY_VIEWPORT);
@@ -63,10 +69,13 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const [viewportZoom, setViewportZoom] = useState(0);
   const [positionRevision, setPositionRevision] = useState(0);
 
-  const fleetUserIds = useMemo(
-    () => liveUserIds.filter((id) => String(id) !== String(selfUserId)),
-    [liveUserIds, selfUserId],
+  const convoyByUserId = useMemo(
+    () => new Map(convoyParticipants.map((participant) => [participant.userId, participant])),
+    [convoyParticipants],
   );
+  const fleetUserIds = useMemo(() => {
+    return mergeLiveAndConvoyUserIds(liveUserIds, convoyParticipants, selfUserId);
+  }, [convoyParticipants, liveUserIds, selfUserId]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -175,7 +184,10 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     () => {
       void positionRevision;
       const next = fleetUserIds.filter((id) => {
-        const position = store.getPosition(id);
+        const convoyPosition = convoyByUserId.get(id)?.position;
+        const position = Number.isFinite(Number(convoyPosition?.lat)) && Number.isFinite(Number(convoyPosition?.lng))
+          ? { lat: Number(convoyPosition?.lat), lng: Number(convoyPosition?.lng) }
+          : store.getPosition(id);
         return !!position && isInViewport(position.lat, position.lng, markerViewportBounds);
       });
       const previous = visibleMarkerIdsRef.current;
@@ -187,7 +199,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     },
     // positionRevision is a batched 50 ms signal. The resulting ID list changes
     // only when a user enters or leaves the expanded viewport.
-    [fleetUserIds, markerViewportBounds, positionRevision, store],
+    [convoyByUserId, fleetUserIds, markerViewportBounds, positionRevision, store],
   );
 
   return (
@@ -197,6 +209,8 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
       visible={renderEnabled}
       zoom={effectiveZoom}
       onUserPress={onUserPress}
+      convoyParticipants={convoyParticipants}
+      convoyHostId={convoyHostId}
     />
   );
 });

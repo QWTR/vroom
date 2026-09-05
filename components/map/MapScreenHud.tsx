@@ -45,6 +45,7 @@ export type MapScreenHudProps = {
   isBuilding: boolean;
   showSideControls: boolean;
   sideControlsBottom: number;
+  speedPanelTop?: number;
   effectiveSpeedLimit: number | null;
   speedLimitStatus?: 'known' | 'pending' | 'queued' | 'unknown';
   canReportSpeedLimit?: boolean;
@@ -84,6 +85,7 @@ export const MapScreenHud = memo(function MapScreenHud({
   isBuilding,
   showSideControls,
   sideControlsBottom,
+  speedPanelTop,
   effectiveSpeedLimit,
   speedLimitStatus,
   canReportSpeedLimit,
@@ -175,6 +177,7 @@ export const MapScreenHud = memo(function MapScreenHud({
               : isNavigating
                 ? styles.hudSpeedTilePosNav
                 : styles.hudSpeedTilePosFreeDrive,
+            speedPanelTop != null ? { top: speedPanelTop } : null,
           ]}
           onLayout={(e) => onHudBottomLayout(e.nativeEvent.layout.height)}
         >

@@ -8,6 +8,8 @@ import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 import type { ShopCosmeticItem } from '../../constants/shopCosmetics';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { formatLiveMarkerUsername, liveUserMarkerMetrics } from '../../lib/liveUserMarkerUi';
+import type { ConvoyParticipant } from '../../lib/convoyLive';
+import { resolveConvoyMarkerPresentation } from '../../lib/convoyUi';
 import {
   useLiveUserMeta,
   useLiveUserPosition,
@@ -19,6 +21,8 @@ type Props = {
   userId: number;
   zoom: number;
   onPress: (userId: number) => void;
+  convoyParticipant?: ConvoyParticipant | null;
+  convoyHostId?: number | null;
 };
 
 function useSmoothCoordinate(
@@ -82,9 +86,32 @@ export const LiveUserMapMarker = memo(function LiveUserMapMarker({
   userId,
   zoom,
   onPress,
+  convoyParticipant,
+  convoyHostId,
 }: Props) {
-  const meta = useLiveUserMeta(store, userId);
-  const position = useLiveUserPosition(store, userId);
+  const liveMeta = useLiveUserMeta(store, userId);
+  const livePosition = useLiveUserPosition(store, userId);
+  const convoyPosition = convoyParticipant?.position;
+  const position = Number.isFinite(Number(convoyPosition?.lat)) && Number.isFinite(Number(convoyPosition?.lng))
+    ? {
+        lat: Number(convoyPosition?.lat),
+        lng: Number(convoyPosition?.lng),
+        heading: convoyPosition?.heading ?? null,
+        speedMps: convoyPosition?.speedKmh != null ? Number(convoyPosition.speedKmh) / 3.6 : null,
+      }
+    : livePosition;
+  const meta = convoyParticipant ? {
+    id: userId,
+    username: convoyParticipant.user.username,
+    avatarUrl: convoyParticipant.user.avatarUrl ?? liveMeta?.avatarUrl ?? null,
+    avatarFrameUrl: convoyParticipant.user.avatarFrameUrl ?? liveMeta?.avatarFrameUrl ?? null,
+    online: convoyParticipant.connection !== 'paused',
+    isFriend: liveMeta?.isFriend ?? false,
+    isPremium: convoyParticipant.user.isPremium ?? liveMeta?.isPremium ?? false,
+    premiumVisual: convoyParticipant.user.premiumVisual ?? liveMeta?.premiumVisual ?? null,
+    stale: liveMeta?.stale ?? false,
+    motionTier: liveMeta?.motionTier ?? 'full' as const,
+  } : liveMeta;
   const [avatarFailed, setAvatarFailed] = useState(false);
   const avatarUri = normalizeMediaUri(meta?.avatarUrl);
   const frameUri = normalizeMediaUri(meta?.avatarFrameUrl);
@@ -104,6 +131,9 @@ export const LiveUserMapMarker = memo(function LiveUserMapMarker({
   const premium = meta?.isPremium === true;
   const friend = meta?.isFriend === true;
   const stale = meta?.stale === true;
+  const convoyPresentation = convoyParticipant
+    ? resolveConvoyMarkerPresentation({ ...convoyParticipant, convoyHostId: convoyHostId ?? undefined })
+    : null;
   const accentColors = premium && meta?.premiumVisual?.accentColors?.length === 2
     ? meta.premiumVisual.accentColors
     : friend
@@ -186,8 +216,8 @@ export const LiveUserMapMarker = memo(function LiveUserMapMarker({
           style={[
             styles.label,
             {
-              width: metrics.labelWidth,
-              borderColor: premium ? `${accentColors[0]}90` : friend ? '#4DE92670' : '#FFFFFF22',
+              width: convoyPresentation ? metrics.labelWidth + 22 : metrics.labelWidth,
+              borderColor: convoyPresentation?.color ?? (premium ? `${accentColors[0]}90` : friend ? '#4DE92670' : '#FFFFFF22'),
             },
           ]}
         >
@@ -198,18 +228,18 @@ export const LiveUserMapMarker = memo(function LiveUserMapMarker({
             {username}
           </Text>
           <View style={styles.statusRow}>
-            <View style={[styles.statusDot, stale && styles.staleDot]} />
+            <View style={[styles.statusDot, convoyPresentation ? { backgroundColor: convoyPresentation.color } : null, stale && styles.staleDot]} />
             <Text
               numberOfLines={1}
               style={[
                 styles.status,
                 {
-                  color: stale ? '#8D96A4' : premium ? '#FFD447' : '#4DE926',
+                  color: convoyPresentation?.color ?? (stale ? '#8D96A4' : premium ? '#FFD447' : '#4DE926'),
                   fontSize: metrics.statusSize,
                 },
               ]}
             >
-              {stale ? 'OSTATNIO' : premium ? 'PREMIUM · LIVE' : 'LIVE'}
+              {convoyPresentation?.text ?? (stale ? 'OSTATNIO' : premium ? 'PREMIUM · LIVE' : 'LIVE')}
             </Text>
           </View>
         </View>
@@ -233,6 +263,7 @@ const styles = StyleSheet.create({
   avatarStage: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
     zIndex: 2,
   },
   initials: {

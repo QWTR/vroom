@@ -13,11 +13,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { useRadio } from '../../contexts/RadioContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import type { ConvoySnapshot } from '../../lib/convoyLive';
+import { CONVOY_STATUS_LABELS, type ConvoySnapshot } from '../../lib/convoyLive';
 import type { RadioCity, RadioMode, RadioParticipant } from '../../types/radio';
 import { PremiumAvatar, PremiumName } from '../user/PremiumIdentity';
 
@@ -35,9 +36,19 @@ function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 export function VroomCbRadioPanel({
   location,
   activeConvoy,
+  currentUserId,
+  top,
+  onLayoutHeight,
+  onConvoyPress,
+  onPlanPress,
 }: {
   location: MapLocation;
   activeConvoy: ConvoySnapshot | null;
+  currentUserId: number | string | null;
+  top: number;
+  onLayoutHeight?: (height: number) => void;
+  onConvoyPress?: () => void;
+  onPlanPress?: () => void;
 }) {
   const { theme, isDark } = useTheme();
   const radio = useRadio();
@@ -92,8 +103,16 @@ export function VroomCbRadioPanel({
   const pendingSelf = Boolean(radio.snapshot?.pendingSpeakerIds.includes(radio.snapshot.selfUserId));
   const connected = Boolean(radio.snapshot);
   const enabled = radio.config?.flags.enabled !== false;
+  const convoySelf = activeConvoy?.participants.find((participant) => String(participant.userId) === String(currentUserId));
+  const convoyStatus = convoySelf?.connection === 'paused'
+    ? 'WSTRZYMANY'
+    : CONVOY_STATUS_LABELS[convoySelf?.quickStatus || 'ok'] || 'OK';
+  const convoyHasPlan = Boolean(
+    activeConvoy?.convoy.route
+    || (activeConvoy?.convoy.meetingLat != null && activeConvoy?.convoy.meetingLng != null),
+  );
 
-  if (!enabled) return null;
+  if (!enabled && !activeConvoy) return null;
 
   const connect = async () => {
     setBusy(true);
@@ -138,23 +157,60 @@ export function VroomCbRadioPanel({
 
   return (
     <>
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={connected ? `VROOM CB, ${radio.snapshot?.active.title}` : 'Otwórz VROOM CB'}
-        onPress={() => setVisible(true)}
-        activeOpacity={0.9}
+      <View
+        onLayout={(event: LayoutChangeEvent) => onLayoutHeight?.(event.nativeEvent.layout.height)}
         style={[
-          styles.mapButton,
-          { top: activeConvoy ? 118 : 66, backgroundColor: isDark ? '#10151AF2' : '#FFFFFFF2', borderColor: connected ? '#18D7A0' : '#647381' },
+          styles.mapDock,
+          activeConvoy ? styles.fullDock : styles.radioOnlyDock,
+          {
+            top,
+            backgroundColor: isDark ? '#10151AF2' : '#FFFFFFF2',
+            borderColor: connected ? '#18D7A0' : activeConvoy ? '#FFD44788' : '#647381',
+          },
         ]}
       >
-        <View style={[styles.radioDot, { backgroundColor: connected ? '#18D7A0' : '#7B8792' }]} />
-        <MaterialCommunityIcons name={connected ? 'radio-handheld' : 'radio'} size={20} color={connected ? '#18D7A0' : theme.text} />
-        <View style={styles.mapButtonCopy}>
-          <Text numberOfLines={1} style={[styles.mapButtonTitle, { color: theme.text }]}>{connected ? radio.snapshot?.active.title : 'VROOM CB'}</Text>
-          {connected && <Text numberOfLines={1} style={styles.mapButtonMeta}>{radio.snapshot?.participants.length || 1} osób · {radio.snapshot?.speakers.length ? `${radio.snapshot.speakers.length} mówi` : 'cisza'}</Text>}
-        </View>
-        {connected && (
+        {activeConvoy ? (
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Otwórz Convoy Live" onPress={onConvoyPress} activeOpacity={0.82} style={styles.convoySection}>
+            <MaterialCommunityIcons name="car-multiple" size={20} color="#FFD447" />
+            <View style={styles.mapButtonCopy}>
+              <Text numberOfLines={1} style={[styles.mapButtonTitle, { color: theme.text }]}>{activeConvoy.convoy.name}</Text>
+              <Text numberOfLines={1} style={styles.convoyMeta}>
+                {activeConvoy.participants.length}/{activeConvoy.convoy.maxParticipants ?? 50} · {convoyStatus}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : null}
+
+        {activeConvoy ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Nawigacja konwoju"
+            disabled={!convoyHasPlan}
+            onPress={onPlanPress}
+            style={[styles.planButton, !convoyHasPlan && { opacity: 0.35 }]}
+          >
+            <MaterialCommunityIcons name="map-marker-path" size={20} color="#FFD447" />
+          </TouchableOpacity>
+        ) : null}
+
+        {enabled ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={connected ? `VROOM CB, ${radio.snapshot?.active.title}` : 'Otwórz VROOM CB'}
+            onPress={() => setVisible(true)}
+            activeOpacity={0.82}
+            style={styles.radioSection}
+          >
+            <View style={[styles.radioDot, { backgroundColor: connected ? '#18D7A0' : '#7B8792' }]} />
+            <MaterialCommunityIcons name={connected ? 'radio-handheld' : 'radio'} size={20} color={connected ? '#18D7A0' : theme.text} />
+            <View style={styles.mapButtonCopy}>
+              <Text numberOfLines={1} style={[styles.mapButtonTitle, { color: theme.text }]}>{connected ? radio.snapshot?.active.title : 'VROOM CB'}</Text>
+              {connected && <Text numberOfLines={1} style={styles.mapButtonMeta}>{radio.snapshot?.participants.length || 1} osób · {radio.snapshot?.speakers.length ? `${radio.snapshot.speakers.length} mówi` : 'cisza'}</Text>}
+            </View>
+          </TouchableOpacity>
+        ) : null}
+
+        {enabled && connected && (
           <Pressable
             accessibilityLabel="Nadaj Push-to-Talk"
             disabled={radio.vadArmed}
@@ -166,7 +222,7 @@ export function VroomCbRadioPanel({
             <MaterialCommunityIcons name="microphone" size={18} color="#071510" />
           </Pressable>
         )}
-      </TouchableOpacity>
+      </View>
 
       <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setVisible(false)} />
@@ -296,11 +352,17 @@ export function VroomCbRadioPanel({
 }
 
 const styles = StyleSheet.create({
-  mapButton: { position: 'absolute', right: 12, zIndex: 31, minHeight: 48, maxWidth: 238, paddingLeft: 10, paddingRight: 6, borderRadius: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 7, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  mapDock: { position: 'absolute', right: 12, zIndex: 131, minHeight: 52, paddingHorizontal: 6, borderRadius: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 5, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 12 },
+  fullDock: { left: 12 },
+  radioOnlyDock: { maxWidth: 238 },
+  convoySection: { flex: 1, minWidth: 0, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 5 },
+  radioSection: { flexShrink: 1, minWidth: 84, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 5 },
+  planButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#FFD44716', alignItems: 'center', justifyContent: 'center' },
   radioDot: { width: 7, height: 7, borderRadius: 4 },
   mapButtonCopy: { flexShrink: 1, minWidth: 72 },
   mapButtonTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.2 },
   mapButtonMeta: { color: '#18D7A0', fontSize: 10, marginTop: 1 },
+  convoyMeta: { color: '#FFD447', fontSize: 9, marginTop: 1, fontWeight: '800' },
   miniPtt: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18D7A0' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#00000088' },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '76%', borderTopLeftRadius: 25, borderTopRightRadius: 25, borderWidth: 1, paddingHorizontal: 18, paddingBottom: 28 },

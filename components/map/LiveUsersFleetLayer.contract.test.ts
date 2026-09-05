@@ -10,6 +10,8 @@ const controllerSource = readFileSync(
   'utf8',
 );
 const liveMapSource = readFileSync(resolve(process.cwd(), 'hooks/useLiveMap.ts'), 'utf8');
+const convoyLayerSource = readFileSync(resolve(process.cwd(), 'components/map/ConvoyMapLayer.tsx'), 'utf8');
+const mapScreenSource = readFileSync(resolve(process.cwd(), 'app/(tabs)/map.tsx'), 'utf8');
 
 describe('LIVE native marker contract', () => {
   it('renders real MarkerView UI without bitmap capture or map symbol sprites', () => {
@@ -53,5 +55,20 @@ describe('LIVE native marker contract', () => {
     expect(liveMapSource).toContain("socket.on('live:user:identity'");
     expect(liveMapSource).toContain('store.setMeta({');
     expect(liveMapSource).toContain('store.setPosition(id, existingPos.lat, existingPos.lng, true)');
+  });
+
+  it('renders convoy members through the LIVE marker once and removes participant dots', () => {
+    expect(controllerSource).toContain('mergeLiveAndConvoyUserIds');
+    expect(markerSource).toContain('resolveConvoyMarkerPresentation');
+    expect(convoyLayerSource).not.toContain('CircleLayer');
+    expect(convoyLayerSource).not.toContain('participants.map');
+  });
+
+  it('keeps convoy route approach personal and automatically switches to the shared run', () => {
+    expect(mapScreenSource).toContain('buildConvoyRouteIntent(activeConvoy, userLocation)');
+    expect(mapScreenSource).toContain('approachingRouteStartRef.current = true');
+    expect(mapScreenSource).toContain("autoStartRouteAfterApproachRef.current = convoyNavigationMode === 'route'");
+    expect(mapScreenSource).toContain('setStartLocation(loaded.start)');
+    expect(mapScreenSource).toContain('setEndLocation(loaded.end)');
   });
 });

@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import type { ShopCosmeticItem } from '../../constants/shopCosmetics';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { centeredAvatarDecorationMetrics } from '../../lib/avatarDecorationUi';
 
 type Props = {
   item: ShopCosmeticItem | null | undefined;
@@ -14,10 +15,16 @@ export const ShopAvatarDecoration = memo(function ShopAvatarDecoration({ item, s
   const uri = normalizeMediaUri(item?.assetUrl);
   if (!uri) return null;
 
-  const outer = size * 1.28;
-  const offset = (size - outer) / 2;
+  const { outer, margin } = centeredAvatarDecorationMetrics(size);
   return (
-    <View pointerEvents="none" style={[styles.wrap, { width: outer, height: outer, left: offset, top: offset }]}>
+    <View pointerEvents="none" style={[styles.wrap, {
+      width: outer,
+      height: outer,
+      left: '50%',
+      top: '50%',
+      marginLeft: margin,
+      marginTop: margin,
+    }]}>
       <Image
         source={{ uri }}
         style={{ width: outer, height: outer }}
@@ -32,6 +39,7 @@ export const ShopAvatarDecoration = memo(function ShopAvatarDecoration({ item, s
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
+    overflow: 'visible',
     zIndex: 12,
     alignItems: 'center',
     justifyContent: 'center',

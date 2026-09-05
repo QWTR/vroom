@@ -5,6 +5,13 @@ import { AppState } from 'react-native';
 import { apiRequest } from '../lib/api/client';
 import { ensureSharedSocket } from '../lib/sharedSocket';
 import type { ConvoySnapshot } from '../lib/convoyLive';
+import type { ConvoyPlanEvent, ConvoyStatusEvent } from '../lib/convoyLive';
+import {
+  enqueueConvoyNotice,
+  noticeFromPlanEvent,
+  noticeFromStatusEvent,
+  type ConvoyMapNotice,
+} from '../lib/convoyUi';
 import { BG_ACTIVE_CONVOY_HOST_KEY, BG_ACTIVE_CONVOY_ID_KEY } from './useBackgroundTracking';
 
 type MapLocation = {
@@ -24,15 +31,41 @@ export function useActiveConvoyMap({
   location: MapLocation | null;
 }) {
   const [snapshot, setSnapshot] = useState<ConvoySnapshot | null>(null);
+  const [notices, setNotices] = useState<ConvoyMapNotice[]>([]);
   const locationRef = useRef(location);
   const convoyIdRef = useRef<string | null>(null);
+  const snapshotRef = useRef<ConvoySnapshot | null>(null);
+  const seenEventIdsRef = useRef(new Set<string>());
   const appStateRef = useRef(AppState.currentState);
+  const foregroundSinceRef = useRef(0);
+  const suppressNoticesUntilRef = useRef(0);
 
   useEffect(() => { locationRef.current = location; }, [location]);
+  useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+
+  const pushNotice = useCallback((notice: ConvoyMapNotice | null) => {
+    if (
+      !notice
+      || AppState.currentState !== 'active'
+      || Date.now() < suppressNoticesUntilRef.current
+      || seenEventIdsRef.current.has(notice.id)
+    ) return;
+    seenEventIdsRef.current.add(notice.id);
+    if (seenEventIdsRef.current.size > 100) {
+      seenEventIdsRef.current = new Set([...seenEventIdsRef.current].slice(-50));
+    }
+    setNotices((previous) => enqueueConvoyNotice(previous, notice));
+  }, []);
+
+  const dismissNotice = useCallback((id: string) => {
+    setNotices((previous) => previous.filter((notice) => notice.id !== id));
+  }, []);
 
   const clearActive = useCallback(() => {
     convoyIdRef.current = null;
+    snapshotRef.current = null;
     setSnapshot(null);
+    setNotices([]);
     void AsyncStorage.multiRemove([BG_ACTIVE_CONVOY_ID_KEY, BG_ACTIVE_CONVOY_HOST_KEY]);
   }, []);
 
@@ -45,6 +78,7 @@ export function useActiveConvoyMap({
     const connect = async (initial: ConvoySnapshot) => {
       if (disposed) return;
       convoyIdRef.current = initial.convoy.id;
+      snapshotRef.current = initial;
       setSnapshot(initial);
       const host = initial.convoy.hostId === currentUserId;
       if (isPremium || host) {
@@ -57,26 +91,75 @@ export function useActiveConvoyMap({
       if (!socket || disposed) return;
       socket.emit('convoy:join', { convoyId: initial.convoy.id });
       const onSnapshot = (next: ConvoySnapshot) => {
-        if (next.convoy.id === convoyIdRef.current) setSnapshot(next);
+        if (next.convoy.id === convoyIdRef.current) {
+          snapshotRef.current = next;
+          setSnapshot(next);
+        }
       };
-      const onPosition = (position: any) => setSnapshot((previous) => previous ? {
-        ...previous,
-        participants: previous.participants.map((participant) => participant.userId === Number(position.userId)
-          ? { ...participant, position, connection: 'live' }
-          : participant),
-      } : previous);
-      const onStatus = (status: any) => setSnapshot((previous) => previous ? {
-        ...previous,
-        participants: previous.participants.map((participant) => participant.userId === Number(status.userId)
-          ? { ...participant, ...(status.status ? { quickStatus: status.status } : {}), ...(status.connection ? { connection: status.connection } : {}) }
-          : participant),
-      } : previous);
-      const reload = () => apiRequest<ConvoySnapshot>('/convoys/active/me').then((next) => {
-        if (!disposed) setSnapshot(next);
-      }).catch(() => {});
+      const onPosition = (position: any) => {
+        const previous = snapshotRef.current;
+        if (!previous) return;
+        const next = {
+          ...previous,
+          participants: previous.participants.map((participant) => participant.userId === Number(position.userId)
+            ? { ...participant, position, connection: 'live' }
+            : participant),
+        };
+        snapshotRef.current = next;
+        setSnapshot(next);
+      };
+      const onStatus = (status: ConvoyStatusEvent) => {
+        const previousSnapshot = snapshotRef.current;
+        const nextSnapshot = previousSnapshot ? {
+          ...previousSnapshot,
+          participants: previousSnapshot.participants.map((participant) => participant.userId === Number(status.userId)
+            ? { ...participant, ...(status.status ? { quickStatus: status.status } : {}), ...(status.connection ? { connection: status.connection } : {}) }
+            : participant),
+        } : previousSnapshot;
+        if (nextSnapshot) {
+          snapshotRef.current = nextSnapshot;
+          setSnapshot(nextSnapshot);
+        }
+        if (status.status && previousSnapshot) {
+          pushNotice(noticeFromStatusEvent({
+            event: { ...status, userId: Number(status.userId) },
+            participants: previousSnapshot.participants,
+            currentUserId,
+            foregroundSince: foregroundSinceRef.current,
+          }));
+        }
+      };
+      const reload = async () => {
+        try {
+          const next = await apiRequest<ConvoySnapshot>('/convoys/active/me');
+          if (!disposed) {
+            snapshotRef.current = next;
+            setSnapshot(next);
+          }
+        } catch {}
+      };
+      const onRoute = (event: ConvoyPlanEvent) => {
+        void reload().finally(() => {
+          const currentSnapshot = snapshotRef.current;
+          if (!disposed && currentSnapshot) {
+            pushNotice(noticeFromPlanEvent({
+              event: { ...event, actorId: Number(event.actorId) },
+              participants: currentSnapshot.participants,
+              currentUserId,
+              foregroundSince: foregroundSinceRef.current,
+            }));
+          }
+        });
+      };
       const onLeave = ({ userId }: any) => {
         if (Number(userId) === currentUserId) clearActive();
-        else setSnapshot((previous) => previous ? { ...previous, participants: previous.participants.filter((participant) => participant.userId !== Number(userId)) } : previous);
+        else {
+          const previous = snapshotRef.current;
+          if (!previous) return;
+          const next = { ...previous, participants: previous.participants.filter((participant) => participant.userId !== Number(userId)) };
+          snapshotRef.current = next;
+          setSnapshot(next);
+        }
       };
       const onEnd = () => clearActive();
       socket.on('convoy:snapshot', onSnapshot);
@@ -85,7 +168,7 @@ export function useActiveConvoyMap({
       socket.on('convoy:join', reload);
       socket.on('convoy:leave', onLeave);
       socket.on('convoy:kick', onLeave);
-      socket.on('convoy:route', reload);
+      socket.on('convoy:route', onRoute);
       socket.on('convoy:end', onEnd);
       cleanupSocket = () => {
         socket.off('convoy:snapshot', onSnapshot);
@@ -94,7 +177,7 @@ export function useActiveConvoyMap({
         socket.off('convoy:join', reload);
         socket.off('convoy:leave', onLeave);
         socket.off('convoy:kick', onLeave);
-        socket.off('convoy:route', reload);
+        socket.off('convoy:route', onRoute);
         socket.off('convoy:end', onEnd);
       };
 
@@ -118,6 +201,13 @@ export function useActiveConvoyMap({
     const appStateSubscription = AppState.addEventListener('change', async (state) => {
       const previous = appStateRef.current;
       appStateRef.current = state;
+      if (state === 'active' && previous !== 'active') {
+        foregroundSinceRef.current = Date.now();
+        suppressNoticesUntilRef.current = Date.now() + 1_500;
+        setNotices([]);
+      } else if (state !== 'active') {
+        setNotices([]);
+      }
       if (previous === 'active' && state !== 'active' && !isPremium && convoyIdRef.current) {
         const socket = await ensureSharedSocket();
         const last = locationRef.current;
@@ -131,7 +221,12 @@ export function useActiveConvoyMap({
       cleanupSocket?.();
       appStateSubscription.remove();
     };
-  }, [clearActive, currentUserId, isPremium]));
+  }, [clearActive, currentUserId, isPremium, pushNotice]));
 
-  return { activeConvoy: snapshot, clearActiveConvoy: clearActive };
+  return {
+    activeConvoy: snapshot,
+    convoyNotices: notices,
+    dismissConvoyNotice: dismissNotice,
+    clearActiveConvoy: clearActive,
+  };
 }
