@@ -123,6 +123,14 @@ function createRadioRoom() {
   });
 }
 
+// Voice activation must not close the speaker lease between quiet syllables.
+// A short attack keeps it responsive, while hysteresis and a longer release
+// prevent the relay from chopping a sentence into many tiny audio bursts.
+const VAD_SAMPLE_INTERVAL_MS = 120;
+const VAD_ATTACK_SAMPLES = 1;
+const VAD_RELEASE_HOLD_MS = 2_400;
+const VAD_SUSTAIN_THRESHOLD_RATIO = 0.62;
+
 export function RadioProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<RadioConfig | null>(null);
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
@@ -463,16 +471,22 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
         const sensitivity = preferencesRef.current.vadSensitivity;
         const threshold = Math.max(0.008, vadNoiseFloorRef.current * (2.5 - sensitivity * 0.012));
         const now = Date.now();
-        if (level >= threshold) {
+        const opensGate = level >= threshold;
+        const sustainsGate = level >= Math.max(0.004, threshold * VAD_SUSTAIN_THRESHOLD_RATIO);
+        if (opensGate) {
           vadHotSamplesRef.current += 1;
           vadLastVoiceAtRef.current = now;
-          if (vadHotSamplesRef.current >= 2 && !transmittingRef.current) void startTransmission();
+          if (vadHotSamplesRef.current >= VAD_ATTACK_SAMPLES && !transmittingRef.current) void startTransmission();
+        } else if (transmittingRef.current && sustainsGate) {
+          // Once speech has opened the gate, keep it open for quieter phonemes.
+          vadHotSamplesRef.current = 0;
+          vadLastVoiceAtRef.current = now;
         } else {
-          if (!transmittingRef.current && level < threshold * 1.5) {
+          if (!transmittingRef.current && level < threshold * 0.8) {
             vadNoiseFloorRef.current = vadNoiseFloorRef.current * 0.92 + Math.max(0.002, level) * 0.08;
           }
           vadHotSamplesRef.current = 0;
-          if (transmittingRef.current && vadLastVoiceAtRef.current > 0 && now - vadLastVoiceAtRef.current > 1_200) void stopTransmission();
+          if (transmittingRef.current && vadLastVoiceAtRef.current > 0 && now - vadLastVoiceAtRef.current > VAD_RELEASE_HOLD_MS) void stopTransmission();
         }
       } catch (cause: any) {
         vadSampleErrorsRef.current += 1;
@@ -483,7 +497,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       } finally {
         vadSampleBusyRef.current = false;
       }
-    }, 180);
+    }, VAD_SAMPLE_INTERVAL_MS);
   }, [startTransmission, stopTransmission]);
 
   const setVadArmed = useCallback(async (armed: boolean) => {
