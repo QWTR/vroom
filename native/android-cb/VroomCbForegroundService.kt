@@ -10,7 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import androidx.core.app.ContextCompat
+import androidx.core.content.ContextCompat
 
 class VroomCbForegroundService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
