@@ -42,7 +42,7 @@ export function resolveNotificationUrl(data: NotificationData | null | undefined
 
   if (type === 'new_message' && conversationId) return `/Community/chats/${conversationId}${params({ messageId })}`;
   if (type === 'market_message' && conversationId) return `/Community/market/chat/${conversationId}${params({ messageId })}`;
-  if (['like_post', 'like_post_comment', 'comment_post', 'comment_reply', 'mention_discussion', 'discussion_post_new', 'followed_post_new'].includes(type) && postId) return `/Community/community/community${params({ postId, commentId })}`;
+  if (['like_post', 'like_post_comment', 'reaction_post', 'reaction_post_comment', 'comment_post', 'comment_reply', 'mention_discussion', 'discussion_post_new', 'followed_post_new'].includes(type) && postId) return `/Community/community/community${params({ postId, commentId })}`;
   if (['like_vroomki', 'like_vroomki_comment', 'comment_vroomki', 'comment_vroomki_reply', 'followed_vroomki_new', 'vroomki_published'].includes(type) && vroomkiId) return `/Community/vroomki${params({ vroomkiId, commentId })}`;
   if (['club_chat', 'mention_club'].includes(type) && clubId) return `/Community/clubs/${clubId}${params({ channelId, messageId })}`;
   if (type === 'club_invite') return `/Community/clubs/clubs${params({ inviteId: numeric(data.inviteId), clubId })}`;

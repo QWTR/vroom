@@ -11,6 +11,7 @@ export interface User {
   distance?: number;
   isFriend?: boolean;
   isPremium?: boolean;
+  isAdmin?: boolean;
   premiumVisual?: PremiumVisual | null;
 }
 

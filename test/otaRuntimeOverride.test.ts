@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 function readRuntime(runtime?: string): string {
@@ -16,10 +17,15 @@ function readRuntime(runtime?: string): string {
 
 describe('OTA runtime override', () => {
   it('uses the native build runtime by default', () => {
-    expect(readRuntime()).toBe('1.0.29');
+    expect(readRuntime()).toBe('1.0.30');
   });
 
-  it('can target the installed 1.0.28 binary explicitly', () => {
-    expect(readRuntime('1.0.28')).toBe('1.0.28');
+  it('can target an older installed binary explicitly', () => {
+    expect(readRuntime('1.0.29')).toBe('1.0.29');
+  });
+
+  it('blocks production EAS commands from a dirty working tree', () => {
+    const eas = JSON.parse(readFileSync('eas.json', 'utf8'));
+    expect(eas.cli.requireCommit).toBe(true);
   });
 });

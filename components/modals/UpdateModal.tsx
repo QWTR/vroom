@@ -9,19 +9,26 @@ import { useTheme } from '../../contexts/ThemeContext';
 interface Props {
   visible:    boolean;
   loading:    boolean;
-  progress:   number;
+  restarting: boolean;
+  progress:   number | null;
   error:      string | null;
   onUpdate:   () => void;
   onDismiss:  () => void;
 }
 
-export function UpdateModal({ visible, loading, progress, error, onUpdate, onDismiss }: Props) {
+export function UpdateModal({ visible, loading, restarting, progress, error, onUpdate, onDismiss }: Props) {
   const { theme, isDark } = useTheme();
 
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent>
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onDismiss}
+    >
       <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
         <View style={{ width: '100%', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: theme.primaryBorder }}>
           <LinearGradient
@@ -46,17 +53,21 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
 
             <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, textAlign: 'center', lineHeight: 16, marginBottom: error ? 12 : 28, letterSpacing: 0.5 }}>
               {loading
-                ? `Pobieranie aktualizacji… ${Math.round(progress)}%`
+                ? restarting
+                  ? 'Uruchamianie nowej wersji…'
+                  : progress === null
+                    ? 'Pobieranie aktualizacji…'
+                    : `Pobieranie aktualizacji… ${progress}%`
                 : 'Dostępna jest nowa wersja VROOM.\nZaktualizuj teraz, żeby korzystać z najnowszych funkcji i poprawek.'}
             </Text>
 
-            {loading && (
+            {loading && progress !== null && (
               <View style={{ marginBottom: 20 }}>
                 <View style={{ height: 8, borderRadius: 999, backgroundColor: theme.border2, overflow: 'hidden' }}>
                   <View
                     style={{
                       height: '100%',
-                      width: `${Math.max(0, Math.min(100, progress))}%`,
+                      width: `${progress}%`,
                       backgroundColor: '#e33835',
                     }}
                   />
@@ -88,13 +99,11 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
               </LinearGradient>
             </TouchableOpacity>
 
-            {!loading && (
-              <TouchableOpacity onPress={onDismiss} activeOpacity={0.7} style={{ alignItems: 'center', paddingVertical: 12 }}>
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
-                  Później
-                </Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={onDismiss} activeOpacity={0.7} style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textDim, letterSpacing: 1 }}>
+                {loading ? 'UKRYJ — POBIERANIE TRWA W TLE' : 'Później'}
+              </Text>
+            </TouchableOpacity>
           </LinearGradient>
         </View>
       </View>

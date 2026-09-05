@@ -3232,11 +3232,11 @@ export default function SettingsScreen() {
 							icon='info-outline'
 							iconBg='#607D8B'
 							label='O aplikacji'
-							sublabel='VROOM V1.0.29'
+							sublabel='VROOM V1.0.30'
 							onPress={() =>
 								Toast.show({
 									type: "info",
-									text1: "🚗 VROOM V1.0.29",
+									text1: "🚗 VROOM V1.0.30",
 									text2: "Made with ❤️ for car enthusiasts",
 								})
 							}
@@ -3323,7 +3323,7 @@ export default function SettingsScreen() {
 									color: textDim,
 									letterSpacing: 1,
 								}}>
-								VROOM OS V1.0.29
+								VROOM OS V1.0.30
 							</Text>
 							<View
 								style={{

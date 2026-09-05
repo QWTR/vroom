@@ -20,6 +20,8 @@ describe('notification routing', () => {
     ['geo_drop_available', { dropId: 18, lat: 52.1, lng: 21.1 }, '/(tabs)/map?dropId=18&lat=52.1&lng=21.1'],
     ['drop_claimed', { dropId: 18 }, '/gamification/drops'],
     ['daily_duel_available', {}, '/Community/duel/vote'],
+    ['reaction_post', { postId: 12 }, '/Community/community/community?postId=12'],
+    ['reaction_post_comment', { postId: 12, commentId: 7 }, '/Community/community/community?postId=12&commentId=7'],
     ['achievement', { achievementKey: 'first_drive' }, '/profile/achievements?achievementKey=first_drive'],
     ['bug_report_reply', { bugReportId: 19 }, '/profile/bug-report/19'],
     ['market_purchase', { orderId: 'ord_20' }, '/Community/market/orders?orderId=ord_20'],

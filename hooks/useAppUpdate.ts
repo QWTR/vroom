@@ -1,5 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import * as Updates from 'expo-updates';
+import { downloadAndApplyUpdate, toUpdateProgressPercent } from '../lib/appUpdateCore';
 
 export type UpdateDiagnostics = {
   enabled: boolean;
@@ -31,12 +33,34 @@ export function getUpdateDiagnostics(): UpdateDiagnostics {
   };
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const CHECK_UI_TIMEOUT_MS = 10_000;
 
-const FETCH_TIMEOUT_MS = 90_000;
-const CHECK_TIMEOUT_MS = 5_000;
+type NativeCheckResult = Awaited<ReturnType<typeof Updates.checkForUpdateAsync>>;
+type NativeFetchResult = Awaited<ReturnType<typeof Updates.fetchUpdateAsync>>;
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+let checkInFlight: Promise<NativeCheckResult> | null = null;
+let fetchInFlight: Promise<NativeFetchResult> | null = null;
+
+function checkForUpdateOnce(): Promise<NativeCheckResult> {
+  if (!checkInFlight) {
+    checkInFlight = Updates.checkForUpdateAsync().finally(() => {
+      checkInFlight = null;
+    });
+  }
+  return checkInFlight;
+}
+
+function fetchUpdateOnce(): Promise<NativeFetchResult> {
+  if (!fetchInFlight) {
+    fetchInFlight = Updates.fetchUpdateAsync().finally(() => {
+      fetchInFlight = null;
+    });
+  }
+  return fetchInFlight;
+}
+
+async function waitWithSoftTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -55,15 +79,27 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
  * Modal „Aktualizuj” — użytkownik musi kliknąć, żeby pobrać i zrestartować.
  */
 export function useAppUpdate() {
+  const nativeState = Updates.useUpdates();
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [phase, setPhase] = useState<'idle' | 'downloading' | 'restarting'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const applyInFlightRef = useRef<Promise<void> | null>(null);
+  const dismissedDuringDownloadRef = useRef(false);
+  const updatePendingRef = useRef(nativeState.isUpdatePending);
+
+  useEffect(() => {
+    if (nativeState.isUpdatePending) updatePendingRef.current = true;
+  }, [nativeState.isUpdatePending]);
 
   const checkForUpdate = useCallback(async (opts?: { retries?: number }): Promise<boolean> => {
     if (__DEV__ || !Updates.isEnabled) {
       setUpdateAvailable(false);
       return false;
+    }
+    if (updatePendingRef.current) {
+      setUpdateAvailable(true);
+      setError(null);
+      return true;
     }
 
     const retries = Math.max(1, opts?.retries ?? 3);
@@ -71,12 +107,12 @@ export function useAppUpdate() {
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        const result = await withTimeout(
-          Updates.checkForUpdateAsync(),
-          CHECK_TIMEOUT_MS,
+        const result = await waitWithSoftTimeout(
+          checkForUpdateOnce(),
+          CHECK_UI_TIMEOUT_MS,
           'Sprawdzanie aktualizacji',
         );
-        const available = !!result.isAvailable;
+        const available = result.isAvailable || result.isRollBackToEmbedded;
         setUpdateAvailable(available);
         setError(null);
         return available;
@@ -88,69 +124,91 @@ export function useAppUpdate() {
     }
 
     setUpdateAvailable(false);
-    setError(lastError);
-    return false;
+    setError('Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.');
+    throw new Error(lastError ?? 'Nie udało się sprawdzić aktualizacji.');
   }, []);
 
   const applyUpdate = useCallback(async () => {
     if (__DEV__ || !Updates.isEnabled) return;
+    if (applyInFlightRef.current) return applyInFlightRef.current;
 
-    setDownloading(true);
-    setDownloadProgress(0);
-    setError(null);
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
-    try {
-      // expo-updates nie udostępnia natywnego % postępu dla fetchUpdateAsync,
-      // więc pokazujemy płynny progres UI podczas pobierania.
-      progressTimer = setInterval(() => {
-        setDownloadProgress((current) => (current >= 90 ? current : current + 4));
-      }, 700);
-
-      // Natywny CHECK_ON_LAUNCH (AndroidManifest ALWAYS) często pobiera pakiet przed modalem.
-      // fetchUpdateAsync() wtedy zwraca isNew=false — update jest już na dysku, trzeba reload.
-      await withTimeout(Updates.fetchUpdateAsync(), FETCH_TIMEOUT_MS, 'Pobieranie aktualizacji');
-      if (progressTimer) clearInterval(progressTimer);
-      setDownloadProgress(100);
-      await sleep(300);
-      await Updates.reloadAsync();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn('[useAppUpdate] applyUpdate error:', msg);
-      if (progressTimer) clearInterval(progressTimer);
-      progressTimer = null;
-
-      // Ostatnia szansa: pakiet mógł być już pobrany, a fetch/reload padł na sieci.
+    dismissedDuringDownloadRef.current = false;
+    const operation = (async () => {
+      setPhase('downloading');
+      setError(null);
       try {
-        setDownloadProgress(100);
-        await Updates.reloadAsync();
-        return;
-      } catch (reloadErr: unknown) {
-        const reloadMsg = reloadErr instanceof Error ? reloadErr.message : String(reloadErr);
-        console.warn('[useAppUpdate] reloadAsync fallback error:', reloadMsg);
-      }
+        const outcome = await downloadAndApplyUpdate({
+          updateAlreadyPending: updatePendingRef.current,
+          fetchUpdate: fetchUpdateOnce,
+          reload: () => Updates.reloadAsync(),
+          canReloadNow: () => (
+            AppState.currentState === 'active' && !dismissedDuringDownloadRef.current
+          ),
+          onBeforeReload: () => {
+            updatePendingRef.current = true;
+            setPhase('restarting');
+          },
+        });
 
-      const friendly =
-        msg.includes('limit czasu')
-          ? 'Pobieranie trwa zbyt długo. Sprawdź internet i spróbuj ponownie.'
-          : 'Nie udało się zaktualizować. Sprawdź internet i spróbuj ponownie.';
-      setError(friendly);
-      setDownloading(false);
-      setDownloadProgress(0);
-    } finally {
-      if (progressTimer) clearInterval(progressTimer);
-    }
+        if (outcome === 'downloaded') {
+          updatePendingRef.current = true;
+          setUpdateAvailable(true);
+          setError(null);
+          return;
+        }
+
+        if (outcome === 'not-available') {
+          setUpdateAvailable(true);
+          setError('Ta paczka nie jest już dostępna. Sprawdź aktualizacje ponownie.');
+        }
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn('[useAppUpdate] applyUpdate error:', message);
+        setUpdateAvailable(true);
+        setError('Nie udało się pobrać aktualizacji. Sprawdź internet i spróbuj ponownie.');
+
+        void Updates.readLogEntriesAsync(60 * 60 * 1000)
+          .then((entries) => {
+            const recentErrors = entries
+              .filter((entry) => entry.level === 'error' || entry.level === 'fatal')
+              .slice(-6)
+              .map(({ code, message: logMessage, assetId, updateId }) => ({
+                code,
+                message: logMessage,
+                assetId,
+                updateId,
+              }));
+            if (recentErrors.length) {
+              console.warn('[useAppUpdate] native diagnostics:', recentErrors);
+            }
+          })
+          .catch(() => {});
+      } finally {
+        setPhase('idle');
+        applyInFlightRef.current = null;
+      }
+    })();
+
+    applyInFlightRef.current = operation;
+    return operation;
   }, []);
 
   const dismiss = useCallback(() => {
+    dismissedDuringDownloadRef.current = true;
     setUpdateAvailable(false);
     setError(null);
-    setDownloading(false);
-    setDownloadProgress(0);
   }, []);
+
+  const restarting = phase === 'restarting' || nativeState.isRestarting;
+  const downloading = phase !== 'idle' || nativeState.isDownloading || nativeState.isRestarting;
+  const downloadProgress = restarting
+    ? 100
+    : toUpdateProgressPercent(nativeState.downloadProgress);
 
   return {
     updateAvailable,
     downloading,
+    restarting,
     downloadProgress,
     error,
     checkForUpdate,
