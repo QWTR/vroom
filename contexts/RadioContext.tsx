@@ -325,15 +325,20 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
 
   const connect = useCallback(async (input: RadioJoinInput) => {
     setError(null);
+    let stage = 'resetowanie poprzedniego połączenia';
     try {
       await disconnect();
+      stage = 'dołączanie do kanału sterującego';
       const joined = await socketAck<any>('radio:join', { ...input, transmitMode: preferencesRef.current.transmitMode });
       if (!joined?.ok) throw Object.assign(new Error(joined?.message || 'Nie udało się wejść na kanał.'), { code: joined?.code });
       setSnapshot(snapshotFromJoin(joined));
       inputRef.current = input;
       setSharedSocketBackgroundHold('vroom-cb', true);
+      stage = 'pobieranie dostępu do audio';
       const tokenResponse = await apiRequest<RadioTokenResponse>('/radio/token', { method: 'POST', body: { ...input, transmitMode: preferencesRef.current.transmitMode } });
+      stage = 'sprawdzanie danych kanału audio';
       const credentials = normalizeRadioCredentials(tokenResponse, input.mode);
+      stage = 'konfiguracja dźwięku telefonu';
       await AudioSession.configureAudio({
         android: {
           preferredOutputList: ['bluetooth', 'headset', 'speaker', 'earpiece'],
@@ -349,18 +354,25 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
         },
         ios: { defaultOutput: 'earpiece' },
       });
+      stage = 'uruchamianie dźwięku telefonu';
       await AudioSession.startAudioSession();
+      stage = 'tworzenie połączenia audio';
       const room = createRadioRoom();
       wirePublisherRoom(room, !credentials.usesPublicRelay);
       roomRef.current = room;
+      stage = 'łączenie z serwerem głosowym';
       await room.connect(credentials.publisher.serverUrl, credentials.publisher.token, { autoSubscribe: false });
+      stage = 'wyciszanie mikrofonu po połączeniu';
       await room.localParticipant.setMicrophoneEnabled(false);
+      stage = 'łączenie kanałów odbiorczych';
       await Promise.all(credentials.listeners.map(connectListenerRoom));
       setConnectionState(room.state);
       return true;
     } catch (cause: any) {
+      const detail = cause?.stack || cause?.message || String(cause);
+      console.error('[VROOM_CB_CONNECT]', stage, detail);
       await disconnect();
-      setError(cause?.message || 'Nie udało się połączyć z VROOM CB.');
+      setError(`${stage}: ${cause?.message || 'Nie udało się połączyć z VROOM CB.'}`);
       return false;
     }
   }, [connectListenerRoom, disconnect, wirePublisherRoom]);
