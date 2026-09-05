@@ -3,6 +3,30 @@ import type { PublicUserIdentity } from '../components/user/PremiumIdentity';
 export type RadioMode = 'global' | 'city' | 'private';
 export type RadioTransmitMode = 'ptt' | 'vad';
 export type PrivateVoiceMode = 'open' | 'cb' | 'moderated';
+export type RadioCueName = 'selfJoin' | 'selfLeave' | 'peerJoin' | 'peerLeave' | 'transmitStart' | 'transmitEnd';
+
+export type RadioSoundEffect = {
+  enabled: boolean;
+  preset: 'squelch-open' | 'squelch-close' | 'roger' | 'double-beep' | 'click' | 'none';
+  volume: number;
+  customUrl: string | null;
+  url: string;
+};
+
+export type RadioEffectsConfig = {
+  enabled: boolean;
+  revision: number;
+  voice: {
+    enabled: boolean;
+    preset: 'clean' | 'classic' | 'heavy';
+    amount: number;
+    drive: number;
+    noise: number;
+    compression: number;
+    outputGain: number;
+  };
+  sounds: Record<RadioCueName, RadioSoundEffect>;
+};
 
 export type RadioPreferences = {
   radiusKm: number;
@@ -43,6 +67,7 @@ export type RadioSnapshot = {
 export type RadioConfig = {
   flags: { enabled: boolean; global: boolean; city: boolean; private: boolean; publicRelay?: boolean; beta: boolean };
   voiceConfigured: boolean;
+  effects: RadioEffectsConfig;
   preferences: RadioPreferences;
   active: RadioSnapshot | null;
   limits: {

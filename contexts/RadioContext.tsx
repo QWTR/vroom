@@ -30,11 +30,13 @@ import {
 import type {
   RadioCity,
   RadioConfig,
+  RadioEffectsConfig,
   RadioMode,
   RadioPreferences,
   RadioSnapshot,
 } from '../types/radio';
 import { startRadioForegroundService, stopRadioForegroundService } from '../lib/radioForegroundService';
+import { playRadioCue, preloadRadioCues } from '../lib/radioEffects';
 
 type RadioJoinInput = {
   mode: RadioMode;
@@ -140,6 +142,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const [vadArmed, setVadArmedState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mutedUserIds, setMutedUserIds] = useState<ReadonlySet<number>>(() => new Set());
+  const activeRadioKey = snapshot?.active?.key || null;
   const roomRef = useRef<Room | null>(null);
   const listenerRoomsRef = useRef<Map<string, Room>>(new Map());
   const inputRef = useRef<RadioJoinInput | null>(null);
@@ -157,10 +160,29 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const allowedParticipantIdsRef = useRef<Set<number>>(new Set());
   const mutedUserIdsRef = useRef<ReadonlySet<number>>(mutedUserIds);
   const listenerRefreshRef = useRef<Promise<void>>(Promise.resolve());
+  const effectsRef = useRef<RadioEffectsConfig | null>(null);
+  const participantCueStateRef = useRef<{ channelKey: string | null; ids: Set<number> }>({ channelKey: null, ids: new Set() });
 
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   useEffect(() => { transmittingRef.current = isTransmitting; }, [isTransmitting]);
   useEffect(() => { mutedUserIdsRef.current = mutedUserIds; }, [mutedUserIds]);
+  useEffect(() => {
+    effectsRef.current = config?.effects || null;
+    preloadRadioCues(config?.effects);
+  }, [config?.effects]);
+  useEffect(() => {
+    if (!snapshot?.active?.key) {
+      participantCueStateRef.current = { channelKey: null, ids: new Set() };
+      return;
+    }
+    const ids = new Set(snapshot.participants.filter((row) => row.userId !== snapshot.selfUserId).map((row) => row.userId));
+    const previous = participantCueStateRef.current;
+    if (previous.channelKey === snapshot.active.key) {
+      if ([...ids].some((id) => !previous.ids.has(id))) playRadioCue('peerJoin', effectsRef.current);
+      if ([...previous.ids].some((id) => !ids.has(id))) playRadioCue('peerLeave', effectsRef.current);
+    }
+    participantCueStateRef.current = { channelKey: snapshot.active.key, ids };
+  }, [snapshot]);
   useEffect(() => {
     const allowed = new Set((snapshot?.participants || [])
       .filter((participant) => participant.userId !== snapshot?.selfUserId)
@@ -244,6 +266,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const disconnect = useCallback(async () => {
+    const wasConnected = Boolean(inputRef.current);
     setVadArmedState(false);
     await forceLocalMute();
     await stopVadMonitor();
@@ -257,6 +280,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       ...listenerRooms.map((listenerRoom) => listenerRoom.disconnect(true).catch(() => {})),
     ]);
     await AudioSession.stopAudioSession().catch(() => {});
+    if (wasConnected) playRadioCue('selfLeave', effectsRef.current);
     await stopRadioForegroundService().catch(() => {});
     setSharedSocketBackgroundHold('vroom-cb', false);
     inputRef.current = null;
@@ -399,6 +423,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       stage = 'łączenie kanałów odbiorczych';
       await Promise.all(credentials.listeners.map(connectListenerRoom));
       setConnectionState(room.state);
+      playRadioCue('selfJoin', effectsRef.current);
       return true;
     } catch (cause: any) {
       const detail = cause?.stack || cause?.message || String(cause);
@@ -423,6 +448,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     }
     setIsTransmitting(true);
     transmittingRef.current = true;
+    playRadioCue('transmitStart', effectsRef.current);
   }, []);
 
   const startTransmission = useCallback(async () => {
@@ -448,8 +474,10 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
 
   const stopTransmission = useCallback(async () => {
     if (!roomRef.current) return;
+    const wasTransmitting = transmittingRef.current;
     await finishLocalTransmission();
     await socketAck('radio:speak-release', {}).catch(() => {});
+    if (wasTransmitting) playRadioCue('transmitEnd', effectsRef.current);
   }, [finishLocalTransmission]);
 
   const startVadMonitor = useCallback(async () => {
@@ -597,7 +625,11 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     void ensureSharedSocket().then((socket) => {
       if (!socket) return;
       const onSnapshot = (next: RadioSnapshot | null) => setSnapshot(next ? snapshotFromJoin(next) : null);
-      const onReleased = () => { void finishLocalTransmission(); };
+      const onReleased = () => {
+        const wasTransmitting = transmittingRef.current;
+        void finishLocalTransmission();
+        if (wasTransmitting) playRadioCue('transmitEnd', effectsRef.current);
+      };
       const onGranted = () => {
         if (!awaitingModeratedGrantRef.current) return;
         awaitingModeratedGrantRef.current = false;
@@ -626,6 +658,15 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     });
     return () => cleanup();
   }, [disconnect, finishLocalTransmission, forceLocalMute, publishGrantedMicrophone, resumeRadioSession]);
+
+  useEffect(() => {
+    if (!activeRadioKey) return undefined;
+    const refresh = () => void apiRequest<RadioEffectsConfig>('/radio/effects', { auth: false, priority: 'background' })
+      .then((effects) => setConfig((current) => current ? { ...current, effects } : current))
+      .catch(() => {});
+    const timer = setInterval(refresh, 30_000);
+    return () => clearInterval(timer);
+  }, [activeRadioKey]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
