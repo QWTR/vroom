@@ -18,6 +18,12 @@ import React, {
 import { AppState, Platform } from 'react-native';
 import { apiRequest } from '../lib/api/client';
 import {
+  normalizeRadioCredentials,
+  radioUserIdFromRelay,
+  type RadioRoomCredential,
+  type RadioTokenResponse,
+} from '../lib/radioCredentials';
+import {
   ensureSharedSocket,
   setSharedSocketBackgroundHold,
 } from '../lib/sharedSocket';
@@ -95,6 +101,28 @@ function maxAudioLevel(report: any): number {
   return level;
 }
 
+function snapshotFromJoin(joined: any): RadioSnapshot {
+  return {
+    selfUserId: joined.selfUserId,
+    active: joined.active,
+    participants: Array.isArray(joined.participants) ? joined.participants : [],
+    speakers: Array.isArray(joined.speakers) ? joined.speakers : [],
+    pendingSpeakerIds: Array.isArray(joined.pendingSpeakerIds) ? joined.pendingSpeakerIds : [],
+    serverAt: Number(joined.serverAt) || Date.now(),
+    generation: Number.isFinite(Number(joined.generation)) ? Number(joined.generation) : undefined,
+    mutedOnConnect: joined.mutedOnConnect !== false,
+  };
+}
+
+function createRadioRoom() {
+  return new Room({
+    adaptiveStream: false,
+    dynacast: false,
+    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    publishDefaults: { audioPreset: { maxBitrate: 32_000 } },
+  });
+}
+
 export function RadioProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<RadioConfig | null>(null);
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
@@ -105,6 +133,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [mutedUserIds, setMutedUserIds] = useState<ReadonlySet<number>>(() => new Set());
   const roomRef = useRef<Room | null>(null);
+  const listenerRoomsRef = useRef<Map<string, Room>>(new Map());
   const inputRef = useRef<RadioJoinInput | null>(null);
   const vadTrackRef = useRef<LocalAudioTrack | null>(null);
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -116,17 +145,25 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const awaitingModeratedGrantRef = useRef(false);
   const preferencesRef = useRef(preferences);
   const allowedParticipantIdsRef = useRef<Set<number>>(new Set());
+  const mutedUserIdsRef = useRef<ReadonlySet<number>>(mutedUserIds);
+  const listenerRefreshRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   useEffect(() => { transmittingRef.current = isTransmitting; }, [isTransmitting]);
+  useEffect(() => { mutedUserIdsRef.current = mutedUserIds; }, [mutedUserIds]);
   useEffect(() => {
-    const allowed = new Set((snapshot?.participants || []).map((participant) => participant.userId));
+    const allowed = new Set((snapshot?.participants || [])
+      .filter((participant) => participant.userId !== snapshot?.selfUserId)
+      .map((participant) => participant.userId));
     allowedParticipantIdsRef.current = allowed;
-    roomRef.current?.remoteParticipants.forEach((participant) => {
-      const userId = Number(String(participant.identity).replace(/^user:/, ''));
-      participant.trackPublications.forEach((publication) => publication.setSubscribed(allowed.has(userId)));
-      if (mutedUserIds.has(userId)) participant.setVolume(0);
-    });
+    const rooms = [roomRef.current, ...listenerRoomsRef.current.values()].filter((room): room is Room => Boolean(room));
+    rooms.forEach((room) => room.remoteParticipants.forEach((participant) => {
+      participant.trackPublications.forEach((publication) => {
+        const userId = radioUserIdFromRelay(participant.identity, publication.trackName);
+        publication.setSubscribed(userId !== null && allowed.has(userId));
+        if (userId !== null) participant.setVolume(mutedUserIds.has(userId) ? 0 : 1);
+      });
+    }));
   }, [mutedUserIds, snapshot]);
 
   const loadConfig = useCallback(async () => {
@@ -180,8 +217,13 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     await stopVadMonitor();
     try { await socketAck('radio:leave', {}); } catch {}
     const room = roomRef.current;
+    const listenerRooms = [...listenerRoomsRef.current.values()];
     roomRef.current = null;
-    if (room) await room.disconnect(true).catch(() => {});
+    listenerRoomsRef.current.clear();
+    await Promise.all([
+      room?.disconnect(true).catch(() => {}),
+      ...listenerRooms.map((listenerRoom) => listenerRoom.disconnect(true).catch(() => {})),
+    ]);
     await AudioSession.stopAudioSession().catch(() => {});
     await stopRadioForegroundService().catch(() => {});
     setSharedSocketBackgroundHold('vroom-cb', false);
@@ -190,7 +232,30 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     setConnectionState('idle');
   }, [forceLocalMute, stopVadMonitor]);
 
-  const wireRoom = useCallback((room: Room) => {
+  const applyRemotePublication = useCallback((publication: any, participant: any) => {
+    const userId = radioUserIdFromRelay(participant.identity, publication.trackName);
+    const subscribed = userId !== null && allowedParticipantIdsRef.current.has(userId);
+    publication.setSubscribed(subscribed);
+    if (userId !== null) participant.setVolume(mutedUserIdsRef.current.has(userId) ? 0 : 1);
+  }, []);
+
+  const resumeRadioSession = useCallback(async () => {
+    const input = inputRef.current;
+    if (!input) return;
+    try {
+      const joined = await socketAck<any>('radio:join', {
+        ...input,
+        resume: true,
+        transmitMode: preferencesRef.current.transmitMode,
+      });
+      if (!joined?.ok) throw new Error(joined?.message || 'Nie udało się wznowić kanału CB.');
+      setSnapshot(snapshotFromJoin(joined));
+    } catch (cause: any) {
+      setError(cause?.message || 'Nie udało się wznowić kanału CB.');
+    }
+  }, []);
+
+  const wirePublisherRoom = useCallback((room: Room, receivesAudio: boolean) => {
     room.on(RoomEvent.ConnectionStateChanged, setConnectionState);
     room.on(RoomEvent.Reconnecting, () => {
       void forceLocalMute();
@@ -198,6 +263,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     });
     room.on(RoomEvent.Reconnected, () => {
       void forceLocalMute();
+      void resumeRadioSession();
     });
     room.on(RoomEvent.MediaDevicesChanged, () => {
       void forceLocalMute();
@@ -207,11 +273,55 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       setIsTransmitting(false);
       transmittingRef.current = false;
     });
-    room.on(RoomEvent.TrackPublished, (publication, participant) => {
-      const userId = Number(String(participant.identity).replace(/^user:/, ''));
-      publication.setSubscribed(allowedParticipantIdsRef.current.has(userId));
+    if (receivesAudio) room.on(RoomEvent.TrackPublished, applyRemotePublication);
+  }, [applyRemotePublication, forceLocalMute, resumeRadioSession]);
+
+  const wireListenerRoom = useCallback((room: Room) => {
+    room.on(RoomEvent.Reconnecting, () => {
+      void forceLocalMute();
+      void socketAck('radio:speak-release', {}).catch(() => {});
     });
-  }, [forceLocalMute]);
+    room.on(RoomEvent.TrackPublished, applyRemotePublication);
+  }, [applyRemotePublication, forceLocalMute]);
+
+  const connectListenerRoom = useCallback(async (credential: RadioRoomCredential) => {
+    const roomName = credential.roomName;
+    if (!roomName) throw new Error('Brak nazwy kanału odbiorczego CB.');
+    const existing = listenerRoomsRef.current.get(roomName);
+    if (existing) return existing;
+    const room = createRadioRoom();
+    wireListenerRoom(room);
+    listenerRoomsRef.current.set(roomName, room);
+    try {
+      await room.connect(credential.serverUrl, credential.token, { autoSubscribe: false });
+      room.remoteParticipants.forEach((participant) => {
+        participant.trackPublications.forEach((publication) => applyRemotePublication(publication, participant));
+      });
+      return room;
+    } catch (cause) {
+      listenerRoomsRef.current.delete(roomName);
+      await room.disconnect(true).catch(() => {});
+      throw cause;
+    }
+  }, [applyRemotePublication, wireListenerRoom]);
+
+  const reconcilePublicListeners = useCallback((input: RadioJoinInput) => {
+    const nextTask = listenerRefreshRef.current.catch(() => {}).then(async () => {
+      if (!inputRef.current || inputRef.current.mode === 'private') return;
+      const response = await apiRequest<RadioTokenResponse>('/radio/token', {
+        method: 'POST',
+        body: { ...input, transmitMode: preferencesRef.current.transmitMode },
+      });
+      const credentials = normalizeRadioCredentials(response, input.mode);
+      const desiredNames = new Set(credentials.listeners.map((row) => row.roomName as string));
+      await Promise.all(credentials.listeners.map(connectListenerRoom));
+      const obsolete = [...listenerRoomsRef.current.entries()].filter(([roomName]) => !desiredNames.has(roomName));
+      obsolete.forEach(([roomName]) => listenerRoomsRef.current.delete(roomName));
+      await Promise.all(obsolete.map(([, room]) => room.disconnect(true).catch(() => {})));
+    });
+    listenerRefreshRef.current = nextTask;
+    return nextTask;
+  }, [connectListenerRoom]);
 
   const connect = useCallback(async (input: RadioJoinInput) => {
     setError(null);
@@ -219,14 +329,11 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       await disconnect();
       const joined = await socketAck<any>('radio:join', { ...input, transmitMode: preferencesRef.current.transmitMode });
       if (!joined?.ok) throw Object.assign(new Error(joined?.message || 'Nie udało się wejść na kanał.'), { code: joined?.code });
-      setSnapshot({ selfUserId: joined.selfUserId, active: joined.active, participants: joined.participants, speakers: joined.speakers, pendingSpeakerIds: joined.pendingSpeakerIds || [], serverAt: joined.serverAt });
+      setSnapshot(snapshotFromJoin(joined));
       inputRef.current = input;
       setSharedSocketBackgroundHold('vroom-cb', true);
-      const credentials = await apiRequest<{
-        token: string;
-        serverUrl: string;
-        roomName: string;
-      }>('/radio/token', { method: 'POST', body: { ...input, transmitMode: preferencesRef.current.transmitMode } });
+      const tokenResponse = await apiRequest<RadioTokenResponse>('/radio/token', { method: 'POST', body: { ...input, transmitMode: preferencesRef.current.transmitMode } });
+      const credentials = normalizeRadioCredentials(tokenResponse, input.mode);
       await AudioSession.configureAudio({
         android: {
           preferredOutputList: ['bluetooth', 'headset', 'speaker', 'earpiece'],
@@ -243,16 +350,12 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
         ios: { defaultOutput: 'earpiece' },
       });
       await AudioSession.startAudioSession();
-      const room = new Room({
-        adaptiveStream: false,
-        dynacast: false,
-        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        publishDefaults: { audioPreset: { maxBitrate: 32_000 } },
-      });
-      wireRoom(room);
+      const room = createRadioRoom();
+      wirePublisherRoom(room, !credentials.usesPublicRelay);
       roomRef.current = room;
-      await room.connect(credentials.serverUrl, credentials.token, { autoSubscribe: false });
+      await room.connect(credentials.publisher.serverUrl, credentials.publisher.token, { autoSubscribe: false });
       await room.localParticipant.setMicrophoneEnabled(false);
+      await Promise.all(credentials.listeners.map(connectListenerRoom));
       setConnectionState(room.state);
       return true;
     } catch (cause: any) {
@@ -260,7 +363,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
       setError(cause?.message || 'Nie udało się połączyć z VROOM CB.');
       return false;
     }
-  }, [disconnect, wireRoom]);
+  }, [connectListenerRoom, disconnect, wirePublisherRoom]);
 
   const publishGrantedMicrophone = useCallback(async () => {
     const room = roomRef.current;
@@ -368,20 +471,36 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const updateGlobalPosition = useCallback(async (location: { lat: number; lng: number }, radiusKm?: number) => {
     if (inputRef.current?.mode !== 'global') return false;
     try {
-      const result = await socketAck<any>('radio:position', { ...location, radiusKm: radiusKm ?? preferencesRef.current.radiusKm });
+      const nextRadiusKm = radiusKm ?? preferencesRef.current.radiusKm;
+      const result = await socketAck<any>('radio:position', { ...location, radiusKm: nextRadiusKm });
       if (!result?.ok) throw new Error(result?.message || 'Nie udało się zaktualizować zasięgu.');
-      if (result.snapshot) setSnapshot(result.snapshot);
-      inputRef.current = { ...inputRef.current, location, radiusKm: radiusKm ?? preferencesRef.current.radiusKm };
+      if (result.snapshot) setSnapshot(snapshotFromJoin(result.snapshot));
+      const nextInput: RadioJoinInput = { ...inputRef.current, location, radiusKm: nextRadiusKm };
+      inputRef.current = nextInput;
+      const desiredRooms = new Set<string>(
+        Array.isArray(result.snapshot?.active?.downlinkRooms)
+          ? result.snapshot.active.downlinkRooms.filter((roomName: unknown): roomName is string => typeof roomName === 'string')
+          : [],
+      );
+      const connectedRooms = new Set(listenerRoomsRef.current.keys());
+      const roomsChanged = desiredRooms.size !== connectedRooms.size
+        || [...desiredRooms].some((roomName) => !connectedRooms.has(roomName));
+      if (roomsChanged) await reconcilePublicListeners(nextInput);
       return true;
     } catch (cause: any) {
       setError(cause?.message || 'Nie udało się zaktualizować zasięgu.');
       return false;
     }
-  }, []);
+  }, [reconcilePublicListeners]);
 
   const setParticipantMuted = useCallback((userId: number, muted: boolean) => {
-    const identity = `user:${Number(userId)}`;
-    roomRef.current?.remoteParticipants.get(identity)?.setVolume(muted ? 0 : 1);
+    const rooms = [roomRef.current, ...listenerRoomsRef.current.values()].filter((room): room is Room => Boolean(room));
+    rooms.forEach((room) => room.remoteParticipants.forEach((participant) => {
+      const belongsToUser = [...participant.trackPublications.values()].some((publication) => (
+        radioUserIdFromRelay(participant.identity, publication.trackName) === Number(userId)
+      ));
+      if (belongsToUser) participant.setVolume(muted ? 0 : 1);
+    }));
     setMutedUserIds((current) => {
       const next = new Set(current);
       if (muted) next.add(userId);
@@ -407,7 +526,7 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     let cleanup = () => {};
     void ensureSharedSocket().then((socket) => {
       if (!socket) return;
-      const onSnapshot = (next: RadioSnapshot) => setSnapshot(next);
+      const onSnapshot = (next: RadioSnapshot | null) => setSnapshot(next ? snapshotFromJoin(next) : null);
       const onReleased = () => { void forceLocalMute(); };
       const onGranted = () => {
         if (!awaitingModeratedGrantRef.current) return;
@@ -415,19 +534,28 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
         void publishGrantedMicrophone().catch((cause: any) => setError(cause?.message || 'Nie udało się włączyć mikrofonu.'));
       };
       const onClosed = () => { void disconnect(); };
+      const onSocketConnected = () => {
+        if (!inputRef.current || !roomRef.current) return;
+        void forceLocalMute();
+        void resumeRadioSession();
+      };
+      socket.on('connect', onSocketConnected);
       socket.on('radio:snapshot', onSnapshot);
       socket.on('radio:speak-released', onReleased);
       socket.on('radio:speak-granted', onGranted);
       socket.on('radio:closed', onClosed);
+      socket.on('radio:state-invalidated', onClosed);
       cleanup = () => {
+        socket.off('connect', onSocketConnected);
         socket.off('radio:snapshot', onSnapshot);
         socket.off('radio:speak-released', onReleased);
         socket.off('radio:speak-granted', onGranted);
         socket.off('radio:closed', onClosed);
+        socket.off('radio:state-invalidated', onClosed);
       };
     });
     return () => cleanup();
-  }, [disconnect, forceLocalMute, publishGrantedMicrophone]);
+  }, [disconnect, forceLocalMute, publishGrantedMicrophone, resumeRadioSession]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -449,6 +577,8 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     if (vadTimerRef.current) clearInterval(vadTimerRef.current);
     setSharedSocketBackgroundHold('vroom-cb', false);
     void roomRef.current?.disconnect(true);
+    listenerRoomsRef.current.forEach((room) => { void room.disconnect(true); });
+    listenerRoomsRef.current.clear();
   }, []);
 
   const value = useMemo<RadioContextValue>(() => ({

@@ -30,11 +30,14 @@ export type RadioSnapshot = {
     convoyId?: string;
     voiceMode?: PrivateVoiceMode;
     roomName: string;
+    downlinkRooms?: string[];
   };
   participants: RadioParticipant[];
   speakers: RadioParticipant[];
   pendingSpeakerIds: number[];
   serverAt: number;
+  generation?: number;
+  mutedOnConnect?: boolean;
 };
 
 export type RadioConfig = {

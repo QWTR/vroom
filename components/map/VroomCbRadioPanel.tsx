@@ -98,19 +98,22 @@ export function VroomCbRadioPanel({
   const connect = async () => {
     setBusy(true);
     try {
+      let joined = false;
       if (mode === 'global') {
         if (!location) return Alert.alert('Brak lokalizacji', 'Globalne CB potrzebuje bieżącej lokalizacji.');
         await radio.updatePreferences({ radiusKm });
-        await radio.connect({ mode, radiusKm, location: { lat: location.latitude, lng: location.longitude } });
+        joined = await radio.connect({ mode, radiusKm, location: { lat: location.latitude, lng: location.longitude } });
       } else if (mode === 'city') {
         if (!selectedCity) return Alert.alert('Wybierz miasto', 'Wyszukaj i wybierz kanał miasta.');
         await radio.updatePreferences({ citySlug: selectedCity.slug });
-        await radio.connect({ mode, citySlug: selectedCity.slug });
+        joined = await radio.connect({ mode, citySlug: selectedCity.slug });
       } else {
         if (!activeConvoy) return Alert.alert('Brak konwoju', 'Najpierw utwórz konwój albo dołącz do istniejącego Convoy Live.');
-        await radio.connect({ mode, convoyId: activeConvoy.convoy.id });
+        joined = await radio.connect({ mode, convoyId: activeConvoy.convoy.id });
       }
-      setVisible(false);
+      if (joined) setVisible(false);
+    } catch (cause: any) {
+      Alert.alert('VROOM CB', cause?.message || 'Nie udało się połączyć z kanałem.');
     } finally {
       setBusy(false);
     }
