@@ -129,6 +129,7 @@ function createRadioRoom() {
 // A short attack keeps it responsive, while hysteresis and a longer release
 // prevent the relay from chopping a sentence into many tiny audio bursts.
 const VAD_SAMPLE_INTERVAL_MS = 120;
+const VAD_RTC_STATS_INTERVAL_MS = 480;
 const VAD_ATTACK_SAMPLES = 1;
 const VAD_RELEASE_HOLD_MS = 2_400;
 const VAD_SUSTAIN_THRESHOLD_RATIO = 0.62;
@@ -485,19 +486,24 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
     const track = await createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
     await room.localParticipant.publishTrack(track, { source: 'microphone' as any, audioPreset: { maxBitrate: 32_000 } });
     vadTrackRef.current = track;
+    let lastStatsAt = 0;
+    let lastStatsLevel = 0;
     vadTimerRef.current = setInterval(async () => {
       if (vadSampleBusyRef.current) return;
       const activeTrack = vadTrackRef.current;
       if (!activeTrack) return;
       vadSampleBusyRef.current = true;
       try {
-        const statsLevel = maxAudioLevel(await activeTrack.getRTCStatsReport());
+        const now = Date.now();
+        if (now - lastStatsAt >= VAD_RTC_STATS_INTERVAL_MS) {
+          lastStatsLevel = maxAudioLevel(await activeTrack.getRTCStatsReport());
+          lastStatsAt = now;
+        }
         const participantLevel = Number(roomRef.current?.localParticipant.audioLevel || 0);
-        const level = Math.max(statsLevel, Number.isFinite(participantLevel) ? participantLevel : 0);
+        const level = Math.max(lastStatsLevel, Number.isFinite(participantLevel) ? participantLevel : 0);
         vadSampleErrorsRef.current = 0;
         const sensitivity = preferencesRef.current.vadSensitivity;
         const threshold = Math.max(0.008, vadNoiseFloorRef.current * (2.5 - sensitivity * 0.012));
-        const now = Date.now();
         const opensGate = level >= threshold;
         const sustainsGate = level >= Math.max(0.004, threshold * VAD_SUSTAIN_THRESHOLD_RATIO);
         if (opensGate) {
