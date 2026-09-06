@@ -25,16 +25,19 @@ export function preloadRadioCues(config?: RadioEffectsConfig | null) {
   });
 }
 
-export function playRadioCue(name: RadioCueName, config?: RadioEffectsConfig | null) {
+export function playRadioCue(name: RadioCueName, config?: RadioEffectsConfig | null, fallbackSource?: number) {
   const sound = config?.sounds?.[name];
-  if (!config?.enabled || !sound?.enabled || !sound.url || sound.preset === 'none') return;
+  if (config && !config.enabled) return;
+  if (sound && (!sound.enabled || !sound.url || sound.preset === 'none')) return;
+  const soundUrl = sound?.url;
+  const source = soundUrl ? (cachedUrls.get(soundUrl) || soundUrl) : fallbackSource;
+  if (!source) return;
   try {
-    const source = cachedUrls.get(sound.url) || sound.url;
     const player = createAudioPlayer(source, { keepAudioSessionActive: true, updateInterval: 1_000 });
     activePlayers.add(player);
-    player.volume = Math.max(0, Math.min(1, Number(sound.volume) || 0));
+    player.volume = sound ? Math.max(0, Math.min(1, Number(sound.volume) || 0)) : 1;
     player.play();
-    if (!cachedUrls.has(sound.url)) cacheRadioCue(sound.url);
+    if (soundUrl && !cachedUrls.has(soundUrl)) cacheRadioCue(soundUrl);
     setTimeout(() => {
       activePlayers.delete(player);
       try { player.remove(); } catch {}

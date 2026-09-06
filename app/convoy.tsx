@@ -11,7 +11,7 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../contexts/ThemeContext';
 import { usePremium } from '../contexts/PremiumContext';
 import { apiRequest } from '../lib/api/client';
-import { ensureSharedSocket } from '../lib/sharedSocket';
+import { ensureSharedSocket, joinSharedRoom } from '../lib/sharedSocket';
 import { BG_ACTIVE_CONVOY_HOST_KEY, BG_ACTIVE_CONVOY_ID_KEY } from '../hooks/useBackgroundTracking';
 import { PremiumAvatar, PremiumName } from '../components/user/PremiumIdentity';
 import type { ConvoyParticipant as Participant, ConvoySnapshot as Snapshot } from '../lib/convoyLive';
@@ -42,6 +42,7 @@ export default function ConvoyScreen() {
   const [admissionMode, setAdmissionMode] = useState<AdmissionMode>('instant');
   const [friends, setFriends] = useState<FriendOption[]>([]);
   const [waitingApproval, setWaitingApproval] = useState(false);
+  const [sendingStatus, setSendingStatus] = useState<string | null>(null);
   const watcher = useRef<Location.LocationSubscription | null>(null);
   const lastPosition = useRef<any>(null);
   const socketCleanup = useRef<(() => void) | null>(null);
@@ -67,7 +68,13 @@ export default function ConvoyScreen() {
     }
     const socket = await ensureSharedSocket();
     if (!socket || value.convoy.status !== 'active') return;
-    socket.emit('convoy:join', { convoyId: value.convoy.id });
+    socketCleanup.current?.();
+    const releaseRoom = await joinSharedRoom(
+      `convoy:${value.convoy.id}`,
+      'convoy:join',
+      'convoy:unsubscribe',
+      { convoyId: value.convoy.id },
+    );
     const onSnapshot = (next: Snapshot) => setSnapshot(next);
     const onPosition = (position: any) => setSnapshot((prev) => prev ? { ...prev, participants: prev.participants.map((p) => p.userId === position.userId ? { ...p, position, connection: 'live' } : p) } : prev);
     const onStatus = (status: any) => setSnapshot((prev) => prev ? { ...prev, participants: prev.participants.map((p) => p.userId === status.userId ? { ...p, ...(status.status ? { quickStatus: status.status } : {}), ...(status.connection ? { connection: status.connection } : {}) } : p) } : prev);
@@ -84,8 +91,7 @@ export default function ConvoyScreen() {
     };
     const onEnd = () => { stopForegroundLocation(); void AsyncStorage.multiRemove([BG_ACTIVE_CONVOY_ID_KEY, BG_ACTIVE_CONVOY_HOST_KEY]); setSnapshot((prev) => prev ? { ...prev, convoy: { ...prev.convoy, status: 'ended' } } : prev); };
     socket.on('convoy:snapshot', onSnapshot); socket.on('convoy:position', onPosition); socket.on('convoy:status', onStatus); socket.on('convoy:route', onRoute); socket.on('convoy:leave', onLeave); socket.on('convoy:kick', onLeave); socket.on('convoy:end', onEnd);
-    socketCleanup.current?.();
-    socketCleanup.current = () => { socket.off('convoy:snapshot', onSnapshot); socket.off('convoy:position', onPosition); socket.off('convoy:status', onStatus); socket.off('convoy:route', onRoute); socket.off('convoy:leave', onLeave); socket.off('convoy:kick', onLeave); socket.off('convoy:end', onEnd); };
+    socketCleanup.current = () => { socket.off('convoy:snapshot', onSnapshot); socket.off('convoy:position', onPosition); socket.off('convoy:status', onStatus); socket.off('convoy:route', onRoute); socket.off('convoy:leave', onLeave); socket.off('convoy:kick', onLeave); socket.off('convoy:end', onEnd); releaseRoom(); };
     await startForegroundLocation();
   }, [isPremium, myId, startForegroundLocation, stopForegroundLocation]);
 
@@ -144,12 +150,35 @@ export default function ConvoyScreen() {
   };
   const join = () => Alert.alert('Udostępnianie pozycji', 'Po dołączeniu uczestnicy tego konwoju zobaczą Twoją bieżącą pozycję. Opuszczenie konwoju natychmiast zatrzyma publikację.', [{ text: 'Anuluj', style: 'cancel' }, { text: 'Zgadzam się i dołączam', onPress: () => void joinConfirmed() }]);
   const sendStatus = async (status: string) => {
+    if (!snapshot || sendingStatus) return;
+    setSendingStatus(status);
     const socket = await ensureSharedSocket();
-    if (!socket) return;
-    socket.emit('convoy:status', { status }, (ack: { ok?: boolean } | undefined) => {
-      if (ack?.ok) Toast.show({ type: 'info', text1: 'Komunikat wysłany', visibilityTime: 1600 });
-      else Toast.show({ type: 'error', text1: 'Nie udało się wysłać komunikatu' });
-    });
+    if (!socket) {
+      Toast.show({ type: 'error', text1: 'Brak połączenia', text2: 'Nie udało się połączyć z Convoy Live.' });
+      setSendingStatus(null);
+      return;
+    }
+    try {
+      const joinAck = await socket.timeout(5_000).emitWithAck('convoy:join', { convoyId: snapshot.convoy.id });
+      if (!joinAck?.ok) throw new Error(joinAck?.code || 'JOIN_FAILED');
+      const ack = await socket.timeout(5_000).emitWithAck('convoy:status', { convoyId: snapshot.convoy.id, status });
+      if (!ack?.ok) throw new Error(ack?.code || 'STATUS_FAILED');
+      Toast.show({ type: 'info', text1: 'Komunikat wysłany', visibilityTime: 1600 });
+    } catch (cause: any) {
+      const errorCode = String(cause?.message || '');
+      const detail = errorCode === 'operation has timed out'
+        ? 'Brak odpowiedzi serwera.'
+        : errorCode === 'NOT_JOINED' || errorCode === 'LOCATION_CONSENT_REQUIRED'
+          ? 'Połączenie z konwojem wygasło. Odśwież ekran i spróbuj ponownie.'
+          : errorCode === 'FORBIDDEN'
+            ? 'Nie masz już dostępu do tego konwoju.'
+            : 'Spróbuj ponownie.';
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się wysłać komunikatu',
+        text2: detail,
+      });
+    } finally { setSendingStatus(null); }
   };
   const leave = async () => { if (!snapshot) return; await apiRequest(`/convoys/${snapshot.convoy.id}/leave`, { method: 'POST' }); stopForegroundLocation(); await AsyncStorage.multiRemove([BG_ACTIVE_CONVOY_ID_KEY, BG_ACTIVE_CONVOY_HOST_KEY]); setSnapshot(null); };
   const end = () => snapshot && Alert.alert('Zakończyć konwój?', 'Pozycje wszystkich uczestników przestaną być publikowane.', [{ text: 'Anuluj', style: 'cancel' }, { text: 'Zakończ', style: 'destructive', onPress: async () => { await apiRequest(`/convoys/${snapshot.convoy.id}/end`, { method: 'POST' }); stopForegroundLocation(); await AsyncStorage.multiRemove([BG_ACTIVE_CONVOY_ID_KEY, BG_ACTIVE_CONVOY_HOST_KEY]); setSnapshot(null); Toast.show({ type: 'success', text1: 'Konwój zakończony' }); } }]);
@@ -234,7 +263,7 @@ export default function ConvoyScreen() {
       {canModerate && friends.length > 0 && <View style={[styles.radioSettings, { borderColor: theme.border }]}><Text style={[styles.label, { color: theme.text, marginTop: 0 }]}>ZAPROŚ ZNAJOMEGO</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>{friends.map((friend) => <TouchableOpacity key={friend.id} onPress={() => void inviteFriend(friend)} style={[styles.friendChip, { borderColor: theme.border }]}><PremiumAvatar user={friend as any} size={27} /><Text numberOfLines={1} style={{ color: theme.text, fontSize: 11, maxWidth: 92 }}>{friend.username}</Text><MaterialIcons name="person-add" size={16} color="#FFD447" /></TouchableOpacity>)}</ScrollView></View>}
       {isHost && <View style={styles.hostActions}><TouchableOpacity onPress={() => void setMeetingHere()} style={[styles.chip, { borderColor: theme.border }]}><Text style={{ color: theme.text, fontSize: 12 }}>PUNKT ZBIÓRKI: TU</Text></TouchableOpacity>{routes.map((route) => <TouchableOpacity key={route.id} onPress={() => void selectRoute(route.id)} style={[styles.chip, { borderColor: snapshot.convoy.route?.id === route.id ? '#FFD447' : theme.border }]}><Text style={{ color: theme.text, fontSize: 12 }}>{route.name}</Text></TouchableOpacity>)}</View>}
       <Text style={[styles.label, { color: theme.text }]}>UCZESTNICY · {snapshot.participants.length}/50</Text><Text style={[styles.joinHint, { color: theme.textDim }]}>Na mapie każdy uczestnik ma jeden marker avatara z rolą i bieżącym statusem konwoju. Dotknij osoby, aby nią zarządzać.</Text>{snapshot.participants.map((participant) => <TouchableOpacity disabled={!canModerate || participant.userId === myId} onPress={() => participantMenu(participant)} key={participant.userId} style={[styles.person, { borderColor: theme.border }]}><PremiumAvatar user={participant.user} size={32} /><PremiumName user={participant.user} style={{ color: theme.text, flex: 1 }} /><Text style={{ color: participant.connection === 'paused' ? '#ff922b' : participant.userId === snapshot.convoy.hostId ? '#FFD447' : participant.role === 'moderator' ? '#18D7A0' : '#31c8ff', fontSize: 12 }}>{participant.connection === 'paused' ? 'WSTRZYMANY' : participant.userId === snapshot.convoy.hostId ? 'PROWADZĄCY' : participant.role === 'moderator' ? 'MODERATOR' : participant.quickStatus?.toUpperCase() ?? 'LIVE'}</Text></TouchableOpacity>)}
-      <View style={styles.statuses}>{STATUSES.map(([value, label]) => <TouchableOpacity key={value} onPress={() => void sendStatus(value)} style={[styles.status, { borderColor: theme.border }]}><Text style={{ color: theme.text, fontSize: 12, fontWeight: '800' }}>{label}</Text></TouchableOpacity>)}</View>{isHost ? <TouchableOpacity onPress={end}><Text style={styles.leave}>ZAKOŃCZ KONWÓJ</Text></TouchableOpacity> : <TouchableOpacity onPress={() => void leave()}><Text style={styles.leave}>OPUŚĆ KONWÓJ</Text></TouchableOpacity>}
+      <View style={styles.statuses}>{STATUSES.map(([value, label]) => <TouchableOpacity disabled={!!sendingStatus} key={value} onPress={() => void sendStatus(value)} style={[styles.status, { borderColor: theme.border }, sendingStatus && { opacity: sendingStatus === value ? 0.7 : 0.35 }]}>{sendingStatus === value ? <ActivityIndicator size="small" color={theme.text} /> : <Text style={{ color: theme.text, fontSize: 12, fontWeight: '800' }}>{label}</Text>}</TouchableOpacity>)}</View>{isHost ? <TouchableOpacity onPress={end}><Text style={styles.leave}>ZAKOŃCZ KONWÓJ</Text></TouchableOpacity> : <TouchableOpacity onPress={() => void leave()}><Text style={styles.leave}>OPUŚĆ KONWÓJ</Text></TouchableOpacity>}
     </ScrollView>}
   </SafeAreaView>;
 }

@@ -3,7 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { apiRequest } from '../lib/api/client';
-import { ensureSharedSocket } from '../lib/sharedSocket';
+import { ensureSharedSocket, joinSharedRoom } from '../lib/sharedSocket';
 import type { ConvoySnapshot } from '../lib/convoyLive';
 import type { ConvoyPlanEvent, ConvoyStatusEvent } from '../lib/convoyLive';
 import {
@@ -89,7 +89,16 @@ export function useActiveConvoyMap({
       }
       const socket = await ensureSharedSocket();
       if (!socket || disposed) return;
-      socket.emit('convoy:join', { convoyId: initial.convoy.id });
+      const releaseRoom = await joinSharedRoom(
+        `convoy:${initial.convoy.id}`,
+        'convoy:join',
+        'convoy:unsubscribe',
+        { convoyId: initial.convoy.id },
+      );
+      if (disposed) {
+        releaseRoom();
+        return;
+      }
       const onSnapshot = (next: ConvoySnapshot) => {
         if (next.convoy.id === convoyIdRef.current) {
           snapshotRef.current = next;
@@ -179,6 +188,7 @@ export function useActiveConvoyMap({
         socket.off('convoy:kick', onLeave);
         socket.off('convoy:route', onRoute);
         socket.off('convoy:end', onEnd);
+        releaseRoom();
       };
 
       timer = setInterval(() => {

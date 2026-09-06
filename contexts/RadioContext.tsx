@@ -142,7 +142,6 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   const [vadArmed, setVadArmedState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mutedUserIds, setMutedUserIds] = useState<ReadonlySet<number>>(() => new Set());
-  const activeRadioKey = snapshot?.active?.key || null;
   const roomRef = useRef<Room | null>(null);
   const listenerRoomsRef = useRef<Map<string, Room>>(new Map());
   const inputRef = useRef<RadioJoinInput | null>(null);
@@ -660,13 +659,13 @@ export function RadioProvider({ children }: { children: React.ReactNode }) {
   }, [disconnect, finishLocalTransmission, forceLocalMute, publishGrantedMicrophone, resumeRadioSession]);
 
   useEffect(() => {
-    if (!activeRadioKey) return undefined;
     const refresh = () => void apiRequest<RadioEffectsConfig>('/radio/effects', { auth: false, priority: 'background' })
       .then((effects) => setConfig((current) => current ? { ...current, effects } : current))
       .catch(() => {});
+    refresh();
     const timer = setInterval(refresh, 30_000);
     return () => clearInterval(timer);
-  }, [activeRadioKey]);
+  }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

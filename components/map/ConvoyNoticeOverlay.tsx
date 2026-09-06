@@ -1,9 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import { setAudioModeAsync } from 'expo-audio';
 import React, { memo, useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { convoyStatusColor, type ConvoyMapNotice, type ConvoyNoticeAction } from '../../lib/convoyUi';
+import { useRadio } from '../../contexts/RadioContext';
+import { playRadioCue } from '../../lib/radioEffects';
+
+const DEFAULT_CONVOY_NOTIFICATION = require('../../assets/sounds/convoy-notify.wav');
 
 type Props = {
   notices: ConvoyMapNotice[];
@@ -20,10 +24,8 @@ export const ConvoyNoticeOverlay = memo(function ConvoyNoticeOverlay({
   onAction,
   onHeightChange,
 }: Props) {
+  const radio = useRadio();
   const notice = notices[0] ?? null;
-  const player = useAudioPlayer(require('../../assets/sounds/convoy-notify.wav'), {
-    keepAudioSessionActive: true,
-  });
 
   useEffect(() => {
     void setAudioModeAsync({
@@ -38,14 +40,14 @@ export const ConvoyNoticeOverlay = memo(function ConvoyNoticeOverlay({
       return undefined;
     }
     if (notice.playSound) {
-      void player.seekTo(0).then(() => player.play()).catch(() => {});
+      playRadioCue('convoyNotification', radio.config?.effects, DEFAULT_CONVOY_NOTIFICATION);
     }
     const timer = setTimeout(
       () => onDismiss(notice.id),
       notice.critical ? 6_000 : 4_200,
     );
     return () => clearTimeout(timer);
-  }, [notice, onDismiss, onHeightChange, player]);
+  }, [notice, onDismiss, onHeightChange, radio.config?.effects]);
 
   if (!notice) return null;
   const accent = notice.kind === 'status' ? convoyStatusColor(notice.status) : '#31C8FF';

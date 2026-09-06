@@ -3,7 +3,7 @@ import type { PublicUserIdentity } from '../components/user/PremiumIdentity';
 export type RadioMode = 'global' | 'city' | 'private';
 export type RadioTransmitMode = 'ptt' | 'vad';
 export type PrivateVoiceMode = 'open' | 'cb' | 'moderated';
-export type RadioCueName = 'selfJoin' | 'selfLeave' | 'peerJoin' | 'peerLeave' | 'transmitStart' | 'transmitEnd';
+export type RadioCueName = 'selfJoin' | 'selfLeave' | 'peerJoin' | 'peerLeave' | 'transmitStart' | 'transmitEnd' | 'convoyNotification';
 
 export type RadioSoundEffect = {
   enabled: boolean;
