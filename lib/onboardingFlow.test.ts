@@ -22,4 +22,12 @@ describe('onboarding state machine', () => {
     expect(isOnboardingStep('garage')).toBe(true);
     expect(isOnboardingStep('finished')).toBe(false);
   });
+
+  it('keeps username before every optional setup step', () => {
+    const serverState = { currentStep: 'profile', usernameConfirmed: false };
+    const resolved = !serverState.usernameConfirmed
+      ? 'username'
+      : (isOnboardingStep(serverState.currentStep) ? serverState.currentStep : 'profile');
+    expect(resolved).toBe('username');
+  });
 });

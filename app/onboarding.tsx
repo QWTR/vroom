@@ -138,7 +138,12 @@ export default function OnboardingScreen() {
         router.replace('/login' as any);
         return;
       }
-      const resolved = isOnboardingStep(value.currentStep) ? value.currentStep : 'profile';
+      // Nick jest jedynym obowiązkowym krokiem. Jeśli starszy lub częściowo
+      // wdrożony backend zwróci niespójny stan (np. profile + brak potwierdzenia),
+      // nie pokazujemy ekranów opcjonalnych przed zatwierdzeniem nicku.
+      const resolved = !value.usernameConfirmed
+        ? 'username'
+        : (isOnboardingStep(value.currentStep) ? value.currentStep : 'profile');
       setStep(resolved);
       setUsername(value.profile?.username ?? '');
       setBio(value.profile?.bio ?? '');
