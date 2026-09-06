@@ -45,6 +45,9 @@ describe('Wiroom native iOS drive contract', () => {
     expect(PLUGIN_SOURCE).not.toContain('idleStopMs');
     expect(PLUGIN_SOURCE).not.toContain('private func observeIdle');
     expect(PLUGIN_SOURCE).not.toContain('endedBy: "idle"');
+    expect(SWIFT_MODULE).toContain('manager.pausesLocationUpdatesAutomatically = false');
+    expect(SWIFT_MODULE).toContain('route.append(routePoint(from: location, source: "native"))');
+    expect(SWIFT_MODULE).toContain('"recordedAt": location.timestamp.timeIntervalSince1970 * 1000');
   });
 
   it('keeps an offline checkpoint retryable until the final activity is saved', () => {

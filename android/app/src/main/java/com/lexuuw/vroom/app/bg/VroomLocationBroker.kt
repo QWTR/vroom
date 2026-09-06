@@ -27,18 +27,13 @@ object VroomLocationBroker {
   private const val TAG = "VroomLocationBroker"
   private const val MOVING_INTERVAL_MS = 1_000L
   private const val MOVING_MIN_INTERVAL_MS = 500L
-  private const val IDLE_INTERVAL_MS = 3_000L
-  private const val IDLE_MIN_INTERVAL_MS = 1_500L
-  private const val IDLE_AFTER_MS = 15_000L
-  private const val IDLE_MIN_DISTANCE_M = 8f
+  private const val MAX_UPDATE_DELAY_MS = 5_000L
 
   private val consumers = ConcurrentHashMap<String, (Location) -> Unit>()
   private var client: FusedLocationProviderClient? = null
   private var callback: LocationCallback? = null
   private var thread: HandlerThread? = null
   private var appContext: Context? = null
-  private var idleProfile = false
-  private var lastMovingAt = 0L
   private var latestLocation: Location? = null
   private var fixCount = 0L
   private var providerStartedAt = 0L
@@ -73,7 +68,7 @@ object VroomLocationBroker {
   fun diagnostics(): Map<String, Any> = mapOf(
     "consumerCount" to consumers.size,
     "providerActive" to (callback != null),
-    "idleProfile" to idleProfile,
+    "idleProfile" to false,
     "fixCount" to fixCount,
     "providerUptimeMs" to if (providerStartedAt > 0L) {
       SystemClock.elapsedRealtime() - providerStartedAt
@@ -98,7 +93,6 @@ object VroomLocationBroker {
     }
     callback = nextCallback
     providerStartedAt = SystemClock.elapsedRealtime()
-    lastMovingAt = providerStartedAt
     requestUpdates(nextCallback)
     client?.lastLocation?.addOnSuccessListener { it?.let(::publish) }
   }
@@ -109,21 +103,19 @@ object VroomLocationBroker {
     val context = appContext ?: return
     if (!hasLocationPermission(context)) return
     client?.removeLocationUpdates(target)
-    val request = if (idleProfile) {
-      LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, IDLE_INTERVAL_MS)
-        .setMinUpdateIntervalMillis(IDLE_MIN_INTERVAL_MS)
-        .setMinUpdateDistanceMeters(IDLE_MIN_DISTANCE_M)
-        .setGranularity(Granularity.GRANULARITY_FINE)
-        .setWaitForAccurateLocation(false)
-        .build()
-    } else {
-      LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
-        .setMinUpdateIntervalMillis(MOVING_MIN_INTERVAL_MS)
-        .setMinUpdateDistanceMeters(2f)
-        .setGranularity(Granularity.GRANULARITY_FINE)
-        .setWaitForAccurateLocation(false)
-        .build()
-    }
+    // The broker only exists while a drive or Android Auto session is active.
+    // Downgrading to BALANCED after a short traffic stop made several OEMs keep
+    // that low-power request throttled after the screen was locked. Keep the
+    // automotive request accurate, but allow short batches so every intermediate
+    // fix (and therefore every bend in the route) survives screen-off/Doze.
+    val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
+      .setMinUpdateIntervalMillis(MOVING_MIN_INTERVAL_MS)
+      .setMinUpdateDistanceMeters(2f)
+      .setMaxUpdateAgeMillis(0L)
+      .setMaxUpdateDelayMillis(MAX_UPDATE_DELAY_MS)
+      .setGranularity(Granularity.GRANULARITY_FINE)
+      .setWaitForAccurateLocation(false)
+      .build()
     client?.requestLocationUpdates(request, target, thread?.looper)
       ?.addOnFailureListener { Log.w(TAG, "provider request failed", it) }
   }
@@ -131,15 +123,6 @@ object VroomLocationBroker {
   private fun publish(location: Location) {
     latestLocation = location
     fixCount += 1
-    val now = SystemClock.elapsedRealtime()
-    val moving = location.hasSpeed() && location.speed >= 0.7f
-    if (moving) lastMovingAt = now
-    val shouldIdle = !moving && now - lastMovingAt >= IDLE_AFTER_MS
-    if (shouldIdle != idleProfile) {
-      idleProfile = shouldIdle
-      callback?.let(::requestUpdates)
-      Log.d(TAG, "profile=${if (idleProfile) "idle" else "moving"}")
-    }
     consumers.values.forEach { consumer ->
       runCatching { consumer(location) }
         .onFailure { Log.w(TAG, "consumer failed", it) }
@@ -151,7 +134,6 @@ object VroomLocationBroker {
     callback?.let { client?.removeLocationUpdates(it) }
     callback = null
     latestLocation = null
-    idleProfile = false
     providerStartedAt = 0L
     thread?.quitSafely()
     thread = null

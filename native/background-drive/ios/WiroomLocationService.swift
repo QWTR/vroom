@@ -46,7 +46,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
     manager.distanceFilter = 2
     manager.activityType = .automotiveNavigation
-    manager.pausesLocationUpdatesAutomatically = true
+    // An active drive must not be classified as idle just because the screen is
+    // locked or the vehicle waits at lights. The service is explicitly stopped
+    // at the trip boundary, so automatic Core Location pausing only creates gaps.
+    manager.pausesLocationUpdatesAutomatically = false
     manager.allowsBackgroundLocationUpdates = true
     if #available(iOS 11.0, *) {
       manager.showsBackgroundLocationIndicator = true
@@ -318,7 +321,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
           stats["distanceKm"] = number(stats["distanceKm"]) + segmentKm
           var route = stats["routePoints"] as? [[String: Any]] ?? []
           if route.isEmpty {
-            route.append(["latitude": previousLat, "longitude": previousLng])
+            route.append(routePoint(from: previousFix, source: "native"))
           }
           let lastRoutePoint = route.last
           let lastRouteLat = number(lastRoutePoint?["latitude"])
@@ -327,7 +330,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
             ? haversineKm(lastRouteLat, lastRouteLng, location.coordinate.latitude, location.coordinate.longitude)
             : Double.infinity
           if routeMovedKm >= routePointSpacingKm {
-            route.append(["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude])
+            route.append(routePoint(from: location, source: "native"))
           }
           if route.count > maxRoutePoints {
             var compacted = route.enumerated().compactMap { index, point in
@@ -578,7 +581,46 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     if location.horizontalAccuracy >= 0 {
       fix["accuracy"] = location.horizontalAccuracy
     }
+    if location.speed >= 0 {
+      fix["speedKmh"] = location.speed * 3.6
+    }
+    if location.verticalAccuracy >= 0 {
+      fix["altitudeM"] = location.altitude
+    }
+    if location.course >= 0 {
+      fix["headingDeg"] = location.course
+    }
     return fix
+  }
+
+  private func routePoint(from location: CLLocation, source: String) -> [String: Any] {
+    var point: [String: Any] = [
+      "latitude": location.coordinate.latitude,
+      "longitude": location.coordinate.longitude,
+      "recordedAt": location.timestamp.timeIntervalSince1970 * 1000,
+      "source": source,
+      "accepted": true,
+    ]
+    if location.speed >= 0 { point["speedKmh"] = location.speed * 3.6 }
+    if location.verticalAccuracy >= 0 { point["altitudeM"] = location.altitude }
+    if location.horizontalAccuracy >= 0 { point["accuracyM"] = location.horizontalAccuracy }
+    if location.course >= 0 { point["headingDeg"] = location.course }
+    return point
+  }
+
+  private func routePoint(from fix: [String: Any], source: String) -> [String: Any] {
+    var point: [String: Any] = [
+      "latitude": number(fix["latitude"]),
+      "longitude": number(fix["longitude"]),
+      "recordedAt": number(fix["time"]),
+      "source": source,
+      "accepted": true,
+    ]
+    if number(fix["speedKmh"]).isFinite { point["speedKmh"] = number(fix["speedKmh"]) }
+    if number(fix["altitudeM"]).isFinite { point["altitudeM"] = number(fix["altitudeM"]) }
+    if number(fix["accuracy"]).isFinite { point["accuracyM"] = number(fix["accuracy"]) }
+    if number(fix["headingDeg"]).isFinite { point["headingDeg"] = number(fix["headingDeg"]) }
+    return point
   }
 
   private func isReliable(_ location: CLLocation) -> Bool {

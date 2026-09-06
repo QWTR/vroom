@@ -30,4 +30,13 @@ describe('Android native background drive contract', () => {
     expect(service).not.toContain('stopTracking("idle"');
     expect(service).not.toContain('fun observeIdle');
   });
+
+  it('keeps an automotive-quality batched request while the screen is locked', () => {
+    const broker = readFileSync(resolve('native/android-bg/VroomLocationBroker.kt'), 'utf8');
+
+    expect(broker).toContain('Priority.PRIORITY_HIGH_ACCURACY');
+    expect(broker).toContain('.setMaxUpdateDelayMillis(MAX_UPDATE_DELAY_MS)');
+    expect(broker).toContain('.setMaxUpdateAgeMillis(0L)');
+    expect(broker).not.toContain('Priority.PRIORITY_BALANCED_POWER_ACCURACY');
+  });
 });
