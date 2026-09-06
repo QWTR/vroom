@@ -38,16 +38,16 @@ export function useActiveConvoyMap({
   const seenEventIdsRef = useRef(new Set<string>());
   const appStateRef = useRef(AppState.currentState);
   const foregroundSinceRef = useRef(0);
-  const suppressNoticesUntilRef = useRef(0);
 
   useEffect(() => { locationRef.current = location; }, [location]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
 
   const pushNotice = useCallback((notice: ConvoyMapNotice | null) => {
+    const appState = AppState.currentState;
     if (
       !notice
-      || AppState.currentState !== 'active'
-      || Date.now() < suppressNoticesUntilRef.current
+      || appState === 'background'
+      || appState === 'inactive'
       || seenEventIdsRef.current.has(notice.id)
     ) return;
     seenEventIdsRef.current.add(notice.id);
@@ -135,6 +135,7 @@ export function useActiveConvoyMap({
             participants: previousSnapshot.participants,
             currentUserId,
             foregroundSince: foregroundSinceRef.current,
+            receivedLive: true,
           }));
         }
       };
@@ -156,6 +157,7 @@ export function useActiveConvoyMap({
               participants: currentSnapshot.participants,
               currentUserId,
               foregroundSince: foregroundSinceRef.current,
+              receivedLive: true,
             }));
           }
         });
@@ -213,7 +215,6 @@ export function useActiveConvoyMap({
       appStateRef.current = state;
       if (state === 'active' && previous !== 'active') {
         foregroundSinceRef.current = Date.now();
-        suppressNoticesUntilRef.current = Date.now() + 1_500;
         setNotices([]);
       } else if (state !== 'active') {
         setNotices([]);

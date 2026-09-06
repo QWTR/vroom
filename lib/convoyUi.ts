@@ -99,15 +99,18 @@ export function noticeFromStatusEvent({
   currentUserId,
   now = Date.now(),
   foregroundSince = 0,
+  receivedLive = false,
 }: {
   event: ConvoyStatusEvent;
   participants: ConvoyParticipant[];
   currentUserId: number;
   now?: number;
   foregroundSince?: number;
+  receivedLive?: boolean;
 }): ConvoyMapNotice | null {
   const sentAt = eventTime(event.sentAt, now);
-  if (event.userId === currentUserId || sentAt < foregroundSince || now - sentAt > NOTICE_FRESHNESS_MS) return null;
+  if (event.userId === currentUserId) return null;
+  if (!receivedLive && (sentAt < foregroundSince || now - sentAt > NOTICE_FRESHNESS_MS)) return null;
   const name = actorName(participants, event.userId);
   const label = CONVOY_STATUS_LABELS[event.status] || event.status.toUpperCase();
   return {
@@ -130,15 +133,18 @@ export function noticeFromPlanEvent({
   currentUserId,
   now = Date.now(),
   foregroundSince = 0,
+  receivedLive = false,
 }: {
   event: ConvoyPlanEvent;
   participants: ConvoyParticipant[];
   currentUserId: number;
   now?: number;
   foregroundSince?: number;
+  receivedLive?: boolean;
 }): ConvoyMapNotice | null {
   const sentAt = eventTime(event.sentAt, now);
-  if (event.actorId === currentUserId || sentAt < foregroundSince || now - sentAt > NOTICE_FRESHNESS_MS) return null;
+  if (event.actorId === currentUserId) return null;
+  if (!receivedLive && (sentAt < foregroundSince || now - sentAt > NOTICE_FRESHNESS_MS)) return null;
   const change = event.changed?.includes('meeting')
     ? 'meeting'
     : event.changed?.includes('route')

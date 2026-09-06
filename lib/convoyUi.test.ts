@@ -43,6 +43,18 @@ describe('convoy map UI', () => {
     })).toBeNull();
   });
 
+  it('shows a realtime event received while the map listener is active despite clock skew', () => {
+    const now = 100_000;
+    expect(noticeFromStatusEvent({
+      event: { eventId: 'evt-live', userId: 7, status: 'fuel', sentAt: 1 },
+      participants: [participant()],
+      currentUserId: 8,
+      foregroundSince: 90_000,
+      now,
+      receivedLive: true,
+    })).toMatchObject({ id: 'evt-live', message: 'TANKOWANIE', playSound: true });
+  });
+
   it('creates a fresh plan alert with a navigation action for other participants', () => {
     const now = Date.now();
     expect(noticeFromPlanEvent({

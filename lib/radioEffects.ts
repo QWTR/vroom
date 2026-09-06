@@ -30,14 +30,15 @@ export function playRadioCue(name: RadioCueName, config?: RadioEffectsConfig | n
   if (config && !config.enabled) return;
   if (sound && (!sound.enabled || !sound.url || sound.preset === 'none')) return;
   const soundUrl = sound?.url;
-  const source = soundUrl ? (cachedUrls.get(soundUrl) || soundUrl) : fallbackSource;
+  const cachedSource = soundUrl ? cachedUrls.get(soundUrl) : undefined;
+  const source = soundUrl ? (cachedSource || fallbackSource || soundUrl) : fallbackSource;
   if (!source) return;
   try {
     const player = createAudioPlayer(source, { keepAudioSessionActive: true, updateInterval: 1_000 });
     activePlayers.add(player);
     player.volume = sound ? Math.max(0, Math.min(1, Number(sound.volume) || 0)) : 1;
     player.play();
-    if (soundUrl && !cachedUrls.has(soundUrl)) cacheRadioCue(soundUrl);
+    if (soundUrl && !cachedSource) cacheRadioCue(soundUrl);
     setTimeout(() => {
       activePlayers.delete(player);
       try { player.remove(); } catch {}
