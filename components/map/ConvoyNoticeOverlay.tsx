@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { setAudioModeAsync } from 'expo-audio';
 import React, { memo, useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
@@ -26,13 +25,6 @@ export const ConvoyNoticeOverlay = memo(function ConvoyNoticeOverlay({
 }: Props) {
   const radio = useRadio();
   const notice = notices[0] ?? null;
-
-  useEffect(() => {
-    void setAudioModeAsync({
-      interruptionMode: 'mixWithOthers',
-      playsInSilentMode: true,
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (!notice) {

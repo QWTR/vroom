@@ -85,6 +85,24 @@ export function createLiveMapStore() {
     metaListeners.get(id)?.forEach((l) => l());
   };
 
+  const subscribeByUserId = (
+    listenersByUserId: Map<number, Set<() => void>>,
+    userId: number,
+    listener: () => void,
+  ) => {
+    let listeners = listenersByUserId.get(userId);
+    if (!listeners) {
+      listeners = new Set();
+      listenersByUserId.set(userId, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = listenersByUserId.get(userId);
+      current?.delete(listener);
+      if (current?.size === 0) listenersByUserId.delete(userId);
+    };
+  };
+
   const publishUserIds = () => {
     userIdsSnapshot = [...userIds];
     notifyUserIds();
@@ -228,9 +246,12 @@ export function createLiveMapStore() {
     if (!metaById.has(id)) return false;
     metaById.delete(id);
     positions.delete(id);
-    metaListeners.delete(id);
-    positionListeners.delete(id);
+    // React can batch a removal and a quick re-add into one render. Mounted
+    // marker components then keep their existing subscriptions, so removing
+    // the listeners here would freeze the marker until a screen remount.
     removeUserIdFromList(id);
+    notifyMeta(id);
+    notifyPosition(id);
     return true;
   };
 
@@ -324,14 +345,10 @@ export function createLiveMapStore() {
     getUserIdsSnapshot: () => userIdsSnapshot,
 
     subscribePosition(userId: number, listener: () => void) {
-      if (!positionListeners.has(userId)) positionListeners.set(userId, new Set());
-      positionListeners.get(userId)!.add(listener);
-      return () => positionListeners.get(userId)?.delete(listener);
+      return subscribeByUserId(positionListeners, userId, listener);
     },
     subscribeMeta(userId: number, listener: () => void) {
-      if (!metaListeners.has(userId)) metaListeners.set(userId, new Set());
-      metaListeners.get(userId)!.add(listener);
-      return () => metaListeners.get(userId)?.delete(listener);
+      return subscribeByUserId(metaListeners, userId, listener);
     },
     getPosition(userId: number) {
       return positions.get(userId) ?? null;
@@ -351,12 +368,17 @@ export function createLiveMapStore() {
     getLiveUsersArray,
 
     clear() {
+      const clearedIds = new Set([...metaById.keys(), ...positions.keys()]);
       metaById.clear();
       positions.clear();
       userIds = [];
       userIdsSnapshot = [];
-      metaListeners.clear();
-      positionListeners.clear();
+      // Active useSyncExternalStore consumers own these listeners and remove
+      // them during cleanup. Preserve them while a reconnect reseeds data.
+      clearedIds.forEach((id) => {
+        notifyMeta(id);
+        notifyPosition(id);
+      });
       pendingFleetDeltaIds.clear();
       if (fleetDeltaTimer) {
         clearTimeout(fleetDeltaTimer);

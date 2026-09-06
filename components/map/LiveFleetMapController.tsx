@@ -36,6 +36,23 @@ const LIVE_FLEET_FALLBACK_VIEWPORT: ViewportBounds = {
   west: -180,
   valid: 1,
 };
+const MAP_VIEWPORT_QUERY_TIMEOUT_MS = 1_500;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('map viewport query timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 function viewportKey(bounds: ViewportBounds): string {
   if (bounds.valid !== 1) return 'invalid';
@@ -105,7 +122,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     try {
       do {
         viewportQueryQueuedRef.current = false;
-        const bounds = await map.getVisibleBounds();
+        const bounds = await withTimeout(map.getVisibleBounds(), MAP_VIEWPORT_QUERY_TIMEOUT_MS);
         const topRight = bounds?.[0];
         const bottomLeft = bounds?.[1];
         if (Array.isArray(topRight) && Array.isArray(bottomLeft)) {
@@ -130,7 +147,10 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
         }
         const getZoom = (map as unknown as { getZoom?: () => Promise<number> }).getZoom;
         if (typeof getZoom === 'function') {
-          const zoom = await getZoom.call(map).catch(() => NaN);
+          const zoom = await withTimeout(
+            getZoom.call(map),
+            MAP_VIEWPORT_QUERY_TIMEOUT_MS,
+          ).catch(() => NaN);
           if (Number.isFinite(zoom)) setViewportZoom(zoom);
         }
       } while (viewportQueryQueuedRef.current && enabled && mapRef.current === map);

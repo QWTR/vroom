@@ -228,6 +228,8 @@ export function useLiveMap(
   const liveJoinWithGpsRef = useRef(false);
   const liveJoinedRef = useRef(false);
   const liveJoinInFlightRef = useRef(false);
+  const liveJoinAttemptRef = useRef(0);
+  const socketSessionGenerationRef = useRef(0);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveUsersFetchInFlightRef = useRef<Promise<void> | null>(null);
   const mergeGenerationRef = useRef(0);
@@ -558,6 +560,7 @@ export function useLiveMap(
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected || liveJoinInFlightRef.current) return;
+    const joinAttempt = ++liveJoinAttemptRef.current;
     liveJoinInFlightRef.current = true;
     liveJoinedRef.current = false;
     if (isSharingRef.current) setSharingStatus('connecting');
@@ -580,6 +583,7 @@ export function useLiveMap(
     liveJoinedRef.current = true;
     setSharingStatus(isSharingRef.current ? 'on' : 'off');
     socket.timeout(5_000).emit('live:join', payload, (error: Error | null, ack?: { joined?: boolean }) => {
+      if (joinAttempt !== liveJoinAttemptRef.current) return;
       liveJoinInFlightRef.current = false;
       if (socketRef.current !== socket || !socket.connected) return;
       if (!error && ack?.joined === false) {
@@ -595,8 +599,10 @@ export function useLiveMap(
 
   const leaveLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
+    liveJoinAttemptRef.current += 1;
     liveJoinInFlightRef.current = false;
     liveJoinedRef.current = false;
+    liveJoinWithGpsRef.current = false;
     setSharingStatus('off');
     if (!socket?.connected) return;
     socket.emit('live:leave');
@@ -741,6 +747,7 @@ export function useLiveMap(
     liveUserLastSeenRef.current.clear();
     liveUserLastSeqRef.current.clear();
     liveUserLastServerAtRef.current.clear();
+    liveUserFixAtRef.current.clear();
     reducedLastAppliedAtRef.current.clear();
     reducedPendingRef.current.clear();
     liveUsersFetchInFlightRef.current = null;
@@ -846,27 +853,41 @@ export function useLiveMap(
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
     if (!mapSessionActive) return;
+    const sessionGeneration = ++socketSessionGenerationRef.current;
+    let cancelled = false;
+    let ownedSocket: Socket | null = null;
     (async () => {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-      if (!token) return;
+      if (
+        !token
+        || cancelled
+        || sessionGeneration !== socketSessionGenerationRef.current
+        || !mapSessionActiveRef.current
+      ) return;
       tokenRef.current = token;
-
-      // REST starts immediately and does not wait for the websocket handshake.
-      // This is the recovery path on networks that block websocket transport.
-      void fetchWarnings(token);
-      if (liveUsersEnabledRef.current) void fetchLiveUsersRest(token);
 
       const socket = io(API_URL, {
         auth:              { token },
         transports:        ['websocket'],
+        autoConnect:       false,
         reconnection:      true,
         reconnectionDelay: 2000,
-        pingTimeout:       60000,
-        pingInterval:      25000,
       });
+      if (cancelled || sessionGeneration !== socketSessionGenerationRef.current) {
+        socket.disconnect();
+        return;
+      }
+      ownedSocket = socket;
       socketRef.current = socket;
 
-      socket.on('connect', async () => {
+      const isCurrentSocket = () => (
+        !cancelled
+        && sessionGeneration === socketSessionGenerationRef.current
+        && socketRef.current === socket
+      );
+
+      socket.on('connect', () => {
+        if (!isCurrentSocket()) return;
         setConnected(true);
         if (liveUsersEnabledRef.current) {
           joinLiveMapRoom();
@@ -880,8 +901,11 @@ export function useLiveMap(
       });
 
       socket.on('disconnect', (reason) => {
+        if (!isCurrentSocket()) return;
+        liveJoinAttemptRef.current += 1;
         liveJoinedRef.current = false;
         liveJoinInFlightRef.current = false;
+        liveJoinWithGpsRef.current = false;
         setConnected(false);
         setSharingStatus(isSharingRef.current ? 'connecting' : 'off');
         if (
@@ -894,12 +918,14 @@ export function useLiveMap(
       });
 
       socket.on('connect_error', (err) => {
+        if (!isCurrentSocket()) return;
         liveJoinedRef.current = false;
         if (isSharingRef.current) setSharingStatus('error');
         console.log('❌ connect_error:', err.message);
       });
 
       socket.on('user:location', (data: any) => {
+        if (!isCurrentSocket()) return;
         if (!liveUsersEnabledRef.current) return;
         const transport = parseLiveUsersPayload(data)[0];
         if (!transport) return;
@@ -990,6 +1016,7 @@ export function useLiveMap(
       });
 
       socket.on('live:user:identity', (data: any) => {
+        if (!isCurrentSocket()) return;
         if (!liveUsersEnabledRef.current) return;
         const id = Number(data?.id);
         if (!Number.isFinite(id)) return;
@@ -1020,6 +1047,7 @@ export function useLiveMap(
       });
 
       socket.on('live:users:snapshot', (data: any) => {
+        if (!isCurrentSocket()) return;
         const users = parseLiveUserList(data);
         const rawCount = users.length;
         console.log(
@@ -1041,6 +1069,7 @@ export function useLiveMap(
       });
 
       socket.on('user:offline', (data) => {
+        if (!isCurrentSocket()) return;
         if (!liveUsersEnabledRef.current) return;
         const id = Number(data?.id);
         if (!Number.isFinite(id)) return;
@@ -1053,12 +1082,14 @@ export function useLiveMap(
       });
 
       socket.on('warning:new', (warning: LiveWarning) => {
+        if (!isCurrentSocket()) return;
         if (!mapSessionActiveRef.current) return;
         setWarnings(prev => [warning, ...(prev ?? [])]);
         checkSingleWarningProximityRef.current?.(warning);
       });
 
       socket.on('warning:confirmed', ({ id, confirmCount, expiresAt, subtype, direction, message }: any) => {
+        if (!isCurrentSocket()) return;
         setWarnings(prev =>
           (prev ?? []).map(w => w.id === id ? {
             ...w,
@@ -1072,15 +1103,18 @@ export function useLiveMap(
       });
 
       socket.on('warning:dismissed', ({ id, dismissCount }: any) => {
+        if (!isCurrentSocket()) return;
         setWarnings(prev => (prev ?? []).map(w => w.id === id ? { ...w, dismissCount } : w));
       });
 
       socket.on('warning:removed', ({ id }: any) => {
+        if (!isCurrentSocket()) return;
         setWarnings(prev => (prev ?? []).filter(w => w.id !== id));
         alertedWarningsRef.current.delete(id);
       });
 
       socket.on('warnings:cleanup', () => {
+        if (!isCurrentSocket()) return;
         const now = new Date();
         setWarnings(prev => {
           const src     = prev ?? [];
@@ -1090,15 +1124,31 @@ export function useLiveMap(
         });
       });
 
-      await fetchInitialData(token);
+      // Attach every handler before connecting so even a very fast handshake
+      // cannot lose the initial snapshot. REST remains an independent repair
+      // path when a mobile network blocks WebSocket traffic.
+      if (allowBgRef.current || isForegroundActive()) {
+        socket.connect();
+        await fetchInitialData(token);
+      }
     })();
     return () => {
+      cancelled = true;
+      if (socketSessionGenerationRef.current === sessionGeneration) {
+        socketSessionGenerationRef.current += 1;
+      }
       clearUsersFallbackTimer();
-      const s = socketRef.current;
+      const s = ownedSocket;
       if (s) {
         if (s.connected) s.emit('live:leave');
+        s.removeAllListeners();
         s.disconnect();
       }
+      if (socketRef.current === s) socketRef.current = null;
+      liveJoinAttemptRef.current += 1;
+      liveJoinedRef.current = false;
+      liveJoinInFlightRef.current = false;
+      liveJoinWithGpsRef.current = false;
     };
   }, [
     fetchInitialData,
