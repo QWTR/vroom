@@ -20,7 +20,16 @@ export type AnalyticsEventName =
   | 'premium_purchase_started'
   | 'premium_purchase_completed'
   | 'premium_paywall_shown'
-  | 'premium_feature_used';
+  | 'premium_feature_used'
+  | 'auth_path_selected'
+  | 'login_completed'
+  | 'registration_session_started'
+  | 'registration_step_completed'
+  | 'email_verification_completed'
+  | 'onboarding_step_completed'
+  | 'onboarding_step_skipped'
+  | 'premium_onboarding_cta'
+  | 'onboarding_completed';
 
 export type AnalyticsEventInput = {
   eventName: AnalyticsEventName;

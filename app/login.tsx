@@ -1,17 +1,27 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Animated, Easing, NativeModules, Linking, Keyboard } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Linking, Keyboard } from 'react-native';
 import { AppText as Text, AppTextInput as TextInput } from '../components/ui/AppText';
+import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
-import { useRouter } from 'expo-router';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
-import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { normalizeReferralInput } from '../lib/referralInput';
 import { markAuthSessionActive } from '../lib/authSessionExpiry';
@@ -23,6 +33,7 @@ import {
 } from '../lib/appleSignIn';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
+import { track } from '../lib/analytics/client';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -43,8 +54,9 @@ try {
   });
 } catch {}
 
-type Screen    = 'login' | 'register' | 'forgot' | 'verify';
+type Screen    = 'welcome' | 'login' | 'register' | 'forgot' | 'verify';
 type ResetStep = 'email' | 'code' | 'password';
+type RegisterStep = 0 | 1 | 2;
 
 const isStrongPassword = (value: string) => value.length >= 10 && /\p{L}/u.test(value) && /\p{N}/u.test(value);
 
@@ -54,7 +66,8 @@ export default function LoginScreen() {
   const s = useMemo(() => makeLoginStyles(theme), [theme]);
   const params = useLocalSearchParams<{ ref?: string }>();
 
-  const [screen,       setScreen]       = useState<Screen>('login');
+  const [screen,       setScreen]       = useState<Screen>('welcome');
+  const [registerStep, setRegisterStep] = useState<RegisterStep>(0);
   const [email,        setEmail]        = useState('');
   const [password,     setPassword]     = useState('');
   const [username,     setUsername]     = useState('');
@@ -75,6 +88,17 @@ export default function LoginScreen() {
     Platform.OS === 'ios' ? null : false,
   );
   const [acceptedUgcTerms, setAcceptedUgcTerms] = useState(false);
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [usernameChecking, setUsernameChecking] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const verificationSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
@@ -96,39 +120,85 @@ export default function LoginScreen() {
     if (ref) setReferralCode(ref.toUpperCase());
   }, [params.ref]);
 
-  // Animacje wejścia
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(32)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (screen !== 'register' || registerStep !== 1) return;
+    const value = username.trim();
+    if (value.length < 3) {
+      setUsernameAvailable(null);
+      setUsernameChecking(false);
+      return;
+    }
+    setUsernameChecking(true);
+    setUsernameAvailable(null);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_URL}/username-availability?username=${encodeURIComponent(value)}`);
+        const data = await res.json().catch(() => ({}));
+        setUsernameAvailable(res.ok ? Boolean(data.available) : false);
+      } catch {
+        setUsernameAvailable(null);
+      } finally {
+        setUsernameChecking(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [registerStep, screen, username]);
 
   useEffect(() => {
-    // Wejście
-    Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 55, useNativeDriver: true }),
-    ]).start();
+    if (resendSeconds <= 0) return;
+    const timer = setInterval(() => setResendSeconds((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [resendSeconds]);
 
-    // Pulsowanie kropki
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.4, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1.0, duration: 900, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
+  // Animacje wejścia
+  const fadeAnim = useSharedValue(0);
+  const slideAnim = useSharedValue(32);
+  const pulseAnim = useSharedValue(1);
+  const entranceMotionStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: slideAnim.value }],
+  }));
+  const pulseMotionStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseAnim.value }],
+  }));
+
+  useEffect(() => {
+    if (reduceMotion) {
+      cancelAnimation(pulseAnim);
+      fadeAnim.value = 1;
+      slideAnim.value = 0;
+      pulseAnim.value = 1;
+      return;
+    }
+    fadeAnim.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
+    slideAnim.value = withSpring(0, { damping: 16, stiffness: 150 });
+    pulseAnim.value = withRepeat(
+      withSequence(
+        withTiming(1.4, { duration: 900 }),
+        withTiming(1, { duration: 900 }),
+      ),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(pulseAnim);
+  }, [fadeAnim, pulseAnim, reduceMotion, slideAnim]);
 
   // Re-animacja przy zmianie ekranu
   const animateSwitch = () => {
-    slideAnim.setValue(20);
-    fadeAnim.setValue(0);
-    Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, friction: 9, tension: 70, useNativeDriver: true }),
-    ]).start();
+    if (reduceMotion) {
+      slideAnim.value = 0;
+      fadeAnim.value = 1;
+      return;
+    }
+    slideAnim.value = 20;
+    fadeAnim.value = 0;
+    fadeAnim.value = withTiming(1, { duration: 350, easing: Easing.out(Easing.quad) });
+    slideAnim.value = withSpring(0, { damping: 18, stiffness: 175 });
   };
 
   const switchScreen = (s: Screen) => {
     setScreen(s);
+    if (s === 'register') setRegisterStep(0);
     setPassword('');
     setConfirmPass('');
     animateSwitch();
@@ -145,11 +215,16 @@ export default function LoginScreen() {
   const openEmailVerification = (address: string) => {
     setEmail(address.trim().toLowerCase());
     setVerificationCode('');
+    setResendSeconds(60);
     setScreen('verify');
     animateSwitch();
   };
 
-  const saveAndNavigate = async (token: string, user: any, meta?: { needsUgcTerms?: boolean }) => {
+  const saveAndNavigate = useCallback(async (
+    token: string,
+    user: any,
+    meta?: { needsUgcTerms?: boolean; onboarding?: any; isNewUser?: boolean },
+  ) => {
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
@@ -158,8 +233,17 @@ export default function LoginScreen() {
     markAuthSessionActive();
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();
-    router.replace('/(tabs)');
-  };
+    const onboarding = meta?.onboarding ?? user?.onboarding;
+    await AsyncStorage.setItem('vroom_onboarding_required', onboarding?.required ? '1' : '0');
+    track({
+      eventName: meta?.isNewUser ? 'registration_session_started' : 'login_completed',
+      priority: 'high',
+      screenName: 'auth',
+      surface: 'authentication',
+      properties: { onboarding_required: Boolean(onboarding?.required) },
+    });
+    router.replace((onboarding?.required ? '/onboarding' : '/(tabs)') as any);
+  }, [router]);
 
   const requireUgcTerms = () => {
     if (!acceptedUgcTerms) {
@@ -174,13 +258,16 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!requireUgcTerms()) return;
     if (!email || !password) return Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
     setLoading(true);
     try {
       const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, acceptUgcTerms: acceptedUgcTerms }) });
       const data = await res.json();
-      if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
+      if (res.ok) await saveAndNavigate(data.token, data.user, {
+        needsUgcTerms: data.needsUgcTerms,
+        onboarding: data.onboarding,
+        isNewUser: data.isNewUser,
+      });
       else if (data.code === 'EMAIL_NOT_VERIFIED') {
         await requestVerificationCode(email, false);
         openEmailVerification(email);
@@ -225,7 +312,6 @@ export default function LoginScreen() {
 
   const handleGoogle = async () => {
     if (Platform.OS === 'ios') return;
-    if (!requireUgcTerms()) return;
     if (!GoogleSignin) return Toast.show({ type: 'info', text1: 'NIEDOSTĘPNE', text2: 'Wymaga pełnego buildu.' });
     setGLoading(true);
     try {
@@ -235,11 +321,13 @@ export default function LoginScreen() {
       if (!token) throw new Error('Brak tokenu');
       const res  = await fetch(`${API_URL}/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token, acceptUgcTerms: true }) });
       const data = await res.json();
-      if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
+      if (res.ok) await saveAndNavigate(data.token, data.user, {
+        needsUgcTerms: data.needsUgcTerms,
+        onboarding: data.onboarding,
+        isNewUser: data.isNewUser,
+      });
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Błąd Google.' });
     } catch (e: any) {
-      // ← TUTAJ LOGI
-      console.log('GOOGLE ERROR:', JSON.stringify(e));
       Toast.show({ 
         type: 'error', 
         text1: `KOD: ${e.code ?? 'brak'}`, 
@@ -257,6 +345,7 @@ export default function LoginScreen() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error ?? 'Nie udało się wysłać kodu.');
+    setResendSeconds(60);
     if (showToast) {
       Toast.show({
         type: 'success',
@@ -266,7 +355,7 @@ export default function LoginScreen() {
     }
   };
 
-  const handleConfirmEmail = async () => {
+  const handleConfirmEmail = useCallback(async () => {
     if (!/^\d{6}$/.test(verificationCode)) {
       return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz 6-cyfrowy kod.' });
     }
@@ -279,19 +368,35 @@ export default function LoginScreen() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? 'Nieprawidłowy kod.');
+      track({
+        eventName: 'email_verification_completed',
+        priority: 'high',
+        screenName: 'email_verification',
+        surface: 'authentication',
+      });
       Toast.show({ type: 'success', text1: '✅ E-MAIL POTWIERDZONY', text2: 'Konto jest aktywne.' });
-      await setTutorialPending();
-      await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
+      await saveAndNavigate(data.token, data.user, {
+        needsUgcTerms: data.needsUgcTerms,
+        onboarding: data.onboarding,
+        isNewUser: true,
+      });
     } catch (error: any) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: error.message ?? 'Nie udało się potwierdzić e-maila.' });
     } finally {
       setLoading(false);
+      verificationSubmittingRef.current = false;
     }
-  };
+  }, [email, saveAndNavigate, verificationCode]);
+
+  useEffect(() => {
+    if (screen !== 'verify' || verificationCode.length !== 6 || verificationSubmittingRef.current) return;
+    verificationSubmittingRef.current = true;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    void handleConfirmEmail();
+  }, [handleConfirmEmail, screen, verificationCode]);
 
   const handleApple = async () => {
     if (Platform.OS !== 'ios') return;
-    if (!requireUgcTerms()) return;
     if (!appleAvailable) {
       Toast.show({
         type: 'info',
@@ -318,7 +423,7 @@ export default function LoginScreen() {
       const res = await fetch(`${API_URL}/apple`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildAppleSignInBody(credential, nonce, acceptedUgcTerms)),
+        body: JSON.stringify(buildAppleSignInBody(credential, nonce, true)),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -332,6 +437,8 @@ export default function LoginScreen() {
 
       await saveAndNavigate(data.token, data.user, {
         needsUgcTerms: data.needsUgcTerms,
+        onboarding: data.onboarding,
+        isNewUser: data.isNewUser,
       });
     } catch (error: unknown) {
       if (isAppleSignInCanceled(error)) return;
@@ -404,7 +511,7 @@ export default function LoginScreen() {
       <View style={[s.hudCorner, { top: 20, right: 20, alignItems: 'flex-end' }]}><View style={s.cH} /><View style={[s.cV, { left: undefined, right: 0 }]} /></View>
 
       {/* Content */}
-      <Animated.View style={{ paddingHorizontal: 28, paddingTop: 72, paddingBottom: 66, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+      <Animated.View style={[{ paddingHorizontal: 28, paddingTop: 72, paddingBottom: 66 }, entranceMotionStyle]}>
         {/* Logo chip */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 }}>
           <View style={{ backgroundColor: RED, borderRadius: 8, padding: 5 }}>
@@ -412,7 +519,7 @@ export default function LoginScreen() {
           </View>
           <Text variant="label" contrastBackground="#1a0404" style={{ color: '#fff', fontWeight: '800', letterSpacing: 1 }}>VROOM</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 8, backgroundColor: '#4de92612', borderWidth: 1, borderColor: '#4de92635', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 }}>
-            <Animated.View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4de926', transform: [{ scale: pulseAnim }] }} />
+            <Animated.View style={[{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4de926' }, pulseMotionStyle]} />
             <Text variant="micro" contrastBackground="#071a07" style={{ color: '#76f45a', letterSpacing: 0.6 }}>ONLINE</Text>
           </View>
         </View>
@@ -480,30 +587,89 @@ export default function LoginScreen() {
     </View>
   );
 
+  if (screen === 'welcome') {
+    const choosePath = (next: 'login' | 'register') => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      track({ eventName: 'auth_path_selected', priority: 'medium', screenName: 'auth_welcome', surface: 'authentication', properties: { path: next } });
+      switchScreen(next);
+    };
+    return (
+      <View style={s.welcomeRoot} testID="auth-welcome">
+        <LinearGradient colors={['#020202', '#160303', '#050505']} style={StyleSheet.absoluteFill} />
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <StaticHudGrid isDark primary={RED} opacity={0.18} />
+          {Array.from({ length: 14 }).map((_, index) => (
+            <View key={index} style={[s.speedLine, { top: `${5 + index * 7}%` as any, opacity: 0.08 + (index % 3) * 0.04 }]} />
+          ))}
+          <Animated.View style={[s.welcomeGlow, pulseMotionStyle]} />
+          <View style={s.horizonLine} />
+        </View>
+
+        <ScrollView contentContainerStyle={s.welcomeScroll} showsVerticalScrollIndicator={false}>
+        <Animated.View style={[s.welcomeContent, entranceMotionStyle]}>
+          <View style={s.statusPill}>
+            <Animated.View style={[s.statusDot, pulseMotionStyle]} />
+            <Text style={s.statusText}>SYSTEM GOTOWY</Text>
+          </View>
+
+          <View style={s.ignitionWrap}>
+            <View style={s.ignitionRingOuter} />
+            <View style={s.ignitionRingInner} />
+            <Image source={require('../assets/images/Frame1933.png')} style={s.welcomeLogo} resizeMode="contain" />
+            <View style={s.startLights}>
+              {[0, 1, 2, 3, 4].map((light) => <View key={light} style={[s.startLight, light === 4 && s.startLightOn]} />)}
+            </View>
+          </View>
+
+          <Text contrastBackground="#070707" style={s.welcomeEyebrow}>TWOJA MOTORYZACYJNA SIEĆ</Text>
+          <Text contrastBackground="#070707" style={s.welcomeTitle}>ODPALAMY?</Text>
+          <Text contrastBackground="#070707" style={s.welcomeSubtitle}>Trasy, garaż, społeczność i rywalizacja. Wszystko zaczyna się tutaj.</Text>
+
+          <View style={s.welcomeActions}>
+            <TouchableOpacity testID="auth-create-account" activeOpacity={0.86} onPress={() => choosePath('register')} style={s.welcomePrimary}>
+              <LinearGradient colors={['#ff4a47', RED, '#a91414']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.welcomeButtonInner}>
+                <MaterialCommunityIcons name="flag-checkered" size={21} color="#fff" />
+                <Text contrastBackground={RED} style={s.welcomePrimaryText}>STWÓRZ KONTO</Text>
+                <MaterialIcons name="arrow-forward" size={21} color="#fff" />
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity testID="auth-sign-in" activeOpacity={0.82} onPress={() => choosePath('login')} style={s.welcomeSecondary}>
+              <MaterialIcons name="login" size={20} color="#fff" />
+              <Text contrastBackground="#111" style={s.welcomeSecondaryText}>ZALOGUJ SIĘ</Text>
+            </TouchableOpacity>
+          </View>
+          <Text contrastBackground="#050505" style={s.welcomeFoot}>VROOM · BUILT FOR DRIVERS</Text>
+        </Animated.View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (screen === 'verify') {
     return (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'} style={s.root}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {renderHero('POTWIERDŹ E-MAIL', 'OCHRONA KONTA')}
-          <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Animated.View style={[s.sheet, entranceMotionStyle]}>
             <TouchableOpacity style={s.backRow} onPress={goToLogin}>
               <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
               <Text variant="label" style={{ color: theme.link }}>Powrót do logowania</Text>
             </TouchableOpacity>
             <Text style={s.sectionTitle}>SPRAWDŹ SKRZYNKĘ E-MAIL</Text>
             <Text style={s.sectionSub}>Na <Text style={{ color: RED }}>{email}</Text> został wysłany link potwierdzający. Otwórz go, aby aktywować konto. Możesz też użyć kodu awaryjnego z wiadomości.</Text>
-            {renderField('KOD AWARYJNY', 'verified-user', verificationCode, setVerificationCode, {
+            {renderField('KOD AWARYJNY', 'verified-user', verificationCode, (value) => setVerificationCode(value.replace(/\D/g, '').slice(0, 6)), {
               placeholder: '000000',
               keyboardType: 'number-pad',
               maxLength: 6,
             })}
             <ActionButton label="AKTYWUJ KONTO" icon="verified" onPress={handleConfirmEmail} loading={loading} disabled={verificationCode.length !== 6} />
             <TouchableOpacity
-              style={{ alignItems: 'center', padding: 16 }}
+              style={{ alignItems: 'center', padding: 16, opacity: resendSeconds > 0 ? 0.5 : 1 }}
+              disabled={resendSeconds > 0}
               onPress={() => requestVerificationCode().catch((error) => Toast.show({ type: 'error', text1: 'BŁĄD', text2: error.message }))}
             >
-              <Text variant="label" style={{ color: theme.link }}>Wyślij link ponownie →</Text>
+              <Text variant="label" style={{ color: theme.link }}>{resendSeconds > 0 ? `Wyślij ponownie za ${resendSeconds}s` : 'Wyślij link ponownie →'}</Text>
             </TouchableOpacity>
           </Animated.View>
         </ScrollView>
@@ -519,7 +685,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
           {renderHero('RESET HASŁA', 'ODZYSKIWANIE KONTA')}
 
-          <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Animated.View style={[s.sheet, entranceMotionStyle]}>
 
             {/* Wróć */}
             <TouchableOpacity style={s.backRow} onPress={goToLogin}>
@@ -585,174 +751,155 @@ enabled={Platform.OS === 'ios'} style={s.root}>
   }
 
   // ── LOGIN / REGISTER ────────────────────────────────────
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-enabled={Platform.OS === 'ios'} style={s.root}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
+  const registerReady = registerStep === 0
+    ? /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u.test(email.trim())
+    : registerStep === 1
+      ? usernameAvailable === true && username.trim().length >= 3
+      : isStrongPassword(password) && password === confirmPass && acceptedUgcTerms;
 
+  const advanceRegistration = async () => {
+    if (!registerReady) return;
+    if (registerStep === 0) {
+      setLoading(true);
+      try {
+        const response = await fetch(`${API_URL}/email-eligibility?email=${encodeURIComponent(email.trim())}`);
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.eligible) {
+          Toast.show({
+            type: 'error',
+            text1: 'NIEDOZWOLONY E-MAIL',
+            text2: result.error ?? 'Jednorazowe i tymczasowe skrzynki pocztowe nie mogą zakładać kont VROOM.',
+          });
+          return;
+        }
+      } catch {
+        Toast.show({ type: 'error', text1: 'BRAK POŁĄCZENIA', text2: 'Nie udało się sprawdzić adresu e-mail. Spróbuj ponownie.' });
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
+    void Haptics.selectionAsync().catch(() => {});
+    track({ eventName: 'registration_step_completed', priority: 'medium', screenName: 'registration', surface: 'authentication', properties: { step: registerStep } });
+    if (registerStep < 2) {
+      setRegisterStep((registerStep + 1) as RegisterStep);
+      animateSwitch();
+    } else {
+      void handleRegister();
+    }
+  };
+
+  const showSocial = screen === 'login' || (screen === 'register' && registerStep === 0);
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'} style={s.root}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
         {renderHero(
           screen === 'login' ? 'ZALOGUJ SIĘ' : 'NOWE KONTO',
-          screen === 'login' ? 'WITAJ Z POWROTEM' : 'DOŁĄCZ DO SPOŁECZNOŚCI',
+          screen === 'login' ? 'WRÓĆ NA TRASĘ' : `ETAP ${registerStep + 1} / 3`,
         )}
 
-        <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-
-          {/* Toggle */}
-          <View style={s.toggle}>
-            {(['login', 'register'] as const).map(sc => (
-              <TouchableOpacity
-                key={sc}
-                style={[s.toggleBtn, screen === sc && s.toggleBtnActive]}
-                onPress={() => switchScreen(sc)}
-                activeOpacity={0.8}
-              >
-                <MaterialIcons
-                  name={sc === 'login' ? 'login' : 'person-add'}
-                  size={13}
-                  color={screen === sc ? theme.onPrimary : theme.textMuted}
-                />
-                <Text contrastBackground={screen === sc ? theme.primary : theme.surface3} style={[s.toggleText, screen === sc && { color: theme.onPrimary }]}>
-                  {sc === 'login' ? 'LOGOWANIE' : 'REJESTRACJA'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Formularz */}
-          {screen === 'register' && renderField('NAZWA UŻYTKOWNIKA', 'person-outline', username, setUsername, { placeholder: 'np. NightRider_PL' })}
-          {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
-          {screen === 'register' && renderField('KOD / LINK POLECAJĄCY (opcjonalnie)', 'group-add', referralCode, setReferralCode, {
-            placeholder: 'np. NIGHT1234 lub pełny link',
-            autoCapitalize: 'characters',
-            onEndEditing: () => setReferralCode(normalizeReferralInput(referralCode)),
-          })}
-          {renderField('HASŁO', 'lock-outline', password, setPassword, {
-            placeholder: '••••••••',
-            secure: !showPass,
-            showToggle: true,
-            onToggle: () => setShowPass(v => !v),
-          })}
-          {screen === 'register' && password.length > 0 && <StrengthBar value={password} />}
+        <Animated.View style={[s.sheet, entranceMotionStyle]}>
+          <TouchableOpacity style={s.backRow} onPress={() => {
+            if (screen === 'register' && registerStep > 0) {
+              setRegisterStep((registerStep - 1) as RegisterStep);
+              animateSwitch();
+            } else switchScreen('welcome');
+          }}>
+            <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
+            <Text variant="label" style={{ color: theme.link }}>{screen === 'register' && registerStep > 0 ? 'Poprzedni etap' : 'Ekran startowy'}</Text>
+          </TouchableOpacity>
 
           {screen === 'register' && (
-            <>
-              {renderField('POTWIERDŹ HASŁO', 'check-circle-outline', confirmPass, setConfirmPass, {
-                placeholder: 'Powtórz hasło',
-                secure: !showConfirm,
-                showToggle: true,
-                onToggle: () => setShowConfirm(v => !v),
-                error: !!confirmPass && password !== confirmPass,
-              })}
-              {!!confirmPass && password !== confirmPass && (
-                <Text variant="bodySmall" style={{ color: theme.danger, marginTop: -10, marginBottom: 12 }}>Hasła nie są identyczne</Text>
-              )}
-              {!!confirmPass && password === confirmPass && (
-                <Text variant="bodySmall" style={{ color: theme.online, marginTop: -10, marginBottom: 12 }}>✓ Hasła są identyczne</Text>
-              )}
-            </>
+            <View style={s.registerProgress}>
+              {[0, 1, 2].map((step) => (
+                <View key={step} style={[s.registerProgressBar, step <= registerStep && s.registerProgressBarActive]} />
+              ))}
+            </View>
           )}
 
           {screen === 'login' && (
-            <TouchableOpacity style={s.forgotRow} onPress={() => { setScreen('forgot'); setForgotEmail(email); animateSwitch(); }}>
-              <MaterialIcons name="help-outline" size={20} color={theme.primaryText} />
-              <Text variant="label" style={{ color: theme.link }}>Zapomniałeś hasła?</Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={s.termsCheckRow}>
-            <TouchableOpacity
-              style={[s.termsCheckBox, acceptedUgcTerms && s.termsCheckBoxOn]}
-              onPress={() => setAcceptedUgcTerms((v) => !v)}
-              activeOpacity={0.85}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: acceptedUgcTerms }}
-            >
-              {acceptedUgcTerms ? <MaterialIcons name="check" size={20} color={theme.onPrimary} /> : null}
-            </TouchableOpacity>
-            <Text style={s.termsLegal}>
-              Zaznacz pole po lewej — samo otwarcie linków nie wystarczy. Potwierdzam zapoznanie się z{' '}
-              <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulaminem</Text>
-              {' '}oraz{' '}
-              <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityką prywatności</Text>
-              . W społeczności VROOM obowiązuje{' '}
-              <Text style={{ fontWeight: '700', color: '#ffffffaa' }}>zerowa tolerancja</Text>
-              {' '}dla treści obraźliwych, wulgarnych, nękających i agresji wobec innych użytkowników.
-            </Text>
-          </View>
-          {!acceptedUgcTerms && screen === 'register' && (
-            <Text style={s.termsHint}>Wymagane zaznaczenie pola z regulaminem przed rejestracją.</Text>
-          )}
-
-          <ActionButton
-            label={screen === 'login' ? 'ZALOGUJ SIĘ' : 'UTWÓRZ KONTO'}
-            icon={screen === 'login' ? 'login' : 'person-add'}
-            onPress={screen === 'login' ? handleLogin : handleRegister}
-            loading={loading}
-            disabled={
-              !acceptedUgcTerms ||
-              (screen === 'login'
-                ? !email.trim() || !password
-                : !email.trim() || !password || !username.trim() || !isStrongPassword(password) || password !== confirmPass)
-            }
-          />
-
-          <View style={s.divider}>
-            <View style={s.divLine} />
-            <Text style={s.divText}>LUB</Text>
-            <View style={s.divLine} />
-          </View>
-
-          {Platform.OS === 'ios' ? (
-            appleAvailable === false ? (
-              <Text style={s.iosLoginHint}>
-                Logowanie przez Apple ID nie jest dostępne na tym urządzeniu.
-              </Text>
-            ) : (
-              <View
-                style={[
-                  s.appleButtonContainer,
-                  (!acceptedUgcTerms || appleLoading || appleAvailable !== true) && { opacity: 0.45 },
-                ]}
-                pointerEvents={!acceptedUgcTerms || appleLoading || appleAvailable !== true ? 'none' : 'auto'}
-              >
-                {appleLoading ? (
-                  <View style={s.appleLoadingButton}>
-                    <ActivityIndicator color={isDark ? '#000' : '#fff'} />
-                  </View>
-                ) : appleAvailable ? (
-                  <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-                    buttonStyle={
-                      isDark
-                        ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
-                        : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-                    }
-                    cornerRadius={16}
-                    style={s.appleButton}
-                    onPress={handleApple}
-                  />
-                ) : (
-                  <View style={s.appleButton} />
-                )}
-              </View>
-            )
-          ) : (
-              <TouchableOpacity
-                style={[s.googleBtn, (!acceptedUgcTerms || gLoading) && { opacity: 0.45 }]}
-                onPress={handleGoogle}
-                disabled={!acceptedUgcTerms || gLoading}
-                activeOpacity={0.85}
-              >
-                {gLoading ? <ActivityIndicator color="#fff" /> : (
-                  <>
-                    <View style={s.googleIcon}><MaterialCommunityIcons name="google" size={18} color="#fff" /></View>
-                    <Text style={s.googleTxt}>Kontynuuj z Google</Text>
-                  </>
-                )}
+            <>
+              <Text style={s.sectionTitle}>DANE KIEROWCY</Text>
+              <Text style={s.sectionSub}>Podaj dane konta i wracaj do swojej społeczności.</Text>
+              {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
+              {renderField('HASŁO', 'lock-outline', password, setPassword, { placeholder: '••••••••', secure: !showPass, showToggle: true, onToggle: () => setShowPass(v => !v) })}
+              <TouchableOpacity style={s.forgotRow} onPress={() => { setScreen('forgot'); setForgotEmail(email); animateSwitch(); }}>
+                <MaterialIcons name="help-outline" size={20} color={theme.primaryText} />
+                <Text variant="label" style={{ color: theme.link }}>Zapomniałeś hasła?</Text>
               </TouchableOpacity>
+              <ActionButton label="ZALOGUJ SIĘ" icon="login" onPress={handleLogin} loading={loading} disabled={!email.trim() || !password} />
+            </>
           )}
 
+          {screen === 'register' && registerStep === 0 && (
+            <>
+              <Text style={s.sectionTitle}>PUNKT STARTOWY</Text>
+              <Text style={s.sectionSub}>Na ten adres wyślemy kod aktywacyjny. Kod polecający możesz dodać teraz lub pominąć.</Text>
+              {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
+              {renderField('KOD / LINK POLECAJĄCY (OPCJONALNIE)', 'group-add', referralCode, setReferralCode, { placeholder: 'np. NIGHT1234', autoCapitalize: 'characters', onEndEditing: () => setReferralCode(normalizeReferralInput(referralCode)) })}
+            </>
+          )}
+
+          {screen === 'register' && registerStep === 1 && (
+            <>
+              <Text style={s.sectionTitle}>TWÓJ NICK</Text>
+              <Text style={s.sectionSub}>To Twoja publiczna nazwa na mapie, profilu, czacie i rankingach. Tego kroku nie można pominąć.</Text>
+              {renderField('NAZWA UŻYTKOWNIKA', 'person-outline', username, setUsername, { placeholder: 'np. NightRider_PL', maxLength: 24 })}
+              <View style={s.availabilityRow}>
+                {usernameChecking ? <ActivityIndicator size="small" color={RED} /> : (
+                  <MaterialIcons name={usernameAvailable === true ? 'check-circle' : usernameAvailable === false ? 'cancel' : 'info-outline'} size={18} color={usernameAvailable === true ? '#4de926' : usernameAvailable === false ? theme.danger : theme.textDim} />
+                )}
+                <Text style={[s.availabilityText, usernameAvailable === true && { color: '#4de926' }, usernameAvailable === false && { color: theme.danger }]}>
+                  {usernameChecking ? 'Sprawdzamy dostępność…' : usernameAvailable === true ? 'Nick jest dostępny' : usernameAvailable === false ? 'Ten nick jest zajęty lub nieprawidłowy' : '3–24 znaki: litery, cyfry, kropka, myślnik lub _'}
+                </Text>
+              </View>
+            </>
+          )}
+
+          {screen === 'register' && registerStep === 2 && (
+            <>
+              <Text style={s.sectionTitle}>ZABEZPIECZ KONTO</Text>
+              <Text style={s.sectionSub}>Minimum 10 znaków, co najmniej jedna litera i jedna cyfra.</Text>
+              {renderField('HASŁO', 'lock-outline', password, setPassword, { placeholder: '••••••••••', secure: !showPass, showToggle: true, onToggle: () => setShowPass(v => !v) })}
+              {password.length > 0 && <StrengthBar value={password} />}
+              {renderField('POTWIERDŹ HASŁO', 'check-circle-outline', confirmPass, setConfirmPass, { placeholder: 'Powtórz hasło', secure: !showConfirm, showToggle: true, onToggle: () => setShowConfirm(v => !v), error: !!confirmPass && password !== confirmPass })}
+              <View style={s.termsCheckRow}>
+                <TouchableOpacity testID="registration-terms" style={[s.termsCheckBox, acceptedUgcTerms && s.termsCheckBoxOn]} onPress={() => setAcceptedUgcTerms((v) => !v)} activeOpacity={0.85} accessibilityRole="checkbox" accessibilityState={{ checked: acceptedUgcTerms }}>
+                  {acceptedUgcTerms ? <MaterialIcons name="check" size={20} color={theme.onPrimary} /> : null}
+                </TouchableOpacity>
+                <Text style={s.termsLegal}>Akceptuję <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulamin</Text> i <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Politykę prywatności</Text> oraz zasady bezpiecznej społeczności VROOM.</Text>
+              </View>
+            </>
+          )}
+
+          {screen === 'register' && (
+            <ActionButton label={registerStep === 2 ? 'UTWÓRZ KONTO' : 'DALEJ'} icon={registerStep === 2 ? 'person-add' : 'arrow-forward'} onPress={advanceRegistration} loading={loading} disabled={!registerReady} />
+          )}
+
+          {showSocial && (
+            <>
+              <View style={s.divider}><View style={s.divLine} /><Text style={s.divText}>LUB SZYBCIEJ</Text><View style={s.divLine} /></View>
+              {Platform.OS === 'ios' ? (
+                appleAvailable === false ? <Text style={s.iosLoginHint}>Logowanie przez Apple ID nie jest dostępne na tym urządzeniu.</Text> : (
+                  <View style={[s.appleButtonContainer, (appleLoading || appleAvailable !== true) && { opacity: 0.45 }]} pointerEvents={appleLoading || appleAvailable !== true ? 'none' : 'auto'}>
+                    {appleLoading ? <View style={s.appleLoadingButton}><ActivityIndicator color={isDark ? '#000' : '#fff'} /></View> : appleAvailable ? (
+                      <AppleAuthentication.AppleAuthenticationButton buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE} buttonStyle={isDark ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK} cornerRadius={16} style={s.appleButton} onPress={handleApple} />
+                    ) : <View style={s.appleButton} />}
+                  </View>
+                )
+              ) : (
+                <TouchableOpacity style={[s.googleBtn, gLoading && { opacity: 0.45 }]} onPress={handleGoogle} disabled={gLoading} activeOpacity={0.85}>
+                  {gLoading ? <ActivityIndicator color="#fff" /> : <><View style={s.googleIcon}><MaterialCommunityIcons name="google" size={18} color="#fff" /></View><Text style={s.googleTxt}>Kontynuuj z Google</Text></>}
+                </TouchableOpacity>
+              )}
+              <Text style={s.socialLegal}>Kontynuując przez Google lub Apple, akceptujesz Regulamin i Politykę prywatności VROOM. Jeśli konto nie istnieje, utworzymy je i rozpoczniemy konfigurację profilu.</Text>
+            </>
+          )}
+
+          <TouchableOpacity style={s.switchPath} onPress={() => switchScreen(screen === 'login' ? 'register' : 'login')}>
+            <Text style={s.switchPathText}>{screen === 'login' ? 'Nie masz konta? ' : 'Masz już konto? '}<Text style={{ color: RED, fontWeight: '900' }}>{screen === 'login' ? 'STWÓRZ JE' : 'ZALOGUJ SIĘ'}</Text></Text>
+          </TouchableOpacity>
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -814,6 +961,32 @@ function StrengthBar({ value }: { value: string }) {
 function makeLoginStyles(t: AppTheme) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: t.bg },
+  welcomeRoot: { flex: 1, backgroundColor: '#030303', overflow: 'hidden' },
+  welcomeScroll: { flexGrow: 1 },
+  welcomeContent: { minHeight: height, paddingHorizontal: 24, paddingTop: 78, paddingBottom: 28, alignItems: 'center', justifyContent: 'center' },
+  speedLine: { position: 'absolute', left: '-15%', width: '130%', height: 1, backgroundColor: '#ff4a47', transform: [{ rotate: '-8deg' }] },
+  horizonLine: { position: 'absolute', left: 0, right: 0, top: '47%', height: 1, backgroundColor: '#e3383544', shadowColor: RED, shadowOpacity: 0.8, shadowRadius: 12 },
+  welcomeGlow: { position: 'absolute', alignSelf: 'center', top: '25%', width: 260, height: 260, borderRadius: 130, backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383530' },
+  statusPill: { position: 'absolute', top: 58, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, backgroundColor: '#071607', borderWidth: 1, borderColor: '#4de92645' },
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#4de926' },
+  statusText: { color: '#76f45a', fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  ignitionWrap: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  ignitionRingOuter: { position: 'absolute', width: 220, height: 220, borderRadius: 110, borderWidth: 2, borderColor: '#e3383540', borderStyle: 'dashed' },
+  ignitionRingInner: { position: 'absolute', width: 168, height: 168, borderRadius: 84, borderWidth: 1, borderColor: '#ffffff1f', backgroundColor: '#00000080' },
+  welcomeLogo: { width: 108, height: 108 },
+  startLights: { position: 'absolute', bottom: 12, flexDirection: 'row', gap: 7, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: '#080808', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff18' },
+  startLight: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#451010' },
+  startLightOn: { backgroundColor: RED, shadowColor: RED, shadowOpacity: 1, shadowRadius: 8 },
+  welcomeEyebrow: { color: '#ff625f', fontSize: 11, fontWeight: '900', letterSpacing: 2.1, marginBottom: 8 },
+  welcomeTitle: { color: '#fff', fontSize: Math.min(48, width * 0.12), lineHeight: Math.min(52, width * 0.13), fontWeight: '900', letterSpacing: -1.5, textAlign: 'center' },
+  welcomeSubtitle: { color: '#b8b8b8', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 330, marginTop: 10 },
+  welcomeActions: { alignSelf: 'stretch', gap: 12, marginTop: 32 },
+  welcomePrimary: { borderRadius: 17, overflow: 'hidden', shadowColor: RED, shadowOpacity: 0.42, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
+  welcomeButtonInner: { minHeight: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  welcomePrimaryText: { color: '#fff', fontSize: 15, fontWeight: '900', letterSpacing: 1 },
+  welcomeSecondary: { minHeight: 58, borderRadius: 17, borderWidth: 1, borderColor: '#ffffff30', backgroundColor: '#101010e8', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  welcomeSecondaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 0.8 },
+  welcomeFoot: { color: '#646464', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginTop: 26 },
 
   // Sheet
   sheet: {
@@ -838,6 +1011,14 @@ function makeLoginStyles(t: AppTheme) {
 
   sectionTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, color: t.text, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
   sectionSub:   { fontSize: 14, color: t.textMuted, marginBottom: 22, lineHeight: 21 },
+  registerProgress: { flexDirection: 'row', gap: 7, marginBottom: 26 },
+  registerProgressBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: t.border2 },
+  registerProgressBarActive: { backgroundColor: RED },
+  availabilityRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -7, marginBottom: 18 },
+  availabilityText: { flex: 1, color: t.textDim, fontSize: 12, lineHeight: 17 },
+  socialLegal: { color: t.textMuted, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 2 },
+  switchPath: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  switchPathText: { color: t.textMuted, fontSize: 13 },
 
   // Toggle
   toggle: {

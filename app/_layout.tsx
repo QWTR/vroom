@@ -295,12 +295,15 @@ function RootLayoutInner() {
   const router         = useRouter();
   const pathname       = usePathname();
   const globalSearchParams = useGlobalSearchParams<Record<string, string | string[]>>();
+  const onboardingCompanionRoute = pathname === '/premium'
+    && globalSearchParams.returnTo === '/onboarding';
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
   const [updatePromptVisible, setUpdatePromptVisible] = useState(false);
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState('');
   const [ugcTermsVisible, setUgcTermsVisible] = useState(false);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
+  const [onboardingRequired, setOnboardingRequired] = useState<boolean | null>(null);
   const bgDisclosureDismissedRef = useRef(false);
   const bgDisclosureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bootstrapAfterUpdateRef = useRef<(() => Promise<void>) | null>(null);
@@ -637,6 +640,7 @@ function RootLayoutInner() {
   const continueAfterMaintenance = useCallback(async () => {
     const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
     if (!token) {
+      setOnboardingRequired(false);
       setGatesSettled(true);
       return;
     }
@@ -648,12 +652,73 @@ function RootLayoutInner() {
       setUgcTermsVisible(true);
       return;
     }
+    try {
+      const onboarding = await apiRequest<{ required?: boolean }>('/auth/onboarding', { priority: 'critical' });
+      setOnboardingRequired(Boolean(onboarding?.required));
+      await AsyncStorage.setItem('vroom_onboarding_required', onboarding?.required ? '1' : '0');
+      if (onboarding?.required && pathname !== '/onboarding' && !onboardingCompanionRoute) {
+        setGatesSettled(true);
+        router.replace('/onboarding' as any);
+        return;
+      }
+    } catch {
+      const cachedOnboarding = await AsyncStorage.getItem('vroom_onboarding_required');
+      setOnboardingRequired(cachedOnboarding === '1');
+      if (cachedOnboarding === '1' && pathname !== '/onboarding' && !onboardingCompanionRoute) {
+        setGatesSettled(true);
+        router.replace('/onboarding' as any);
+        return;
+      }
+    }
+    if (pathname === '/onboarding') {
+      setGatesSettled(true);
+      return;
+    }
     if (await shouldAutoShowTutorial()) {
       startAutoTutorial();
       return;
     }
     setGatesSettled(true);
-  }, [setGatesSettled, startAutoTutorial]);
+  }, [onboardingCompanionRoute, pathname, router, setGatesSettled, startAutoTutorial]);
+
+  // Chroni także deep link otwarty już po starcie aplikacji. Po finale odświeżenie
+  // stanu zwalnia użytkownika do aplikacji zamiast odbijać go z powrotem.
+  useEffect(() => {
+    if (phase !== 'done' || onboardingRequired !== true) return;
+    if (pathname === '/onboarding' || pathname === '/login' || onboardingCompanionRoute) return;
+    let active = true;
+    void apiRequest<{ required?: boolean }>('/auth/onboarding', { priority: 'critical' })
+      .then(async (value) => {
+        if (!active) return;
+        const required = Boolean(value?.required);
+        setOnboardingRequired(required);
+        await AsyncStorage.setItem('vroom_onboarding_required', required ? '1' : '0');
+        if (required) router.replace('/onboarding' as any);
+      })
+      .catch(() => {
+        if (active) router.replace('/onboarding' as any);
+      });
+    return () => { active = false; };
+  }, [onboardingCompanionRoute, onboardingRequired, pathname, phase, router]);
+
+  // Logowanie odbywa się już po jednorazowym bootstrapie roota. Wejście na ekran
+  // konfiguracji synchronizuje więc strażnika także dla świeżo utworzonej sesji.
+  useEffect(() => {
+    if (phase !== 'done' || pathname !== '/onboarding') return;
+    let active = true;
+    void apiRequest<{ required?: boolean }>('/auth/onboarding', { priority: 'critical' })
+      .then(async (value) => {
+        if (!active) return;
+        const required = Boolean(value?.required);
+        setOnboardingRequired(required);
+        await AsyncStorage.setItem('vroom_onboarding_required', required ? '1' : '0');
+      })
+      .catch(async () => {
+        if (!active) return;
+        setOnboardingRequired((await AsyncStorage.getItem('vroom_onboarding_required')) === '1');
+      });
+    return () => { active = false; };
+  }, [pathname, phase]);
 
   const continueAppBootstrap = useCallback(async () => {
     try {
@@ -835,6 +900,7 @@ function RootLayoutInner() {
     <NavThemeProvider value={isDark ? DarkTheme : NavLightTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="login" />
+        <Stack.Screen name="onboarding" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
         <Stack.Screen name="Community/clubs/[id]" />

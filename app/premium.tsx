@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ActivityIndicator, Modal, Share, Linking, Platform } from 'react-native';
 import { AppText as Text } from '../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView }   from 'react-native-safe-area-context';
-import { useRouter }      from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
 import Toast              from 'react-native-toast-message';
 import { usePremium }     from '../contexts/PremiumContext';
@@ -44,7 +44,7 @@ function billingFrequencyAdverb(product: PremiumProduct): string {
 type PremiumCatalog = {
   version: number;
   billing: { plan: 'monthly'; trialAvailable: boolean; annualPlanAvailable: boolean };
-  groups: Array<{ key: string; title: string; benefits: Array<{ key: string; title: string; description: string; enabled: boolean }> }>;
+  groups: { key: string; title: string; benefits: { key: string; title: string; description: string; enabled: boolean }[] }[];
 };
 
 const GROUP_ICONS: Record<string, string> = { drive: '🚗', garage: '🔧', community: '👥', market: '🛒', other: '✨' };
@@ -52,6 +52,11 @@ const GROUP_ICONS: Record<string, string> = { drive: '🚗', garage: '🔧', com
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const closePremium = useCallback(() => {
+    if (params.returnTo === '/onboarding') router.replace('/onboarding' as any);
+    else router.back();
+  }, [params.returnTo, router]);
   const { theme, isDark } = useTheme();
   const s = useMemo(() => makePremiumStyles(theme), [theme]);
   const { fetchSettings } = useSettings();
@@ -232,9 +237,9 @@ export default function PremiumScreen() {
           : 'Premium synchronizuje się z kontem — odśwież profil za chwilę.',
         visibilityTime: 4000,
       });
-      router.back();
+      closePremium();
     })();
-  }, [justActivated, isPremium, router, fetchSettings]);
+  }, [closePremium, justActivated, isPremium, fetchSettings]);
 
   const handlePurchase = async (product: PremiumProduct) => {
     if (Platform.OS === 'ios' && !isIosPremiumStoreReady(product)) {
@@ -319,7 +324,7 @@ export default function PremiumScreen() {
       <SafeAreaView style={{ flex: 1 }}>
         {/* ─── Header ─── */}
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={s.closeBtn}>
+          <TouchableOpacity onPress={closePremium} style={s.closeBtn}>
             <MaterialIcons name="close" size={22} color={theme.icon} />
           </TouchableOpacity>
         </View>
