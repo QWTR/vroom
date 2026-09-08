@@ -88,7 +88,9 @@ object VroomLocationBroker {
     }
     val nextCallback = object : LocationCallback() {
       override fun onLocationResult(result: LocationResult) {
-        result.locations.forEach(::publish)
+        result.locations.sortedBy { location ->
+          if (location.elapsedRealtimeNanos > 0L) location.elapsedRealtimeNanos else location.time * 1_000_000L
+        }.forEach(::publish)
       }
     }
     callback = nextCallback

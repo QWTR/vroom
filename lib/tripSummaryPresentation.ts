@@ -56,8 +56,8 @@ export function resolveTripSummaryPresentation(
   return {
     distanceKm: serverDistance ?? local.distanceKm,
     elapsedSec: serverDuration && serverDuration > 0 ? serverDuration : local.elapsedSec,
-    movingSec: timelineReady && serverMoving != null ? serverMoving : local.elapsedSec,
-    stoppedSec: timelineReady && serverStopped != null ? serverStopped : 0,
+    movingSec: timelineReady && serverMoving != null ? serverMoving : local.movingSec,
+    stoppedSec: timelineReady && serverStopped != null ? serverStopped : local.stoppedSec,
     avgSpeedKmh: serverAvgSpeed ?? local.avgSpeedKmh,
     maxSpeedKmh: serverMaxSpeed ?? local.maxSpeedKmh,
     points,

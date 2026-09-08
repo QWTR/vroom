@@ -17,14 +17,20 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private let keychainService = "com.lexuuw.vroom.background-drive"
   private let keychainAccount = "checkpoint-auth-token"
   private let maxBufferedFixes = 120
-  private let maxRoutePoints = 800
+  private let maxRoutePoints = 5_000
   private let maxSpeedSamples = 240
   private let routePointSpacingKm = 0.008
   private let maxAccuracyM = 120.0
   private let minSegmentKm = 0.002
   private let maxSegmentKm = 12.0
   private let maxFixGapMs = 420_000.0
+  private let maxPlausibleGapKmh = 220.0
+  private let maxPlausibleGapKm = 60.0
   private let minSpeedKmh = 2.0
+  private let movingConfirmKmh = 5.0
+  private let stoppedConfirmKmh = 3.0
+  private let stopConfirmMs = 5_000.0
+  private let stationaryRouteHeartbeatMs = 30_000.0
   private let checkpointKm = 0.2
   private let checkpointForceMinKm = 0.05
   private let checkpointForceMs = 30_000.0
@@ -107,7 +113,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   @objc(stopDriveTracking:resolver:rejecter:)
   func stopDriveTracking(_ reason: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    maybeFlushNativeCheckpoint(stats: currentStats(), force: true)
+    var finalStats = statsSnapshot()
+    finalStats["lastFixAt"] = Date().timeIntervalSince1970 * 1000
+    persistStats(finalStats)
+    maybeFlushNativeCheckpoint(stats: finalStats, force: true)
     retryWorkItem?.cancel()
     retryAttempt = 0
     manager.stopUpdatingLocation()
@@ -141,7 +150,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   @objc(getNativeStats:rejecter:)
   func getNativeStats(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    let stats = currentStats()
+    let stats = statsSnapshot()
     // Reading a durable session after returning online is a retry opportunity
     // even when the vehicle is already stationary and emits no fresh fixes.
     maybeFlushNativeCheckpoint(stats: stats, force: false)
@@ -150,19 +159,24 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   @objc(getNativeProgress:rejecter:)
   func getNativeProgress(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    let stats = currentStats()
+    let stats = statsSnapshot()
     maybeFlushNativeCheckpoint(stats: stats, force: false)
     resolve([
       "distanceKm": number(stats["distanceKm"]),
       "tripSessionId": stats["tripSessionId"] as? String ?? tripSessionId,
       "maxSpeedKmh": number(stats["maxSpeedKmh"]),
       "lastServerCheckpointKm": number(stats["lastServerCheckpointKm"]),
+      "elapsedSec": number(stats["elapsedSec"]),
+      "movingSec": number(stats["movingSec"]),
+      "stoppedSec": number(stats["stoppedSec"]),
+      "motionState": stats["motionState"] as? String ?? "unknown",
+      "lastFixAt": number(stats["lastFixAt"]),
     ])
   }
 
   @objc(consumeNativeStats:rejecter:)
   func consumeNativeStats(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    let stats = currentStats()
+    let stats = statsSnapshot()
     defaults.removeObject(forKey: statsKey)
     defaults.removeObject(forKey: statsLastFixKey)
     defaults.removeObject(forKey: checkpointKmKey)
@@ -310,18 +324,79 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
       ((!currentAccuracy.isFinite || currentAccuracy <= accuracyLimit) &&
       (!previousAccuracy.isFinite || previousAccuracy <= accuracyLimit))
 
+    let elapsedMs = hasPrevious ? nowMs - previousTime : 0
+    let elapsedSec = max(0, elapsedMs / 1000)
+    let segmentKmForMotion = hasPrevious
+      ? haversineKm(previousLat, previousLng, location.coordinate.latitude, location.coordinate.longitude)
+      : 0
+    let derivedKmh = elapsedSec > 0 ? segmentKmForMotion * 3600 / elapsedSec : 0
+    let accuracyEnvelopeKm = max(0.015,
+      ((currentAccuracy.isFinite ? currentAccuracy : 0) + (previousAccuracy.isFinite ? previousAccuracy : 0)) * 1.2 / 1000)
+    let previousMotion = stats["motionState"] as? String ?? "unknown"
+    let movingEvidence = accurateEnough && (
+      (speedKmh != nil && speedKmh! >= movingConfirmKmh)
+      || (derivedKmh >= movingConfirmKmh && segmentKmForMotion > accuracyEnvelopeKm)
+    )
+    let stoppedEvidence = accurateEnough && segmentKmForMotion <= accuracyEnvelopeKm
+      && (speedKmh == nil || speedKmh! < stoppedConfirmKmh)
+    var motion = previousMotion
+    var stationaryCandidateAt = number(stats["stationaryCandidateAt"])
+    var stopStartedAt = 0.0
+    if !hasPrevious && number(stats["movingSec"]) + number(stats["stoppedSec"]) <= 0 {
+      stats["movingSec"] = max(0, nowMs - number(stats["startedAt"])) / 1000
+    }
+    if movingEvidence {
+      if previousMotion == "stopped" && elapsedSec > 0 {
+        stats["movingSec"] = number(stats["movingSec"]) + elapsedSec
+      } else if stationaryCandidateAt > 0 {
+        stats["movingSec"] = number(stats["movingSec"]) + max(0, nowMs - stationaryCandidateAt) / 1000
+      } else if elapsedSec > 0 {
+        stats["movingSec"] = number(stats["movingSec"]) + elapsedSec
+      }
+      stationaryCandidateAt = 0
+      motion = "moving"
+    } else if stoppedEvidence {
+      if previousMotion == "stopped" {
+        stats["stoppedSec"] = number(stats["stoppedSec"]) + elapsedSec
+      } else {
+        if stationaryCandidateAt <= 0 { stationaryCandidateAt = previousTime > 0 ? previousTime : nowMs }
+        if nowMs - stationaryCandidateAt >= stopConfirmMs {
+          stats["stoppedSec"] = number(stats["stoppedSec"]) + (nowMs - stationaryCandidateAt) / 1000
+          stopStartedAt = stationaryCandidateAt
+          motion = "stopped"
+          stationaryCandidateAt = 0
+        }
+      }
+    } else if elapsedSec > 0 {
+      if previousMotion == "stopped" { stats["stoppedSec"] = number(stats["stoppedSec"]) + elapsedSec }
+      else { stats["movingSec"] = number(stats["movingSec"]) + elapsedSec }
+    }
+    stats["stationaryCandidateAt"] = stationaryCandidateAt
+    stats["motionState"] = motion
+    stats["lastFixAt"] = nowMs
+    stats["elapsedSec"] = max(0, (nowMs - number(stats["startedAt"])) / 1000)
+    if elapsedSec > 10 {
+      stats["gapCount"] = Int(number(stats["gapCount"])) + 1
+      stats["maxGapSec"] = max(number(stats["maxGapSec"]), elapsedSec)
+    }
+
     var acceptedMovement = false
     if hasPrevious && accurateEnough {
       let elapsedMs = nowMs - previousTime
       let segmentKm = haversineKm(previousLat, previousLng, location.coordinate.latitude, location.coordinate.longitude)
-      let speedOk = speedKmh.map { $0 >= minSpeed } ?? true
-      if elapsedMs > 0 && elapsedMs <= maxFixGapMs && segmentKm >= minSegmentKm && speedOk {
-        if segmentKm <= maxSegment {
+      let reportedSpeedOk = speedKmh.map { $0 >= minSpeed } ?? true
+      let speedOk = !stoppedEvidence && (reportedSpeedOk || derivedKmh >= movingConfirmKmh)
+      let longGapPlausible = elapsedMs > maxFixGapMs && derivedKmh >= movingConfirmKmh &&
+        derivedKmh <= maxPlausibleGapKmh && segmentKm <= maxPlausibleGapKm && accurateEnough
+      let segmentLimitOk = elapsedMs <= maxFixGapMs ? segmentKm <= maxSegment : longGapPlausible
+      if elapsedMs > 0 && segmentKm >= minSegmentKm && speedOk && segmentLimitOk {
+        if segmentKm <= maxSegment || longGapPlausible {
           acceptedMovement = true
+          stats["acceptedFixes"] = Int(number(stats["acceptedFixes"])) + 1
           stats["distanceKm"] = number(stats["distanceKm"]) + segmentKm
           var route = stats["routePoints"] as? [[String: Any]] ?? []
           if route.isEmpty {
-            route.append(routePoint(from: previousFix, source: "native"))
+            route.append(routePoint(from: previousFix, source: "native", motionState: previousMotion, segmentStatus: elapsedSec > 10 ? "gap" : "accepted"))
           }
           let lastRoutePoint = route.last
           let lastRouteLat = number(lastRoutePoint?["latitude"])
@@ -329,8 +404,8 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
           let routeMovedKm = lastRouteLat.isFinite && lastRouteLng.isFinite
             ? haversineKm(lastRouteLat, lastRouteLng, location.coordinate.latitude, location.coordinate.longitude)
             : Double.infinity
-          if routeMovedKm >= routePointSpacingKm {
-            route.append(routePoint(from: location, source: "native"))
+          if routeMovedKm >= routePointSpacingKm || previousMotion == "stopped" {
+            route.append(routePoint(from: location, source: "native", motionState: motion, segmentStatus: elapsedSec > 10 ? "gap" : "accepted"))
           }
           if route.count > maxRoutePoints {
             var compacted = route.enumerated().compactMap { index, point in
@@ -347,6 +422,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
           }
           stats["routePoints"] = route
         } else {
+          stats["rejectedFixes"] = Int(number(stats["rejectedFixes"])) + 1
           // Batched / mock jump — anchor next segment at this fix without bridging.
           stats["tripSessionId"] = tripSessionId
           persistStats(stats)
@@ -355,6 +431,26 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
           return
         }
       }
+    }
+
+    if !acceptedMovement && motion == "stopped" {
+      var route = stats["routePoints"] as? [[String: Any]] ?? []
+      if previousMotion != "stopped" && stopStartedAt > 0 {
+        var stopStart = routePoint(from: location, source: "native", motionState: "stopped", segmentStatus: "accepted")
+        stopStart["recordedAt"] = stopStartedAt
+        route.append(stopStart)
+      }
+      let lastRouteAt = number(route.last?["recordedAt"])
+      if lastRouteAt <= 0 || nowMs - lastRouteAt >= stationaryRouteHeartbeatMs || previousMotion != "stopped" {
+        route.append(routePoint(from: location, source: "native", motionState: "stopped", segmentStatus: "accepted"))
+      }
+      if route.count > maxRoutePoints { route = Array(route.suffix(maxRoutePoints)) }
+      stats["routePoints"] = route
+    } else if !acceptedMovement && previousMotion == "stopped" && motion == "moving" {
+      var route = stats["routePoints"] as? [[String: Any]] ?? []
+      route.append(routePoint(from: location, source: "native", motionState: "moving", segmentStatus: "reanchor"))
+      if route.count > maxRoutePoints { route = Array(route.suffix(maxRoutePoints)) }
+      stats["routePoints"] = route
     }
 
     if acceptedMovement, let speedKmh, speedKmh >= 1 {
@@ -390,7 +486,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     var snapshot = stats
     snapshot["lastCheckpointAttemptAt"] = nowMs
     snapshot["tripSessionId"] = tripSessionId
-    persistStats(snapshot)
+    var durableStats = currentStats()
+    durableStats["lastCheckpointAttemptAt"] = nowMs
+    durableStats["tripSessionId"] = tripSessionId
+    persistStats(durableStats)
     checkpointInFlight = true
     postNativeCheckpoint(snapshot)
   }
@@ -457,6 +556,29 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     if stats["lastCheckpointAttemptAt"] == nil { stats["lastCheckpointAttemptAt"] = 0.0 }
     if stats["tripSessionId"] == nil || (stats["tripSessionId"] as? String ?? "").isEmpty {
       stats["tripSessionId"] = tripSessionId
+    }
+    if stats["startedAt"] == nil { stats["startedAt"] = number(currentState()["startedAt"]) }
+    if stats["elapsedSec"] == nil { stats["elapsedSec"] = 0.0 }
+    if stats["movingSec"] == nil { stats["movingSec"] = 0.0 }
+    if stats["stoppedSec"] == nil { stats["stoppedSec"] = 0.0 }
+    if stats["motionState"] == nil { stats["motionState"] = "unknown" }
+    if stats["gapCount"] == nil { stats["gapCount"] = 0 }
+    if stats["maxGapSec"] == nil { stats["maxGapSec"] = 0.0 }
+    if stats["acceptedFixes"] == nil { stats["acceptedFixes"] = 0 }
+    if stats["rejectedFixes"] == nil { stats["rejectedFixes"] = 0 }
+    return stats
+  }
+
+  private func statsSnapshot() -> [String: Any] {
+    var stats = currentStats()
+    guard currentState()["active"] as? Bool == true else { return stats }
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    let startedAt = number(stats["startedAt"])
+    let lastFixAt = number(stats["lastFixAt"])
+    if startedAt > 0 { stats["elapsedSec"] = max(0, nowMs - startedAt) / 1000 }
+    if lastFixAt > 0 && nowMs > lastFixAt {
+      let key = (stats["motionState"] as? String) == "stopped" ? "stoppedSec" : "movingSec"
+      stats[key] = number(stats[key]) + (nowMs - lastFixAt) / 1000
     }
     return stats
   }
@@ -593,13 +715,15 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     return fix
   }
 
-  private func routePoint(from location: CLLocation, source: String) -> [String: Any] {
+  private func routePoint(from location: CLLocation, source: String, motionState: String = "unknown", segmentStatus: String = "accepted") -> [String: Any] {
     var point: [String: Any] = [
       "latitude": location.coordinate.latitude,
       "longitude": location.coordinate.longitude,
       "recordedAt": location.timestamp.timeIntervalSince1970 * 1000,
       "source": source,
       "accepted": true,
+      "motionState": motionState,
+      "segmentStatus": segmentStatus,
     ]
     if location.speed >= 0 { point["speedKmh"] = location.speed * 3.6 }
     if location.verticalAccuracy >= 0 { point["altitudeM"] = location.altitude }
@@ -608,13 +732,15 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     return point
   }
 
-  private func routePoint(from fix: [String: Any], source: String) -> [String: Any] {
+  private func routePoint(from fix: [String: Any], source: String, motionState: String = "unknown", segmentStatus: String = "accepted") -> [String: Any] {
     var point: [String: Any] = [
       "latitude": number(fix["latitude"]),
       "longitude": number(fix["longitude"]),
       "recordedAt": number(fix["time"]),
       "source": source,
       "accepted": true,
+      "motionState": motionState,
+      "segmentStatus": segmentStatus,
     ]
     if number(fix["speedKmh"]).isFinite { point["speedKmh"] = number(fix["speedKmh"]) }
     if number(fix["altitudeM"]).isFinite { point["altitudeM"] = number(fix["altitudeM"]) }

@@ -43,7 +43,7 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
         if (cancelled) return;
         // Checkpoints create a hidden activity before finalization attaches the
         // full native trace. Do not freeze the finish card on that early row.
-        if (response.summary?.savedInHistory !== true && attempt < 9) {
+        if ((response.summary?.savedInHistory !== true || response.analysisStatus === 'processing') && attempt < 9) {
           attempt += 1;
           timer = setTimeout(load, 1_300);
           return;

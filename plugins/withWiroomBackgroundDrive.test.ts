@@ -46,7 +46,7 @@ describe('Wiroom native iOS drive contract', () => {
     expect(PLUGIN_SOURCE).not.toContain('private func observeIdle');
     expect(PLUGIN_SOURCE).not.toContain('endedBy: "idle"');
     expect(SWIFT_MODULE).toContain('manager.pausesLocationUpdatesAutomatically = false');
-    expect(SWIFT_MODULE).toContain('route.append(routePoint(from: location, source: "native"))');
+    expect(SWIFT_MODULE).toContain('route.append(routePoint(from: location, source: "native", motionState: motion');
     expect(SWIFT_MODULE).toContain('"recordedAt": location.timestamp.timeIntervalSince1970 * 1000');
   });
 
@@ -55,6 +55,12 @@ describe('Wiroom native iOS drive contract', () => {
     expect(SWIFT_MODULE).toContain('defaults.removeObject(forKey: apiUrlKey)');
     expect(SWIFT_MODULE).toContain('clearAuthToken()');
     expect(SWIFT_MODULE).not.toContain('persistState(active: false, endedBy: reason, lastFix: currentState()["lastFix"] as? [String: Any])\n    clearAuthToken()');
+  });
+
+  it('seals motion time at stop and keeps projected reads non-destructive', () => {
+    expect(SWIFT_MODULE).toContain('var finalStats = statsSnapshot()');
+    expect(SWIFT_MODULE).toContain('guard currentState()["active"] as? Bool == true else { return stats }');
+    expect(SWIFT_MODULE).toContain('var durableStats = currentStats()');
   });
 
   it('resolves a fresh prebuild from Expo config before AppDelegate exists', () => {

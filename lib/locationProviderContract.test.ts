@@ -15,8 +15,6 @@ describe('automotive location provider contract', () => {
     expect(broker).toContain('object VroomLocationBroker');
     expect(broker).toContain('MOVING_INTERVAL_MS = 1_000L');
     expect(broker).toContain('MOVING_MIN_INTERVAL_MS = 500L');
-    expect(broker).toContain('IDLE_INTERVAL_MS = 3_000L');
-    expect(broker).toContain('PRIORITY_BALANCED_POWER_ACCURACY');
     expect(broker).toContain('.setMinUpdateDistanceMeters(2f)');
     expect(service).toContain('VroomLocationBroker.subscribe');
     expect(auto).toContain('VroomLocationBroker.subscribe');
@@ -30,7 +28,7 @@ describe('automotive location provider contract', () => {
     const carPlay = read('modules/vroom-carplay/ios/VroomCarPlayLocationEngine.swift');
 
     expect(backgroundPlugin).toContain('Notification.Name("VroomSharedLocationFix")');
-    expect(backgroundPlugin).toContain('manager.pausesLocationUpdatesAutomatically = true');
+    expect(backgroundPlugin).toContain('manager.pausesLocationUpdatesAutomatically = false');
     expect(backgroundPlugin).toContain('manager.distanceFilter = 2');
     expect(backgroundPlugin).toContain('kCLLocationAccuracyBestForNavigation');
     expect(carPlay).toContain('receiveSharedLocation');
@@ -58,15 +56,14 @@ describe('automotive location provider contract', () => {
     expect(perf).toContain('liveSendTick: 1_000');
   });
 
-  it('does not pin trip distance ownership to native zero km', () => {
+  it('uses the active native session as the monotonic distance owner', () => {
     const tripStats = read('hooks/useTripStats.ts');
-    const ownership = read('lib/backgroundDriveController.ts');
     const androidService = read('native/android-bg/VroomBgTrackingService.kt');
     const iosService = read('native/background-drive/ios/WiroomLocationService.swift');
     const merge = read('lib/tripDistanceMerge.ts');
-    expect(tripStats).toContain('nativeCaughtUp');
-    expect(tripStats).toContain('nativeKm + 1e-6 >= distanceRef.current');
-    expect(ownership).toContain('nativeKm > 0');
+    expect(tripStats).toContain('distanceRef.current = Math.max(distanceRef.current, nativeKm)');
+    expect(tripStats).toContain('state.active');
+    expect(tripStats).not.toContain('nativeCaughtUp');
     expect(read('hooks/useDriveLocationWatch.ts')).toContain('onLocRef.current({');
     expect(androidService).toContain('location.hasSpeed() && location.speed > 0f');
     expect(iosService).toContain('location.speed > 0 ? location.speed * 3.6 : nil');

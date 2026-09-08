@@ -60,12 +60,42 @@ export type BackgroundDriveNativeStats = {
   speedSamples: number[];
   maxSpeedKmh: number;
   lastServerCheckpointKm?: number;
+  elapsedSec: number;
+  movingSec: number;
+  stoppedSec: number;
+  motionState?: 'moving' | 'stopped' | 'unknown';
+  lastFixAt?: number;
+  gapCount?: number;
+  maxGapSec?: number;
+  acceptedFixes?: number;
+  rejectedFixes?: number;
 };
 
 export type BackgroundDriveNativeProgress = Pick<
   BackgroundDriveNativeStats,
-  'distanceKm' | 'tripSessionId' | 'maxSpeedKmh' | 'lastServerCheckpointKm'
+  'distanceKm' | 'tripSessionId' | 'maxSpeedKmh' | 'lastServerCheckpointKm' | 'elapsedSec' | 'movingSec' | 'stoppedSec' | 'motionState' | 'lastFixAt'
 >;
+
+function normalizeNativeStats(stats: any, includeRoute = true): BackgroundDriveNativeStats {
+  const finite = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  return {
+    distanceKm: finite(stats?.distanceKm),
+    tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
+    routePoints: includeRoute && Array.isArray(stats?.routePoints) ? stats.routePoints : [],
+    speedSamples: includeRoute && Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
+    maxSpeedKmh: finite(stats?.maxSpeedKmh),
+    lastServerCheckpointKm: Number.isFinite(Number(stats?.lastServerCheckpointKm)) ? finite(stats.lastServerCheckpointKm) : undefined,
+    elapsedSec: finite(stats?.elapsedSec),
+    movingSec: finite(stats?.movingSec),
+    stoppedSec: finite(stats?.stoppedSec),
+    motionState: ['moving', 'stopped', 'unknown'].includes(stats?.motionState) ? stats.motionState : 'unknown',
+    lastFixAt: finite(stats?.lastFixAt),
+    gapCount: finite(stats?.gapCount),
+    maxGapSec: finite(stats?.maxGapSec),
+    acceptedFixes: finite(stats?.acceptedFixes),
+    rejectedFixes: finite(stats?.rejectedFixes),
+  };
+}
 
 const STATE_KEY = 'wiroom_background_drive_state';
 const BUFFER_KEY = 'wiroom_background_drive_buffer';
@@ -324,24 +354,12 @@ export const BackgroundDriveController = {
     if (mod?.getNativeStats) {
       try {
         const stats = await mod.getNativeStats();
-        const distanceKm = Number(stats?.distanceKm);
-        const maxSpeedKmh = Number(stats?.maxSpeedKmh);
-        const lastServerCheckpointKm = Number(stats?.lastServerCheckpointKm);
-        return {
-          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
-          tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
-          routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
-          speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
-          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
-          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
-            ? lastServerCheckpointKm
-            : undefined,
-        };
+        return normalizeNativeStats(stats);
       } catch {
         // fall through
       }
     }
-    return { distanceKm: 0, routePoints: [], speedSamples: [], maxSpeedKmh: 0 };
+    return normalizeNativeStats(null);
   },
 
   async consumeNativeStats(): Promise<BackgroundDriveNativeStats> {
@@ -349,24 +367,12 @@ export const BackgroundDriveController = {
     if (mod?.consumeNativeStats) {
       try {
         const stats = await mod.consumeNativeStats();
-        const distanceKm = Number(stats?.distanceKm);
-        const maxSpeedKmh = Number(stats?.maxSpeedKmh);
-        const lastServerCheckpointKm = Number(stats?.lastServerCheckpointKm);
-        return {
-          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
-          tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
-          routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
-          speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
-          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
-          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
-            ? lastServerCheckpointKm
-            : undefined,
-        };
+        return normalizeNativeStats(stats);
       } catch {
         // fall through
       }
     }
-    return { distanceKm: 0, routePoints: [], speedSamples: [], maxSpeedKmh: 0 };
+    return normalizeNativeStats(null);
   },
 
   addStopListener(listener: (payload?: { reason?: string }) => void): () => void {
@@ -382,17 +388,8 @@ export const BackgroundDriveController = {
     if (mod?.getNativeProgress) {
       try {
         const progress = await mod.getNativeProgress();
-        const distanceKm = Number(progress?.distanceKm);
-        const maxSpeedKmh = Number(progress?.maxSpeedKmh);
-        const lastServerCheckpointKm = Number(progress?.lastServerCheckpointKm);
-        return {
-          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
-          tripSessionId: typeof progress?.tripSessionId === 'string' ? progress.tripSessionId : null,
-          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
-          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
-            ? lastServerCheckpointKm
-            : undefined,
-        };
+        const normalized = normalizeNativeStats(progress, false);
+        return normalized;
       } catch {
         // Older binaries do not expose the lightweight method.
       }
@@ -403,6 +400,11 @@ export const BackgroundDriveController = {
       tripSessionId: stats.tripSessionId,
       maxSpeedKmh: stats.maxSpeedKmh,
       lastServerCheckpointKm: stats.lastServerCheckpointKm,
+      elapsedSec: stats.elapsedSec,
+      movingSec: stats.movingSec,
+      stoppedSec: stats.stoppedSec,
+      motionState: stats.motionState,
+      lastFixAt: stats.lastFixAt,
     };
   },
 
@@ -457,8 +459,7 @@ export async function resolveNativeDistanceOwnership(
     && !!sessionId
     && sessionMatches
     && statsMatch
-    && Number.isFinite(nativeKm)
-    && nativeKm > 0;
+    && Number.isFinite(nativeKm);
   return {
     nativeOwnsSession,
     nativeDistanceKm: nativeOwnsSession ? nativeKm : 0,

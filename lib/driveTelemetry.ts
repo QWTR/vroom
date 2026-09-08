@@ -1,4 +1,5 @@
 export type DriveTelemetrySource = 'foreground' | 'background' | 'native' | 'recovered';
+export type DriveMotionState = 'moving' | 'stopped' | 'unknown';
 
 export type DriveTelemetryPoint = {
   latitude: number;
@@ -10,6 +11,8 @@ export type DriveTelemetryPoint = {
   headingDeg?: number | null;
   source?: DriveTelemetrySource | string | null;
   accepted?: boolean;
+  motionState?: DriveMotionState;
+  segmentStatus?: 'accepted' | 'gap' | 'reanchor';
 };
 
 const finiteOrNull = (value: unknown, min: number, max: number): number | null => {
@@ -40,11 +43,19 @@ export function sanitizeDriveTelemetryPoint(value: any): DriveTelemetryPoint | n
   if ('headingDeg' in value) point.headingDeg = finiteOrNull(value?.headingDeg, 0, 360);
   if ('source' in value) point.source = typeof value?.source === 'string' ? value.source : null;
   if ('accepted' in value) point.accepted = value?.accepted !== false;
+  if (value?.motionState === 'moving' || value?.motionState === 'stopped' || value?.motionState === 'unknown') {
+    point.motionState = value.motionState;
+  }
+  if (value?.segmentStatus === 'accepted' || value?.segmentStatus === 'gap' || value?.segmentStatus === 'reanchor') {
+    point.segmentStatus = value.segmentStatus;
+  }
   return point;
 }
 
 function importantPoint(point: DriveTelemetryPoint, previous?: DriveTelemetryPoint, next?: DriveTelemetryPoint) {
   if (point.accepted === false) return true;
+  if (point.segmentStatus === 'gap' || point.segmentStatus === 'reanchor') return true;
+  if (previous && point.motionState !== previous.motionState) return true;
   if (point.speedKmh != null && point.speedKmh < 3) return true;
   if (!previous || !next) return true;
   const speed = point.speedKmh;

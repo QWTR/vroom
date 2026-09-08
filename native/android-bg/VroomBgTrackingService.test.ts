@@ -26,10 +26,19 @@ describe('Android native trip checkpoint contract', () => {
   });
 
   it('keeps background route telemetry in the reusable native source', () => {
-    expect(source).toContain('route.put(routePointJson(last, "native"))');
-    expect(source).toContain('route.put(routePointJson(location, "native"))');
+    expect(source).toContain('route.put(routePointJson(last, "native", previousMotion');
+    expect(source).toContain('route.put(routePointJson(location, "native", motion');
+    expect(source).toContain('"motionState"');
+    expect(source).toContain('"segmentStatus"');
     expect(source).toContain('.put("recordedAt", if (location.time > 0)');
     expect(source).toContain('.put("source", source)');
+  });
+
+  it('seals motion time at stop and never persists a projected read twice', () => {
+    expect(source).toContain('sealNativeStats(applicationContext)');
+    expect(source).toContain('if (!readState(context).optBoolean("active", false)) return stats');
+    expect(source).toContain('val durableStats = try');
+    expect(source).toContain('durableStats.put("lastCheckpointAttemptAt", now)');
   });
 
   it('does not keep an idle foreground service alive for the setting alone', () => {

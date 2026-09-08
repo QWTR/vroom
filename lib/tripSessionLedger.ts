@@ -8,7 +8,7 @@ export type TripLedgerMode = 'navigation' | 'freeDrive';
 export type TripFinalizationReason = 'arrival' | 'manual' | 'idle' | 'crash' | 'auto_stop' | 'premium_expired';
 
 export type TripSessionLedger = {
-  version: 2;
+  version: 3;
   tripSessionId: string;
   startedAt: string;
   updatedAt: number;
@@ -20,6 +20,17 @@ export type TripSessionLedger = {
   routePoints: DriveTelemetryPoint[];
   speedSamples: number[];
   maxSpeedKmh: number;
+  elapsedSec: number;
+  movingSec: number;
+  stoppedSec: number;
+  motionState: 'moving' | 'stopped' | 'unknown';
+  lastFixAt: number;
+  diagnostics: {
+    gapCount: number;
+    maxGapSec: number;
+    acceptedFixes: number;
+    rejectedFixes: number;
+  };
   finalization: {
     state: 'open' | 'pending' | 'saved';
     reason?: TripFinalizationReason;
@@ -37,6 +48,15 @@ export type NativeLedgerSnapshot = {
   speedSamples?: number[];
   maxSpeedKmh?: number | null;
   movedAt?: number | null;
+  elapsedSec?: number | null;
+  movingSec?: number | null;
+  stoppedSec?: number | null;
+  motionState?: 'moving' | 'stopped' | 'unknown' | null;
+  lastFixAt?: number | null;
+  gapCount?: number | null;
+  maxGapSec?: number | null;
+  acceptedFixes?: number | null;
+  rejectedFixes?: number | null;
 };
 
 export const TRIP_SESSION_LEDGER_KEY = 'trip_session_ledger_v1';
@@ -57,20 +77,37 @@ export function compactTripRoute(points: DriveTelemetryPoint[]) {
 }
 
 /**
- * Native tracking is the only trace that stays continuous while the JS runtime
- * is suspended. Prefer it at finalization; the other snapshots are recovery
- * fallbacks for older binaries or unavailable native tracking.
+ * Native tracking fills suspended-JS intervals, while foreground samples can
+ * contain denser road geometry. Merge all sources on one timeline.
  */
 export function selectTripRouteForFinalization(input: {
   nativeRoute?: DriveTelemetryPoint[];
   foregroundRoute?: DriveTelemetryPoint[];
   emergencyRoute?: DriveTelemetryPoint[];
 }): DriveTelemetryPoint[] {
-  const nativeRoute = compactTripRoute(input.nativeRoute ?? []);
-  if (nativeRoute.length >= 2) return nativeRoute;
-  const foregroundRoute = compactTripRoute(input.foregroundRoute ?? []);
-  if (foregroundRoute.length >= 2) return foregroundRoute;
-  return compactTripRoute(input.emergencyRoute ?? []);
+  const sources = [input.nativeRoute ?? [], input.foregroundRoute ?? [], input.emergencyRoute ?? []]
+    .map(compactTripRoute).filter((route) => route.length > 0);
+  if (!sources.length) return [];
+  const timed = sources.flat().filter((point) => point.recordedAt && Number.isFinite(new Date(point.recordedAt).getTime()));
+  if (timed.length < 2) return sources.sort((a, b) => b.length - a.length)[0];
+  const priority = (point: DriveTelemetryPoint) => point.source === 'foreground' ? 3 : point.source === 'background' ? 2 : 1;
+  const sorted = sources.flat().sort((a, b) => {
+    const at = a.recordedAt ? new Date(a.recordedAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const bt = b.recordedAt ? new Date(b.recordedAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return at - bt || priority(b) - priority(a);
+  });
+  const merged: DriveTelemetryPoint[] = [];
+  for (const point of sorted) {
+    const at = point.recordedAt ? new Date(point.recordedAt).getTime() : NaN;
+    const last = merged.at(-1);
+    const lastAt = last?.recordedAt ? new Date(last.recordedAt).getTime() : NaN;
+    if (last && Number.isFinite(at) && Number.isFinite(lastAt) && Math.abs(at - lastAt) <= 1_500) {
+      if (priority(point) > priority(last)) merged[merged.length - 1] = point;
+      continue;
+    }
+    merged.push(point);
+  }
+  return compactTripRoute(merged);
 }
 
 function mergeRoute(
@@ -118,9 +155,9 @@ function parseLedger(raw: string | null): TripSessionLedger | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw);
-    if (!value || ![1, 2].includes(value.version) || typeof value.tripSessionId !== 'string' || !value.tripSessionId) return null;
+    if (!value || ![1, 2, 3].includes(value.version) || typeof value.tripSessionId !== 'string' || !value.tripSessionId) return null;
     return {
-      version: 2,
+      version: 3,
       tripSessionId: value.tripSessionId,
       startedAt: typeof value.startedAt === 'string' ? value.startedAt : new Date().toISOString(),
       updatedAt: safeNumber(value.updatedAt),
@@ -133,6 +170,17 @@ function parseLedger(raw: string | null): TripSessionLedger | null {
       speedSamples: (Array.isArray(value.speedSamples) ? value.speedSamples : [])
         .map(Number).filter((n: number) => Number.isFinite(n) && n >= 1).slice(-MAX_SPEED_SAMPLES),
       maxSpeedKmh: safeNumber(value.maxSpeedKmh),
+      elapsedSec: safeNumber(value.elapsedSec),
+      movingSec: safeNumber(value.movingSec),
+      stoppedSec: safeNumber(value.stoppedSec),
+      motionState: ['moving', 'stopped'].includes(value.motionState) ? value.motionState : 'unknown',
+      lastFixAt: safeNumber(value.lastFixAt),
+      diagnostics: {
+        gapCount: safeNumber(value.diagnostics?.gapCount),
+        maxGapSec: safeNumber(value.diagnostics?.maxGapSec),
+        acceptedFixes: safeNumber(value.diagnostics?.acceptedFixes),
+        rejectedFixes: safeNumber(value.diagnostics?.rejectedFixes),
+      },
       finalization: value.finalization?.state === 'saved'
         ? { state: 'saved', reason: value.finalization.reason, requestedAt: safeNumber(value.finalization.requestedAt) }
         : value.finalization?.state === 'pending'
@@ -164,7 +212,7 @@ export function createTripSessionLedger(input: {
 }): TripSessionLedger {
   const now = input.now ?? Date.now();
   return {
-    version: 2,
+    version: 3,
     tripSessionId: input.tripSessionId,
     startedAt: input.startedAt ?? new Date(now).toISOString(),
     updatedAt: now,
@@ -176,6 +224,12 @@ export function createTripSessionLedger(input: {
     routePoints: [],
     speedSamples: [],
     maxSpeedKmh: 0,
+    elapsedSec: 0,
+    movingSec: 0,
+    stoppedSec: 0,
+    motionState: 'unknown',
+    lastFixAt: 0,
+    diagnostics: { gapCount: 0, maxGapSec: 0, acceptedFixes: 0, rejectedFixes: 0 },
     finalization: { state: 'open' },
   };
 }
@@ -217,6 +271,17 @@ export function mergeNativeLedgerSnapshot(
       : base.routePoints,
     speedSamples: nativeSamples.length ? nativeSamples : base.speedSamples,
     maxSpeedKmh: Math.max(base.maxSpeedKmh, safeNumber(native.maxSpeedKmh), ...nativeSamples, 0),
+    elapsedSec: Math.max(base.elapsedSec, safeNumber(native.elapsedSec)),
+    movingSec: Math.max(base.movingSec, safeNumber(native.movingSec)),
+    stoppedSec: Math.max(base.stoppedSec, safeNumber(native.stoppedSec)),
+    motionState: native.motionState ?? base.motionState,
+    lastFixAt: Math.max(base.lastFixAt, safeNumber(native.lastFixAt)),
+    diagnostics: {
+      gapCount: Math.max(base.diagnostics.gapCount, safeNumber(native.gapCount)),
+      maxGapSec: Math.max(base.diagnostics.maxGapSec, safeNumber(native.maxGapSec)),
+      acceptedFixes: Math.max(base.diagnostics.acceptedFixes, safeNumber(native.acceptedFixes)),
+      rejectedFixes: Math.max(base.diagnostics.rejectedFixes, safeNumber(native.rejectedFixes)),
+    },
     finalization: base.finalization.state === 'saved' ? { state: 'open' } : base.finalization,
   };
 }

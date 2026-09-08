@@ -157,4 +157,40 @@ describe('trip session ledger', () => {
     expect(selectTripRouteForFinalization({ foregroundRoute, nativeRoute }))
       .toEqual(nativeRoute);
   });
+
+  it('merges foreground detail and native background samples on one timeline', () => {
+    const route = selectTripRouteForFinalization({
+      nativeRoute: [
+        { latitude: 52, longitude: 21, recordedAt: '2026-09-07T10:00:00Z', source: 'native' },
+        { latitude: 52.2, longitude: 21.2, recordedAt: '2026-09-07T10:02:00Z', source: 'native', segmentStatus: 'gap' },
+      ],
+      foregroundRoute: [
+        { latitude: 52.01, longitude: 21.01, recordedAt: '2026-09-07T10:00:30Z', source: 'foreground' },
+        { latitude: 52.02, longitude: 21.02, recordedAt: '2026-09-07T10:01:00Z', source: 'foreground' },
+      ],
+    });
+
+    expect(route.map((point) => point.recordedAt)).toEqual([
+      '2026-09-07T10:00:00.000Z',
+      '2026-09-07T10:00:30.000Z',
+      '2026-09-07T10:01:00.000Z',
+      '2026-09-07T10:02:00.000Z',
+    ]);
+  });
+
+  it('keeps native duration and diagnostics monotonic across repeated snapshots', () => {
+    const first = mergeNativeLedgerSnapshot(null, {
+      tripSessionId: 'trip_motion', distanceKm: 10, elapsedSec: 600, movingSec: 500, stoppedSec: 100,
+      gapCount: 2, maxGapSec: 45, acceptedFixes: 100, rejectedFixes: 3,
+    });
+    const stale = mergeNativeLedgerSnapshot(first, {
+      tripSessionId: 'trip_motion', distanceKm: 9, elapsedSec: 590, movingSec: 490, stoppedSec: 90,
+      gapCount: 1, maxGapSec: 30, acceptedFixes: 90, rejectedFixes: 2,
+    });
+
+    expect(stale).toMatchObject({
+      distanceKm: 10, elapsedSec: 600, movingSec: 500, stoppedSec: 100,
+      diagnostics: { gapCount: 2, maxGapSec: 45, acceptedFixes: 100, rejectedFixes: 3 },
+    });
+  });
 });

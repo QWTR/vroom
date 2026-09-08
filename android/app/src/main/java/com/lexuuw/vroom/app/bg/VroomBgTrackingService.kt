@@ -270,6 +270,7 @@ class VroomBgTrackingService : Service() {
   }
 
   private fun stopTracking(reason: String, notifyReact: Boolean) {
+    sealNativeStats(applicationContext)
     flushNativeCheckpointBlocking(applicationContext, force = true)
     stopNativeLocationUpdates()
     val now = System.currentTimeMillis()
@@ -341,14 +342,20 @@ class VroomBgTrackingService : Service() {
     private const val KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION = "last_auto_distance_owner_generation"
     private const val AUTO_DISTANCE_OWNER_STALE_MS = 2 * 60_000L
     private const val MAX_BUFFERED_FIXES = 120
-    private const val MAX_STATS_ROUTE_POINTS = 800
+    private const val MAX_STATS_ROUTE_POINTS = 5_000
     private const val MAX_STATS_SPEED_SAMPLES = 240
     private const val ROUTE_POINT_SPACING_KM = 0.008
     private const val MAX_ACCURACY_M = 120.0
     private const val MIN_SEGMENT_KM = 0.002
     private const val MAX_SEGMENT_KM = 12.0
     private const val MAX_FIX_GAP_MS = 420_000L
+    private const val MAX_PLAUSIBLE_GAP_KMH = 220.0
+    private const val MAX_PLAUSIBLE_GAP_KM = 60.0
     private const val MIN_SPEED_KMH = 2.0
+    private const val MOVING_CONFIRM_KMH = 5.0
+    private const val STOPPED_CONFIRM_KMH = 3.0
+    private const val STOP_CONFIRM_MS = 5_000L
+    private const val STATIONARY_ROUTE_HEARTBEAT_MS = 30_000L
     // vmax bez limitu — tylko dolny próg próbki
     private const val NATIVE_CHECKPOINT_KM = 0.2
     private const val NATIVE_CHECKPOINT_FORCE_MIN_KM = 0.05
@@ -497,16 +504,40 @@ class VroomBgTrackingService : Service() {
         .put("tripSessionId", stats.optString("tripSessionId", ""))
         .put("maxSpeedKmh", stats.optDouble("maxSpeedKmh", 0.0))
         .put("lastServerCheckpointKm", stats.optDouble("lastServerCheckpointKm", 0.0))
+        .put("elapsedSec", stats.optDouble("elapsedSec", 0.0))
+        .put("movingSec", stats.optDouble("movingSec", 0.0))
+        .put("stoppedSec", stats.optDouble("stoppedSec", 0.0))
+        .put("motionState", stats.optString("motionState", "unknown"))
+        .put("lastFixAt", stats.optLong("lastFixAt", 0L))
     }
 
     private fun readNativeStatsSnapshot(context: Context): JSONObject {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val raw = prefs.getString(KEY_NATIVE_STATS, null)
-      return try {
+      val stats = try {
         if (raw.isNullOrBlank()) emptyNativeStats() else JSONObject(raw)
       } catch (_: Exception) {
         emptyNativeStats()
       }
+      val now = System.currentTimeMillis()
+      if (!readState(context).optBoolean("active", false)) return stats
+      val startedAt = stats.optLong("startedAt", 0L)
+      val lastFixAt = stats.optLong("lastFixAt", 0L)
+      if (startedAt > 0L) stats.put("elapsedSec", ((now - startedAt).coerceAtLeast(0L) / 1000.0))
+      if (lastFixAt > 0L && now > lastFixAt) {
+        val key = if (stats.optString("motionState", "unknown") == "stopped") "stoppedSec" else "movingSec"
+        stats.put(key, stats.optDouble(key, 0.0) + (now - lastFixAt) / 1000.0)
+      }
+      return stats
+    }
+
+    @Synchronized
+    private fun sealNativeStats(context: Context) {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val stats = readNativeStatsSnapshot(context)
+      val now = System.currentTimeMillis()
+      stats.put("lastFixAt", now)
+      prefs.edit().putString(KEY_NATIVE_STATS, stats.toString()).commit()
     }
 
     private fun shouldBypassStrictLocationFilters(context: Context, location: Location): Boolean {
@@ -575,6 +606,7 @@ class VroomBgTrackingService : Service() {
         .apply()
     }
 
+    @Synchronized
     fun accumulateNativeStats(context: Context, location: Location) {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val autoPrefs = context.getSharedPreferences(AUTO_NAV_PREFS, Context.MODE_PRIVATE)
@@ -624,6 +656,15 @@ class VroomBgTrackingService : Service() {
       val state = readState(context)
       val sessionId = state.optString("tripSessionId", "")
       if (sessionId.isNotBlank()) stats.put("tripSessionId", sessionId)
+      if (!stats.has("startedAt")) stats.put("startedAt", state.optLong("startedAt", now))
+      if (!stats.has("elapsedSec")) stats.put("elapsedSec", 0.0)
+      if (!stats.has("movingSec")) stats.put("movingSec", 0.0)
+      if (!stats.has("stoppedSec")) stats.put("stoppedSec", 0.0)
+      if (!stats.has("motionState")) stats.put("motionState", "unknown")
+      if (!stats.has("gapCount")) stats.put("gapCount", 0)
+      if (!stats.has("maxGapSec")) stats.put("maxGapSec", 0.0)
+      if (!stats.has("acceptedFixes")) stats.put("acceptedFixes", 0)
+      if (!stats.has("rejectedFixes")) stats.put("rejectedFixes", 0)
 
       val last = try {
         JSONObject(prefs.getString(KEY_NATIVE_STATS_LAST_FIX, null) ?: "{}")
@@ -643,18 +684,79 @@ class VroomBgTrackingService : Service() {
         (!currentAcc.isFinite() || currentAcc <= maxAccuracy) &&
           (!lastAcc.isFinite() || lastAcc <= maxAccuracy)
 
+      val dtMs = if (hasLast) now - lastTime else 0L
+      val dtSec = dtMs.coerceAtLeast(0L) / 1000.0
+      val segmentKmForMotion = if (hasLast) haversineKm(lastLat, lastLon, lat, lon) else 0.0
+      val derivedKmh = if (dtSec > 0) segmentKmForMotion * 3600.0 / dtSec else 0.0
+      val accuracyEnvelopeKm = maxOf(
+        0.015,
+        ((if (currentAcc.isFinite()) currentAcc else 0.0) + (if (lastAcc.isFinite()) lastAcc else 0.0)) * 1.2 / 1000.0,
+      )
+      val previousMotion = stats.optString("motionState", "unknown")
+      val movingEvidence = accurateEnough && (
+        (speedKmh != null && speedKmh >= MOVING_CONFIRM_KMH) ||
+          (derivedKmh >= MOVING_CONFIRM_KMH && segmentKmForMotion > accuracyEnvelopeKm)
+        )
+      val stoppedEvidence = accurateEnough && segmentKmForMotion <= accuracyEnvelopeKm &&
+        (speedKmh == null || speedKmh < STOPPED_CONFIRM_KMH)
+      var motion = previousMotion
+      var candidateAt = stats.optLong("stationaryCandidateAt", 0L)
+      var stopStartedAt = 0L
+      if (!hasLast && stats.optDouble("movingSec", 0.0) + stats.optDouble("stoppedSec", 0.0) <= 0.0) {
+        val initialSec = (now - stats.optLong("startedAt", now)).coerceAtLeast(0L) / 1000.0
+        stats.put("movingSec", initialSec)
+      }
+      if (movingEvidence) {
+        if (previousMotion == "stopped" && dtSec > 0) {
+          stats.put("movingSec", stats.optDouble("movingSec", 0.0) + dtSec)
+        } else if (candidateAt > 0L) {
+          stats.put("movingSec", stats.optDouble("movingSec", 0.0) + (now - candidateAt).coerceAtLeast(0L) / 1000.0)
+        } else if (dtSec > 0) {
+          stats.put("movingSec", stats.optDouble("movingSec", 0.0) + dtSec)
+        }
+        candidateAt = 0L
+        motion = "moving"
+      } else if (stoppedEvidence) {
+        if (previousMotion == "stopped") {
+          if (dtSec > 0) stats.put("stoppedSec", stats.optDouble("stoppedSec", 0.0) + dtSec)
+        } else {
+          if (candidateAt <= 0L) candidateAt = if (lastTime > 0L) lastTime else now
+          if (now - candidateAt >= STOP_CONFIRM_MS) {
+            stats.put("stoppedSec", stats.optDouble("stoppedSec", 0.0) + (now - candidateAt) / 1000.0)
+            stopStartedAt = candidateAt
+            motion = "stopped"
+            candidateAt = 0L
+          }
+        }
+      } else if (dtSec > 0) {
+        if (previousMotion == "stopped") stats.put("stoppedSec", stats.optDouble("stoppedSec", 0.0) + dtSec)
+        else stats.put("movingSec", stats.optDouble("movingSec", 0.0) + dtSec)
+      }
+      stats.put("stationaryCandidateAt", candidateAt)
+      stats.put("motionState", motion)
+      stats.put("lastFixAt", now)
+      stats.put("elapsedSec", ((now - stats.optLong("startedAt", now)).coerceAtLeast(0L) / 1000.0))
+      if (dtSec > 10.0) {
+        stats.put("gapCount", stats.optInt("gapCount", 0) + 1)
+        stats.put("maxGapSec", maxOf(stats.optDouble("maxGapSec", 0.0), dtSec))
+      }
+
       var acceptedMovement = false
       if (hasLast && accurateEnough) {
         val dt = now - lastTime
         val segmentKm = haversineKm(lastLat, lastLon, lat, lon)
-        val speedOk = speedKmh == null || speedKmh >= minSpeed
-        if (dt > 0L && dt <= MAX_FIX_GAP_MS && segmentKm >= MIN_SEGMENT_KM && speedOk) {
-          if (segmentKm <= maxSegment) {
+        val speedOk = !stoppedEvidence && (speedKmh == null || speedKmh >= minSpeed || derivedKmh >= MOVING_CONFIRM_KMH)
+        val longGapPlausible = dt > MAX_FIX_GAP_MS && derivedKmh in MOVING_CONFIRM_KMH..MAX_PLAUSIBLE_GAP_KMH &&
+          segmentKm <= MAX_PLAUSIBLE_GAP_KM && accurateEnough
+        val segmentLimitOk = if (dt <= MAX_FIX_GAP_MS) segmentKm <= maxSegment else longGapPlausible
+        if (dt > 0L && segmentKm >= MIN_SEGMENT_KM && speedOk && segmentLimitOk) {
+          if (segmentKm <= maxSegment || longGapPlausible) {
             acceptedMovement = true
+            stats.put("acceptedFixes", stats.optInt("acceptedFixes", 0) + 1)
             stats.put("distanceKm", stats.optDouble("distanceKm", 0.0) + segmentKm)
             val route = stats.optJSONArray("routePoints") ?: JSONArray()
             if (route.length() == 0) {
-              route.put(routePointJson(last, "native"))
+              route.put(routePointJson(last, "native", previousMotion, if (dtSec > 10.0) "gap" else "accepted"))
             }
             val lastRoute = route.optJSONObject(route.length() - 1)
             val routeMovedKm = if (lastRoute != null) {
@@ -667,14 +769,15 @@ class VroomBgTrackingService : Service() {
             } else {
               Double.POSITIVE_INFINITY
             }
-            if (routeMovedKm >= ROUTE_POINT_SPACING_KM) {
-              route.put(routePointJson(location, "native"))
+            if (routeMovedKm >= ROUTE_POINT_SPACING_KM || previousMotion == "stopped") {
+              route.put(routePointJson(location, "native", motion, if (dtSec > 10.0) "gap" else "accepted"))
             }
             stats.put(
               "routePoints",
               if (route.length() > MAX_STATS_ROUTE_POINTS) compactJsonArray(route) else route,
             )
           } else {
+            stats.put("rejectedFixes", stats.optInt("rejectedFixes", 0) + 1)
             // GPS gap / mock jump — preserve post-gap point as a new segment anchor.
             persistNativeStatsLastFix(prefs, location)
             prefs.edit()
@@ -684,6 +787,23 @@ class VroomBgTrackingService : Service() {
             return
           }
         }
+      }
+
+      if (!acceptedMovement && motion == "stopped") {
+        val route = stats.optJSONArray("routePoints") ?: JSONArray()
+        if (previousMotion != "stopped" && stopStartedAt > 0L) {
+          route.put(routePointJson(location, "native", "stopped", "accepted").put("recordedAt", stopStartedAt))
+        }
+        val lastRoute = route.optJSONObject(route.length() - 1)
+        val lastRouteAt = lastRoute?.optLong("recordedAt", 0L) ?: 0L
+        if (lastRouteAt <= 0L || now - lastRouteAt >= STATIONARY_ROUTE_HEARTBEAT_MS || previousMotion != "stopped") {
+          route.put(routePointJson(location, "native", "stopped", "accepted"))
+          stats.put("routePoints", if (route.length() > MAX_STATS_ROUTE_POINTS) compactJsonArray(route) else route)
+        }
+      } else if (!acceptedMovement && previousMotion == "stopped" && motion == "moving") {
+        val route = stats.optJSONArray("routePoints") ?: JSONArray()
+        route.put(routePointJson(location, "native", "moving", "reanchor"))
+        stats.put("routePoints", if (route.length() > MAX_STATS_ROUTE_POINTS) compactJsonArray(route) else route)
       }
 
       if (acceptedMovement && speedKmh != null && speedKmh >= 1.0) {
@@ -722,7 +842,7 @@ class VroomBgTrackingService : Service() {
       .put("altitudeM", if (location.hasAltitude()) location.altitude else JSONObject.NULL)
       .put("headingDeg", if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
 
-    private fun routePointJson(location: Location, source: String): JSONObject = JSONObject()
+    private fun routePointJson(location: Location, source: String, motionState: String = "unknown", segmentStatus: String = "accepted"): JSONObject = JSONObject()
       .put("latitude", location.latitude)
       .put("longitude", location.longitude)
       .put("recordedAt", if (location.time > 0) location.time else System.currentTimeMillis())
@@ -732,8 +852,10 @@ class VroomBgTrackingService : Service() {
       .put("headingDeg", if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
       .put("source", source)
       .put("accepted", true)
+      .put("motionState", motionState)
+      .put("segmentStatus", segmentStatus)
 
-    private fun routePointJson(fix: JSONObject, source: String): JSONObject = JSONObject()
+    private fun routePointJson(fix: JSONObject, source: String, motionState: String = "unknown", segmentStatus: String = "accepted"): JSONObject = JSONObject()
       .put("latitude", fix.optDouble("latitude"))
       .put("longitude", fix.optDouble("longitude"))
       .put("recordedAt", fix.optLong("time", System.currentTimeMillis()))
@@ -743,6 +865,8 @@ class VroomBgTrackingService : Service() {
       .put("headingDeg", fix.opt("headingDeg") ?: JSONObject.NULL)
       .put("source", source)
       .put("accepted", true)
+      .put("motionState", motionState)
+      .put("segmentStatus", segmentStatus)
 
     private fun emptyNativeStats(): JSONObject =
       JSONObject()
@@ -753,6 +877,15 @@ class VroomBgTrackingService : Service() {
         .put("lastServerCheckpointKm", 0.0)
         .put("lastCheckpointAttemptAt", 0L)
         .put("tripSessionId", JSONObject.NULL)
+        .put("elapsedSec", 0.0)
+        .put("movingSec", 0.0)
+        .put("stoppedSec", 0.0)
+        .put("motionState", "unknown")
+        .put("lastFixAt", 0L)
+        .put("gapCount", 0)
+        .put("maxGapSec", 0.0)
+        .put("acceptedFixes", 0)
+        .put("rejectedFixes", 0)
 
     fun flushNativeCheckpointBlocking(context: Context, force: Boolean = false) {
       val stats = readNativeStatsSnapshot(context)
@@ -773,6 +906,7 @@ class VroomBgTrackingService : Service() {
       }
     }
 
+    @Synchronized
     private fun maybeFlushNativeCheckpoint(context: Context, stats: JSONObject, force: Boolean) {
       val distance = stats.optDouble("distanceKm", 0.0)
       if (!distance.isFinite() || distance < 0.05) return
@@ -786,10 +920,14 @@ class VroomBgTrackingService : Service() {
       if (!tryStartNativeCheckpoint()) return
 
       val updatedStats = JSONObject(stats.toString()).put("lastCheckpointAttemptAt", now)
-      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(KEY_NATIVE_STATS, updatedStats.toString())
-        .apply()
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val durableStats = try {
+        JSONObject(prefs.getString(KEY_NATIVE_STATS, null) ?: "{}")
+      } catch (_: Exception) {
+        JSONObject()
+      }
+      durableStats.put("lastCheckpointAttemptAt", now)
+      prefs.edit().putString(KEY_NATIVE_STATS, durableStats.toString()).apply()
 
       thread(start = true) {
         try {

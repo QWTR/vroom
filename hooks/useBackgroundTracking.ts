@@ -739,6 +739,15 @@ export async function syncNativeTripSessionLedger(): Promise<TripSessionLedger |
       speedSamples: Array.isArray(stats.speedSamples) ? stats.speedSamples : [],
       maxSpeedKmh: stats.maxSpeedKmh,
       movedAt: state.updatedAt ?? Date.now(),
+      elapsedSec: stats.elapsedSec,
+      movingSec: stats.movingSec,
+      stoppedSec: stats.stoppedSec,
+      motionState: stats.motionState,
+      lastFixAt: stats.lastFixAt,
+      gapCount: stats.gapCount,
+      maxGapSec: stats.maxGapSec,
+      acceptedFixes: stats.acceptedFixes,
+      rejectedFixes: stats.rejectedFixes,
     });
     if (shouldSnapshotLedger(previous, next)) {
       await saveTripSessionLedger(next);
@@ -760,6 +769,8 @@ export type TripSessionFinalizationInput = {
   maxSpeedKmh?: number;
   avgSpeedKmh?: number;
   durationSec?: number;
+  movingSec?: number;
+  stoppedSec?: number;
   routePoints?: DriveTelemetryPoint[];
 };
 
@@ -770,6 +781,8 @@ export type PendingTripFinishCard = {
   maxSpeedKmh: number;
   avgSpeedKmh: number;
   durationSec: number;
+  movingSec: number;
+  stoppedSec: number;
   routePoints: DriveTelemetryPoint[];
   reason: TripFinalizationReason;
   createdAt: number;
@@ -787,6 +800,8 @@ export async function readPendingTripFinishCard(): Promise<PendingTripFinishCard
       maxSpeedKmh: Math.max(0, Number(value.maxSpeedKmh) || 0),
       avgSpeedKmh: Math.max(0, Number(value.avgSpeedKmh) || 0),
       durationSec: Math.max(0, Number(value.durationSec) || 0),
+      movingSec: Math.max(0, Number(value.movingSec) || 0),
+      stoppedSec: Math.max(0, Number(value.stoppedSec) || 0),
       routePoints: compactTripRoute(Array.isArray(value.routePoints) ? value.routePoints : []),
     };
   } catch {
@@ -930,9 +945,8 @@ async function finalizeTripSessionOnce(
   const emergencyRoute = matchingEmergency
     ? compactTripRoute(matchingEmergency.trackedPoints ?? [])
     : [];
-  // The native service spans the whole drive, including the time when React
-  // Native is suspended. A foreground trace can have points on both sides of a
-  // background gap, so it must only be a fallback here.
+  // Merge all sources chronologically. Foreground samples retain their denser
+  // geometry while native samples fill every suspended-JS interval.
   const selectedRoute = selectTripRouteForFinalization({
     nativeRoute,
     foregroundRoute,
@@ -967,7 +981,13 @@ async function finalizeTripSessionOnce(
     mode: input.mode,
   });
   if (['idle', 'crash', 'auto_stop', 'premium_expired'].includes(input.reason)) {
-    const durationSec = input.durationSec ?? Math.max(0, Math.round((Date.now() - Date.parse(ledger.startedAt)) / 1000));
+    const wallDurationSec = Math.max(0, Math.round((Date.now() - Date.parse(ledger.startedAt)) / 1000));
+    const durationSec = ledger.elapsedSec > 0
+      ? Math.max(Number(input.durationSec) || 0, ledger.elapsedSec)
+      : Math.max(Number(input.durationSec) || 0, wallDurationSec);
+    const hasNativeMotion = ledger.movingSec + ledger.stoppedSec > 0;
+    const movingSec = Math.max(0, hasNativeMotion ? ledger.movingSec : Number(input.movingSec) || 0);
+    const stoppedSec = Math.max(0, hasNativeMotion ? ledger.stoppedSec : Number(input.stoppedSec) || 0);
     const finishCard: PendingTripFinishCard = {
       version: 1,
       tripSessionId: ledger.tripSessionId,
@@ -975,6 +995,8 @@ async function finalizeTripSessionOnce(
       maxSpeedKmh: Math.max(ledger.maxSpeedKmh, Number(input.maxSpeedKmh) || 0),
       avgSpeedKmh: Number(input.avgSpeedKmh) > 0 ? Number(input.avgSpeedKmh) : averageLedgerSpeed(ledger),
       durationSec,
+      movingSec,
+      stoppedSec,
       routePoints: compactTripRoute(selectedRoute),
       reason: input.reason,
       createdAt: Date.now(),
@@ -996,6 +1018,13 @@ async function finalizeTripSessionOnce(
 
   const pendingLedger = markLedgerFinalizationPending(ledger, input.reason);
   const routePoints = trimRoutePointsForActivitySave(pendingLedger.routePoints);
+  const wallDurationSec = Math.max(0, Math.round((Date.now() - Date.parse(pendingLedger.startedAt)) / 1000));
+  const duration = pendingLedger.elapsedSec > 0
+    ? Math.max(Number(input.durationSec) || 0, pendingLedger.elapsedSec)
+    : Math.max(Number(input.durationSec) || 0, wallDurationSec);
+  const hasNativeMotion = pendingLedger.movingSec + pendingLedger.stoppedSec > 0;
+  const movingSec = Math.max(0, hasNativeMotion ? pendingLedger.movingSec : Number(input.movingSec) || 0);
+  const stoppedSec = Math.max(0, hasNativeMotion ? pendingLedger.stoppedSec : Number(input.stoppedSec) || 0);
   const payload = {
     tripSessionId: pendingLedger.tripSessionId,
     distance: Math.round(pendingLedger.distanceKm * 1000) / 1000,
@@ -1003,7 +1032,18 @@ async function finalizeTripSessionOnce(
     avgSpeed: Math.round((input.avgSpeedKmh && input.avgSpeedKmh > 0
       ? input.avgSpeedKmh
       : averageLedgerSpeed(pendingLedger)) * 10) / 10,
-    duration: input.durationSec ?? Math.max(0, Math.round((Date.now() - Date.parse(pendingLedger.startedAt)) / 1000)),
+    duration,
+    motionSummary: {
+      elapsedSec: Math.max(duration, pendingLedger.elapsedSec),
+      movingSec,
+      stoppedSec,
+      state: pendingLedger.motionState,
+    },
+    trackingQuality: {
+      motionState: pendingLedger.motionState,
+      lastFixAt: pendingLedger.lastFixAt,
+      ...pendingLedger.diagnostics,
+    },
     routePoints: routePoints && routePoints.length >= 2 ? routePoints : undefined,
     routePointsCount: routePoints?.length ?? 0,
     source: pendingLedger.mode === 'navigation' ? 'navigation_final' : 'drive_final',
@@ -1708,17 +1748,21 @@ export function useBackgroundTracking(
           savedCheckpointKm,
           Number(emergencySnapshot?.distanceKm) || 0,
         );
-        const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, 0);
+        const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, nativeStats.maxSpeedKmh ?? 0, maxSpeed, 0);
+        const nativeAverageSpeed = nativeStats.speedSamples.length
+          ? nativeStats.speedSamples.reduce((sum, speed) => sum + speed, 0) / nativeStats.speedSamples.length
+          : 0;
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null && navPayload.avgSpeedKmh > 0
           ? navPayload.avgSpeedKmh
-          : avgSpeed;
-        const routePointsRaw = navPayload?.routePoints && navPayload.routePoints.length > 1
-          ? navPayload.routePoints
-          : (bgRoutePoints.length > 1
-            ? bgRoutePoints
-            : (emergencySnapshot?.trackedPoints && emergencySnapshot.trackedPoints.length > 1
-              ? emergencySnapshot.trackedPoints
-              : undefined));
+          : Math.max(avgSpeed, nativeAverageSpeed);
+        const routePointsRaw = selectTripRouteForFinalization({
+          nativeRoute: nativeStats.routePoints,
+          foregroundRoute: navPayload?.routePoints ?? [],
+          emergencyRoute: [
+            ...bgRoutePoints,
+            ...(emergencySnapshot?.trackedPoints ?? []),
+          ],
+        });
         const routePointsToSave = trimRoutePointsForActivitySave(routePointsRaw);
 
         if (distanceToSave < 0.05) return;
@@ -1728,7 +1772,21 @@ export function useBackgroundTracking(
           distance: distanceToSave,
           maxSpeed: maxSpeedToSave,
           avgSpeed: avgSpeedToSave,
-          duration: navPayload?.durationSec ?? null,
+          duration: Math.max(Number(navPayload?.durationSec) || 0, nativeStats.elapsedSec || 0),
+          motionSummary: {
+            elapsedSec: nativeStats.elapsedSec,
+            movingSec: nativeStats.movingSec,
+            stoppedSec: nativeStats.stoppedSec,
+            state: nativeStats.motionState,
+          },
+          trackingQuality: {
+            motionState: nativeStats.motionState,
+            lastFixAt: nativeStats.lastFixAt,
+            gapCount: nativeStats.gapCount,
+            maxGapSec: nativeStats.maxGapSec,
+            acceptedFixes: nativeStats.acceptedFixes,
+            rejectedFixes: nativeStats.rejectedFixes,
+          },
           routePoints: routePointsToSave,
           source: sourceTag === 'driving' ? 'drive_final' : 'navigation_final',
           startedAt: session.startedAt,

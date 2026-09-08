@@ -21,6 +21,8 @@ export interface TripStats {
   maxSpeedKmh:   number;
   avgSpeedKmh:   number;
   elapsedSec:    number;
+  movingSec:     number;
+  stoppedSec:    number;
   estimatedSec:  number;
   distanceKm:    number;
   trackedPoints: DriveTelemetryPoint[];
@@ -46,6 +48,7 @@ const EMERGENCY_CHECKPOINT_KM = 0.5;
 const TRIP_STATS_DIAGNOSTICS = __DEV__;
 /** Align with BG tracking — reject noisy GPS fixes. */
 const TRIP_MAX_ACCURACY_M = 65;
+const PREMIUM_NATIVE_LEDGER_V3_ENABLED = process.env.EXPO_PUBLIC_PREMIUM_NATIVE_LEDGER_V3 !== '0';
 
 function isValidSpeedSampleKmh(kmh: number): boolean {
   return Number.isFinite(kmh) && kmh > 2 && kmh <= TRIP_STATS_MAX_PLAUSIBLE_KMH;
@@ -61,6 +64,9 @@ export function useTripStats() {
   const startTimeRef = useRef<number | null>(null);
   const estSecRef    = useRef<number>(0);
   const distanceRef  = useRef<number>(0);
+  const nativeElapsedSecRef = useRef(0);
+  const nativeMovingSecRef = useRef(0);
+  const nativeStoppedSecRef = useRef(0);
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
   const lastAccuracyRef = useRef<number | null>(null);
   const reanchorFixesRemainingRef = useRef(0);
@@ -121,10 +127,17 @@ export function useTripStats() {
     });
   }, []);
 
-  const applyNativeDistance = useCallback((nativeKm: number) => {
+  const applyNativeDistance = useCallback((nativeKm: number, progress?: {
+    elapsedSec?: number;
+    movingSec?: number;
+    stoppedSec?: number;
+  }) => {
     if (!Number.isFinite(nativeKm) || nativeKm < 0) return;
     // Never replace a larger JS/HUD total with a lagging native reading.
     distanceRef.current = Math.max(distanceRef.current, nativeKm);
+    nativeElapsedSecRef.current = Math.max(nativeElapsedSecRef.current, Number(progress?.elapsedSec) || 0);
+    nativeMovingSecRef.current = Math.max(nativeMovingSecRef.current, Number(progress?.movingSec) || 0);
+    nativeStoppedSecRef.current = Math.max(nativeStoppedSecRef.current, Number(progress?.stoppedSec) || 0);
     const rounded = parseFloat(distanceRef.current.toFixed(2));
     const emitNow = Date.now();
     if (
@@ -152,20 +165,18 @@ export function useTripStats() {
         ]);
         if (cancelled) return;
         const sessionMatches = !progress.tripSessionId || progress.tripSessionId === state.tripSessionId;
-        // Hand off to native only after it has caught up with JS/HUD distance.
-        // Otherwise feedPosition freezes while finalize can still prefer a lagging
-        // native total and drop the save (< 0.05 km gate).
         const nativeKm = Number(progress.distanceKm);
-        const nativeCaughtUp = Number.isFinite(nativeKm)
-          && nativeKm > 0
-          && nativeKm + 1e-6 >= distanceRef.current;
+        const ownershipReady = PREMIUM_NATIVE_LEDGER_V3_ENABLED
+          || (nativeKm > 0 && nativeKm + 1e-6 >= distanceRef.current);
         const nativeOwns = state.active
           && !!state.tripSessionId
           && sessionMatches
-          && nativeCaughtUp;
+          && (!tripSessionIdRef.current || state.tripSessionId === tripSessionIdRef.current)
+          && Number.isFinite(nativeKm)
+          && ownershipReady;
         nativeOwnsRef.current = nativeOwns;
         if (nativeOwns) {
-          applyNativeDistance(nativeKm);
+          applyNativeDistance(nativeKm, progress);
         }
       } finally {
         nativeProgressSyncInFlightRef.current = false;
@@ -210,6 +221,9 @@ export function useTripStats() {
     setLiveDistanceKm(rounded);
     tripSessionIdRef.current = snapshot.tripSessionId;
     nativeOwnsRef.current = false;
+    nativeElapsedSecRef.current = 0;
+    nativeMovingSecRef.current = 0;
+    nativeStoppedSecRef.current = 0;
     setTripActive(true);
     // Persist the consolidated monotonic snapshot immediately. If the app is
     // killed again before the next 0.5 km checkpoint, the resumed kilometres
@@ -263,6 +277,9 @@ export function useTripStats() {
     setStats(null);
     setLiveDistanceKm(0);
     nativeOwnsRef.current = false;
+    nativeElapsedSecRef.current = 0;
+    nativeMovingSecRef.current = 0;
+    nativeStoppedSecRef.current = 0;
     setTripActive(true);
     resetSegmentDiag();
     void clearEmergencyTripSave();
@@ -589,6 +606,12 @@ export function useTripStats() {
       maxSpeedKmh:   Math.round(maxSpeed),
       avgSpeedKmh:   Math.round(avgSpeed),
       elapsedSec:    elapsed,
+      movingSec:     nativeOwnsRef.current
+        ? Math.min(elapsed, Math.round(nativeMovingSecRef.current))
+        : elapsed,
+      stoppedSec:    nativeOwnsRef.current
+        ? Math.min(elapsed, Math.round(nativeStoppedSecRef.current))
+        : 0,
       estimatedSec:  estSecRef.current,
       distanceKm:    parseFloat(distanceRef.current.toFixed(2)),
       trackedPoints: [...trackedPts.current],
@@ -617,6 +640,9 @@ export function useTripStats() {
     reanchorFixesRemainingRef.current = 0;
     lastEmergencyKmRef.current = 0;
     nativeOwnsRef.current = false;
+    nativeElapsedSecRef.current = 0;
+    nativeMovingSecRef.current = 0;
+    nativeStoppedSecRef.current = 0;
     tripSessionIdRef.current = null;
     setTripActive(false);
     setLiveDistanceKm(0);

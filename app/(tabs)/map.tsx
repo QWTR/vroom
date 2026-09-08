@@ -2881,6 +2881,8 @@ function MapScreenInner() {
       maxSpeedKmh: pending.maxSpeedKmh,
       avgSpeedKmh: pending.avgSpeedKmh,
       elapsedSec: pending.durationSec,
+      movingSec: pending.movingSec,
+      stoppedSec: pending.stoppedSec,
       trackedPoints: pending.routePoints,
     });
     setTripStatsVisible(true);
@@ -4924,6 +4926,8 @@ function MapScreenInner() {
       maxSpeedKmh: number;
       avgSpeedKmh: number;
       elapsedSec: number;
+      movingSec?: number;
+      stoppedSec?: number;
       trackedPoints: { latitude: number; longitude: number }[];
     };
   }) => {
@@ -5043,6 +5047,8 @@ function MapScreenInner() {
             maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
             avgSpeedKmh: finalStats.avgSpeedKmh,
             durationSec: finalStats.elapsedSec,
+            movingSec: finalStats.movingSec,
+            stoppedSec: finalStats.stoppedSec,
             routePoints: finalStats.trackedPoints,
           }, { deferFlush: true });
         } catch (error) {
@@ -8911,6 +8917,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     maxSpeedKmh: number;
     avgSpeedKmh: number;
     elapsedSec: number;
+    movingSec?: number;
+    stoppedSec?: number;
     trackedPoints: { latitude: number; longitude: number }[];
   }, opts?: {
     reason?: 'arrival' | 'manual' | 'idle';
@@ -8930,6 +8938,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       maxSpeedKmh: finalStats.maxSpeedKmh,
       avgSpeedKmh: finalStats.avgSpeedKmh,
       durationSec: finalStats.elapsedSec,
+      movingSec: finalStats.movingSec,
+      stoppedSec: finalStats.stoppedSec,
       routePoints: finalStats.trackedPoints,
     });
   }, [finalizeTripSession]);
