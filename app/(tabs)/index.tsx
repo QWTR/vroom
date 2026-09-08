@@ -6,18 +6,15 @@ import { useIsFocused } from "@react-navigation/native";
 import { FRIEND_INVITE_HANDLED } from "../../lib/friendInviteEvents";
 import {
 	ActivityIndicator,
+	AccessibilityInfo,
 	DeviceEventEmitter,
-	Dimensions,
-	Image,
 	ScrollView,
-	StyleSheet,
 	TouchableOpacity,
 	View,
 	StatusBar,
 	RefreshControl,
 	Animated,
 	InteractionManager,
-	useWindowDimensions,
 } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { LinearGradient } from "expo-linear-gradient";
@@ -40,6 +37,8 @@ import { useEffectivePremium } from "../../hooks/useEffectivePremium";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { HomeDiscoverySection } from "../../components/home/HomeDiscoverySection";
+import { HomeCockpit } from "../../components/home/HomeCockpit";
+import { usePerformanceMotion } from "../../hooks/usePerformanceMotion";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { VroomShopCard } from "../../components/home/VroomShopCard";
 import { SeasonSpotlightCard } from "../../components/seasons/SeasonSpotlightCard";
@@ -51,11 +50,6 @@ import { getNextStreakResetIso } from "../../lib/streakDeadline";
 import { StreakUnlockFx } from "../../components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabScrollBottomPadding } from "../../lib/screenHeaderInsets";
-import { allowNotificationCenterEntry } from "../../lib/notifications/notificationCenterAccess";
-import { useReadability } from "../../contexts/ReadabilityContext";
-
-const { width, height } = Dimensions.get("window");
-const HOME_HERO_HEIGHT = Math.min(height * 0.47, 430);
 
 type MainCar = { brand: string; specs: string; photo: string | null };
 type Achievement = { type: string; label: string; unlockedAt: string };
@@ -125,13 +119,17 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
-	const { textScale } = useReadability();
-	const { fontScale } = useWindowDimensions();
-	const effectiveTextScale = Math.min(2, textScale * fontScale);
-	const homeHeroHeight = HOME_HERO_HEIGHT + Math.round(Math.max(0, effectiveTextScale - 1) * 250);
+	const [reduceMotion, setReduceMotion] = useState(true);
+	useEffect(() => {
+		let active = true;
+		AccessibilityInfo.isReduceMotionEnabled().then(value => { if (active) setReduceMotion(value); }).catch(() => {});
+		const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+		return () => { active = false; subscription.remove(); };
+	}, []);
 	const insets = useSafeAreaInsets();
 	const tabScrollBottomPad = useTabScrollBottomPadding(16);
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
+	const homeMotion = usePerformanceMotion(true, layoutGateOpen);
 	const onlineCount = useAppPresence();
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
@@ -221,8 +219,6 @@ export default function HomeScreen() {
 
 	// Animacje
 	const fadeAnim = useRef(new Animated.Value(0)).current;
-	const slideAnim = useRef(new Animated.Value(40)).current;
-	const scaleAnim = useRef(new Animated.Value(0.92)).current;
 	const pulseAnim = useRef(new Animated.Value(1)).current;
 
 	const { poll, voted, fetchActivePoll, vote } = usePolls();
@@ -238,7 +234,7 @@ export default function HomeScreen() {
 	const votedRef = useRef(voted);
 
 	useEffect(() => {
-		if (!isFocused) {
+		if (!homeMotion.enabled || reduceMotion || !loading) {
 			pulseAnim.setValue(1);
 			return;
 		}
@@ -258,26 +254,15 @@ export default function HomeScreen() {
 		);
 		loop.start();
 		return () => loop.stop();
-	}, [isFocused, pulseAnim]);
+	}, [homeMotion.enabled, loading, pulseAnim, reduceMotion]);
 
 	const runEntrance = () => {
-		Animated.parallel([
-			Animated.timing(fadeAnim, {
+		if (reduceMotion) { fadeAnim.setValue(1); return; }
+		Animated.timing(fadeAnim, {
 				toValue: 1,
 				duration: 600,
 				useNativeDriver: true,
-			}),
-			Animated.timing(slideAnim, {
-				toValue: 0,
-				duration: 600,
-				useNativeDriver: true,
-			}),
-			Animated.spring(scaleAnim, {
-				toValue: 1,
-				friction: 7,
-				useNativeDriver: true,
-			}),
-		]).start();
+			}).start();
 	};
 
 	const loadUser = async (showSpinner = true) => {
@@ -451,8 +436,6 @@ export default function HomeScreen() {
 		...iconGlowStyle,
 		backgroundColor: withAlpha(t.gold, isDark ? "26" : "18"),
 	};
-	const statNumColor = t.text;
-	const statDivider = chrome.statDivider;
 	const glassShadow = {
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 4 } as const,
@@ -521,476 +504,40 @@ export default function HomeScreen() {
 						colors={[t.primary]}
 					/>
 				}>
-				{/* ══════════════════════════════════════════════ */}
-				{/* CINEMATIC HERO                                 */}
-				{/* ══════════════════════════════════════════════ */}
-				<View
-					style={{
-						minHeight: homeHeroHeight,
-						position: "relative",
-					}}>
-					{/* Tło hero — overflow tylko na dekoracjach, nie na pasku z avatarem */}
-					<View
-						pointerEvents="none"
-						style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }]}>
-					{/* BG gradient */}
-					<LinearGradient
-						colors={
-							chrome.heroGradient
-						}
-						start={{ x: 0.2, y: 0 }}
-						end={{ x: 1, y: 1 }}
-						style={StyleSheet.absoluteFill}
-					/>
-
-					{/* Decorative glass orbs */}
-					<View
-						pointerEvents="none"
-						style={{
-							position: "absolute",
-							top: -80,
-							right: -80,
-							width: 320,
-							height: 320,
-							borderRadius: 160,
-							backgroundColor: withAlpha(t.primary, isDark ? "12" : "10"),
-							borderWidth: 1,
-							borderColor: t.border2,
-						}}
-					/>
-					<View
-						pointerEvents="none"
-						style={{
-							position: "absolute",
-							top: -40,
-							right: -40,
-							width: 200,
-							height: 200,
-							borderRadius: 100,
-							backgroundColor: withAlpha(t.surface4, isDark ? "25" : "55"),
-							borderWidth: 1,
-							borderColor: t.border,
-						}}
-					/>
-					<View
-						pointerEvents="none"
-						style={{
-							position: "absolute",
-							bottom: -60,
-							left: -60,
-							width: 240,
-							height: 240,
-							borderRadius: 120,
-							backgroundColor: withAlpha(t.primary, isDark ? "0d" : "0a"),
-						}}
-					/>
-
-					{/* Scan line effect */}
-					<View
-						pointerEvents='none'
-						style={{
-							position: "absolute",
-							top: 0,
-							left: 0,
-							right: 0,
-							bottom: 0,
-						}}>
-						{Array.from({ length: 12 }).map((_, i) => (
-							<View
-								key={i}
-								style={{
-									position: "absolute",
-									left: 0,
-									right: 0,
-									top: i * (homeHeroHeight / 12),
-									height: 1,
-									backgroundColor: chrome.scanLine,
-								}}
-							/>
-						))}
-					</View>
-					</View>
-
-					{/* TOP BAR */}
-					<Animated.View
-						style={{
-							opacity: fadeAnim,
-							zIndex: 10,
-							paddingTop: insets.top + 10,
-							paddingLeft: 16,
-							paddingRight: Math.max(16, insets.right + 6),
-							flexDirection: "row",
-							alignItems: "center",
-							gap: 8,
-						}}>
-						{/* Logo */}
-						<View
-							style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
-							<View
-								style={{
-									backgroundColor: t.surface3,
-									borderRadius: 8,
-									borderWidth: 1,
-									borderColor: glassBorder,
-									padding: 5,
-								}}>
-								<MaterialCommunityIcons
-									name='car-sports'
-									size={16}
-									color={t.primary}
-								/>
+				<HomeCockpit
+					user={user}
+					topInset={insets.top}
+					onlineCount={onlineCount}
+					unread={notifUnread}
+					premium={effectivePremium}
+					active={homeMotion.enabled}
+					reduceMotion={reduceMotion}
+					premiumBadge={
+						<AppAnimationLayer
+							animation={reduceMotion || !isFocused ? undefined : premiumBadgeAnimation}
+							style={{ width: 30, height: 30 }}
+							fallbackIcon={<MaterialIcons name="workspace-premium" size={22} color={effectivePremium ? t.gold : t.primary} />}
+						/>
+					}
+					streak={
+						<AppAnimationLayer
+							animation={reduceMotion || !isFocused ? undefined : streakAnimation}
+							layout="behind"
+							style={{ width: "100%", minHeight: 72, overflow: "visible" }}>
+							<View style={{ alignItems: "center", gap: 5 }}>
+								<MaterialIcons name="local-fire-department" size={17} color={t.primary} />
+								<Text style={{ fontSize: 25, color: t.text, fontWeight: "900" }}>{user.streak ?? 0}</Text>
+								<Text style={{ fontSize: 10, color: t.textDim, letterSpacing: 1, fontWeight: "800" }}>SERIA DNI</Text>
+								<LiveCountdownText targetIso={user.streakResetAt ?? getNextStreakResetIso()} prefix="reset za " fallback="reset za chwilę" style={{ fontSize: 10, color: t.primary, textAlign: "center" }} />
 							</View>
-							<Text
-								style={{
-									fontFamily: "Manrope_600SemiBold",
-									fontSize: 16,
-									color: t.text,
-									fontWeight: "900",
-									letterSpacing: 1,
-								}}>
-								VROOM
-							</Text>
-						</View>
-
-						{/* Right side */}
-						<View
-							style={{
-								flex: 1,
-								flexDirection: "row",
-								alignItems: "center",
-								justifyContent: "flex-end",
-								gap: 8,
-								minWidth: 0,
-							}}>
-							<TouchableOpacity
-								onPress={() => router.push("/premium" as any)}
-								activeOpacity={0.85}
-								accessibilityLabel="VROOM Premium"
-								style={{
-									width: 36,
-									height: 36,
-									borderRadius: 18,
-									backgroundColor: t.surface3,
-									borderWidth: 1,
-									borderColor: effectivePremium ? withAlpha(t.gold, "66") : glassBorder,
-									alignItems: "center",
-									justifyContent: "center",
-									overflow: "hidden",
-								}}>
-								{premiumBadgeAnimation ? (
-									<AppAnimationLayer
-										animation={premiumBadgeAnimation}
-										style={{ width: 30, height: 30 }}
-										fallbackIcon={
-											<MaterialIcons
-												name="workspace-premium"
-												size={22}
-												color={effectivePremium ? "#FFD700" : t.primary}
-											/>
-										}
-									/>
-								) : (
-									<MaterialIcons
-										name="workspace-premium"
-										size={22}
-										color={effectivePremium ? "#FFD700" : t.primary}
-									/>
-								)}
-							</TouchableOpacity>
-							<TouchableOpacity
-								onPress={() => {
-									allowNotificationCenterEntry();
-									router.push("/notifications");
-								}}
-								activeOpacity={0.85}
-								style={{
-									width: 36,
-									height: 36,
-									borderRadius: 18,
-									backgroundColor: t.surface3,
-									borderWidth: 1,
-									borderColor: glassBorder,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
-								<MaterialIcons name="notifications-none" size={22} color={t.text} />
-								{notifUnread > 0 && (
-									<View
-										style={{
-											position: "absolute",
-											top: 4,
-											right: 4,
-											minWidth: 16,
-											height: 16,
-											borderRadius: 8,
-											backgroundColor: "#e33835",
-											alignItems: "center",
-											justifyContent: "center",
-											paddingHorizontal: 4,
-										}}>
-											<Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
-												{notifUnread > 99 ? "99+" : notifUnread}
-											</Text>
-										</View>
-								)}
-							</TouchableOpacity>
-							{/* Online pill */}
-							<View
-								style={{
-									flexDirection: "row",
-									alignItems: "center",
-									gap: 5,
-									flexShrink: 1,
-									minWidth: 0,
-									backgroundColor: "rgba(77, 233, 38, 0.15)", // Green background with opacity
-									borderWidth: 1,
-									borderColor: "rgba(77, 233, 38, 0.3)", // Light green border
-									paddingHorizontal: 8,
-									paddingVertical: 5,
-									borderRadius: 20,
-								}}>
-								<Animated.View
-									style={{
-										width: 6,
-										height: 6,
-										borderRadius: 3,
-										backgroundColor: "#4de926",
-										transform: [{ scale: pulseAnim }],
-									}}
-								/>
-								<Text
-									numberOfLines={1}
-									style={{
-										fontFamily: "Manrope_600SemiBold",
-										fontSize: 12,
-										color: "#4de926",
-										fontWeight: "700",
-										letterSpacing: 1,
-										flexShrink: 1,
-									}}>
-									{onlineCount != null ? `${onlineCount} ONLINE` : "ONLINE"}
-								</Text>
-							</View>
-							{/* Avatar */}
-							<TouchableOpacity
-								onPress={() => router.navigate('/(tabs)/account' as any)}
-								style={{
-									width: 36,
-									height: 36,
-									borderRadius: 18,
-									flexShrink: 0,
-									backgroundColor: t.surface3,
-									borderWidth: 1,
-									borderColor: glassBorder,
-									overflow: "hidden",
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
-								{user.avatar ? (
-									<Image
-										source={{ uri: user.avatar }}
-										style={{ width: 36, height: 36 }}
-									/>
-								) : (
-									<Text
-										style={{
-											fontFamily: "Manrope_600SemiBold",
-											fontSize: 14,
-											color: t.primary,
-											fontWeight: "900",
-										}}>
-										{user.username.charAt(0).toUpperCase()}
-									</Text>
-								)}
-							</TouchableOpacity>
-						</View>
-					</Animated.View>
-
-					{/* MAIN HERO CONTENT */}
-					<Animated.View
-						style={{
-							flex: 1,
-							paddingHorizontal: 22,
-							justifyContent: "center",
-							paddingTop: 16,
-							opacity: fadeAnim,
-							transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
-						}}>
-						<Text
-							style={{
-								fontSize: 12,
-								color: t.textDim,
-								letterSpacing: 1,
-								marginBottom: 6,
-								textTransform: "uppercase",
-							}}>
-							Witamy z powrotem
-						</Text>
-
-						<Text
-							style={{
-								fontFamily: "Manrope_600SemiBold",
-								fontSize: Math.min(42, width * 0.1),
-								color: t.text,
-								fontWeight: "900",
-								letterSpacing: -0.2,
-								lineHeight: Math.min(48, width * 0.115),
-							}}
-							numberOfLines={2}>
-							{user.username}
-						</Text>
-
-						{user.mainCar && (
-							<View
-								style={{
-									flexDirection: "row",
-									alignItems: "center",
-									gap: 6,
-									marginTop: 10,
-									alignSelf: "flex-start",
-									backgroundColor: t.surface3,
-									borderWidth: 1,
-									borderColor: glassBorder,
-									paddingHorizontal: 12,
-									paddingVertical: 6,
-									borderRadius: 20,
-								}}>
-								<MaterialCommunityIcons
-									name='car-sports'
-									size={12}
-									color={t.primary}
-								/>
-								<Text
-									style={{
-										fontSize: 12,
-										color: t.textDim,
-									}}>
-									{user.mainCar.brand} · {user.mainCar.specs}
-								</Text>
-							</View>
-						)}
-
-						{/* STATS ROW — glass dividers */}
-						<View
-							style={{
-								flexDirection: "row",
-								alignItems: "center",
-								marginTop: 28,
-								paddingVertical: 8,
-								overflow: "visible",
-							}}>
-							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
-								<MaterialIcons name="leaderboard" size={14} color={t.primary} />
-								<Text
-									style={{
-										fontFamily: "Manrope_600SemiBold",
-										fontSize: 22,
-										color: statNumColor,
-										fontWeight: "900",
-									}}>
-									#{user.position ?? "—"}
-								</Text>
-								<Text
-									style={{
-										fontSize: 12,
-										color: t.textDim,
-										letterSpacing: 1,
-										textTransform: "uppercase",
-									}}>
-									Pozycja
-								</Text>
-							</View>
-							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
-							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
-								<MaterialIcons name="stars" size={14} color={t.primary} />
-								<Text
-									style={{
-										fontFamily: "Manrope_600SemiBold",
-										fontSize: 22,
-										color: statNumColor,
-										fontWeight: "900",
-									}}>
-									{user.points ?? 0}
-								</Text>
-								<Text
-									style={{
-										fontSize: 12,
-										color: t.textDim,
-										letterSpacing: 1,
-										textTransform: "uppercase",
-									}}>
-									Punkty
-								</Text>
-							</View>
-							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
-							<View style={{ flex: 1, alignItems: "center", overflow: "visible", minHeight: 72 }}>
-								<AppAnimationLayer
-									animation={streakAnimation}
-									layout="behind"
-									style={{ width: "100%", minHeight: 72, overflow: "visible" }}
-									fallbackIcon={
-										<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
-									}>
-									<View style={{ alignItems: "center", gap: 4, paddingTop: 2 }}>
-										{!streakAnimation ? (
-											<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
-										) : null}
-										<Text
-											style={{
-												fontFamily: "Manrope_600SemiBold",
-												fontSize: 22,
-												color: statNumColor,
-												fontWeight: "900",
-											}}>
-											{user.streak ?? 0}
-										</Text>
-										<Text
-											style={{
-												fontSize: 12,
-												color: t.textDim,
-												letterSpacing: 1,
-												textTransform: "uppercase",
-											}}>
-											Streak
-										</Text>
-										<LiveCountdownText
-											targetIso={user.streakResetAt ?? getNextStreakResetIso()}
-											prefix="reset za "
-											fallback="reset za chwilę"
-											style={{
-												fontSize: 12,
-												color: t.primary,
-												fontFamily: "Manrope_600SemiBold",
-												letterSpacing: 0.5,
-												marginTop: 2,
-												textAlign: "center",
-											}}
-										/>
-									</View>
-								</AppAnimationLayer>
-							</View>
-						</View>
-					</Animated.View>
-
-					{/* Bottom fade */}
-					<LinearGradient
-						colors={chrome.bottomFade}
-						pointerEvents="none"
-						style={{
-							position: "absolute",
-							bottom: 0,
-							left: 0,
-							right: 0,
-							height: 60,
-						}}
-					/>
-				</View>
-				{/* ══════════════════════════════════════════════ */}
+						</AppAnimationLayer>
+					}
+				/>
 				<SeasonSpotlightCard active={isFocused} />
 
-				<VroomShopCard theme={t} />
+				<HomeDiscoverySection active={isFocused} showMap={false} />
 
-				<HomeDiscoverySection active={isFocused} />
+				<VroomShopCard theme={t} />
 
 				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
 
@@ -1105,7 +652,7 @@ export default function HomeScreen() {
 			)}
 
 			<StreakUnlockFx
-				visible={streakFxVisible}
+				visible={streakFxVisible && !reduceMotion}
 				streak={user?.streak ?? 0}
 				onDone={() => setStreakFxVisible(false)}
 			/>

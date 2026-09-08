@@ -29,7 +29,7 @@ function compactCount(value: number) {
   return String(Math.max(0, value));
 }
 
-export function HomeDiscoverySection({ active }: { active: boolean }) {
+export function HomeDiscoverySection({ active, showMap = true }: { active: boolean; showMap?: boolean }) {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const { textScale } = useReadability();
@@ -85,8 +85,8 @@ export function HomeDiscoverySection({ active }: { active: boolean }) {
     <View style={styles.section}>
       <View style={[styles.sectionHeader, expandedLayout && styles.sectionHeaderExpanded]}>
         <View style={{ flexShrink: 1 }}>
-          <Text style={[styles.eyebrow, { color: theme.primary }]}>RUSZAJ</Text>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>CO ROBIMY DZISIAJ?</Text>
+          <Text style={[styles.eyebrow, { color: theme.primary }]}>02 / PADDOCK</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>ŻYCIE POZA TRASĄ</Text>
         </View>
         <TouchableOpacity
           accessibilityRole="button"
@@ -100,7 +100,7 @@ export function HomeDiscoverySection({ active }: { active: boolean }) {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
+      {showMap && <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel="Otwórz mapę VROOM"
         activeOpacity={0.9}
@@ -143,7 +143,7 @@ export function HomeDiscoverySection({ active }: { active: boolean }) {
           <Text style={styles.mapCtaText}>OTWÓRZ MAPĘ</Text>
           <MaterialIcons name="arrow-forward" size={15} color="#fff" />
         </View>
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       <View style={[styles.vroomkiHeader, expandedLayout && styles.vroomkiHeaderExpanded]}>
         <View style={{ flex: 1 }}>
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
   standaloneButton: { alignSelf: 'flex-start' },
   eyebrow: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 5 },
   sectionTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '900', letterSpacing: 1 },
-  reportButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  reportButton: { minHeight: 44, borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5 },
   reportText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   mapCard: { minHeight: 196, borderRadius: 27, borderWidth: 1, overflow: 'hidden', padding: 19 },
   mapCardExpanded: { padding: 20 },
@@ -270,10 +270,10 @@ const styles = StyleSheet.create({
   liveDot: { width: 7, height: 7, borderRadius: 4 },
   vroomkiTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
   vroomkiSubtitle: { fontSize: 12, marginTop: 4 },
-  allButton: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  allButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 },
   allButtonText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
   reelsRow: { gap: 10, paddingRight: 4 },
-  reelCard: { width: 126, height: 174, borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  reelCard: { width: 126, height: 174, borderRadius: 13, borderWidth: 1, overflow: 'hidden' },
   reelFallback: { alignItems: 'center', justifyContent: 'center' },
   playBadge: { position: 'absolute', top: 10, right: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(227,56,53,0.94)', alignItems: 'center', justifyContent: 'center' },
   featuredPill: { position: 'absolute', top: 12, left: 12, minHeight: 21, borderRadius: 11, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center' },
