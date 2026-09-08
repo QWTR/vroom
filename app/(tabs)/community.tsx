@@ -71,6 +71,14 @@ export default function Community() {
       paddingTop: insets.top + 16, paddingBottom: bottomPad,
       paddingLeft: Math.max(20, insets.left), paddingRight: Math.max(20, insets.right),
     }}>
+      <View style={s.duelHeading}>
+        <MaterialCommunityIcons name="sword-cross" size={16} color={t.primaryText} />
+        <Text style={[s.eyebrow, { color: t.textMuted }]}>BITWA DNIA</Text>
+      </View>
+      <View style={{ marginHorizontal: -16 }}>
+        <DailyDuelHero duel={duel} loading={duelLoading} compact contained vsAnimation={duelVsAnimation} onPressVote={() => go('/Community/duel/vote')} />
+      </View>
+
       <View style={s.masthead}>
         <View style={s.brand}>
           <MaterialCommunityIcons name="car-sports" size={20} color={t.primary} />
@@ -130,14 +138,6 @@ export default function Community() {
         <DestinationRow item={{ title: 'Rankingi', description: 'Punkty, kilometry i miejsce na podium.', icon: 'podium-gold', route: '/Community/Ranks/stats' }} theme={t} last onPress={() => go('/Community/Ranks/stats')} />
       </View>
 
-      <View style={s.duelHeading}>
-        <MaterialCommunityIcons name="sword-cross" size={16} color={t.primaryText} />
-        <Text style={[s.eyebrow, { color: t.textMuted }]}>POJEDYNEK DNIA</Text>
-      </View>
-      <View style={{ marginHorizontal: -16, marginBottom: -24 }}>
-        <DailyDuelHero duel={duel} loading={duelLoading} compact contained vsAnimation={duelVsAnimation} onPressVote={() => go('/Community/duel/vote')} />
-      </View>
-
       <Section number="04" title="Z garażu do garażu" theme={t} />
       <View style={[s.group, panel]}>
         <DestinationRow item={{ title: 'Giełda VROOM', description: 'Auta, motocykle i części od społeczności.', icon: 'tag-multiple-outline', route: '/Community/market/market' }} theme={t} last onPress={() => go('/Community/market/market')} />
@@ -186,7 +186,7 @@ const s = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
   cardDescription: { fontSize: 12, lineHeight: 18, marginTop: 7 },
   cardAccent: { width: 24, height: 3, borderRadius: 2, marginTop: 20 },
-  duelHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22, marginBottom: 10 },
+  duelHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   footer: { borderTopWidth: 1, marginTop: 28, paddingTop: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   footerText: { fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
 });
