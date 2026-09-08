@@ -719,7 +719,7 @@ enabled={Platform.OS === 'ios'} style={s.root}>
           Toast.show({
             type: 'error',
             text1: 'NIEDOZWOLONY E-MAIL',
-            text2: result.error ?? 'Jednorazowe i tymczasowe skrzynki pocztowe nie mogą zakładać kont VROOM.',
+            text2: result.error ?? 'Użyj popularnej skrzynki, np. Gmail, Outlook, WP, Onet, Interia lub Proton.',
           });
           return;
         }
