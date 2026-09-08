@@ -53,13 +53,10 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
   setBackgroundLocationEnablePending,
 } from '../../lib/backgroundLocationConsent';
-import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { unregisterPushToken } from '../../hooks/usePushNotifications';
-import { clearAuthTokenMemory } from '../../lib/api/authTokenMemory';
+import { clearAuthSession } from '../../lib/authSessionExpiry';
 import { apiRequest } from '../../lib/api/client';
-import { clearPersistedQueryCaches, queryClient } from '../../lib/query/client';
-import { clearSocialQueue } from '../../lib/socialQueue';
-import { destroySharedSocket } from '../../lib/sharedSocket';
+import { queryClient } from '../../lib/query/client';
 import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
 import ProfileAnimationSettingsPreview from '../../components/profile/ProfileAnimationSettingsPreview';
 import { HERO_MOTION_LABELS, VISIT_ENTRANCE_LABELS } from '../../constants/profileAnimationLabels';
@@ -760,14 +757,8 @@ export default function SettingsScreen() {
 
   const handleLogout = async () => {
     setLogoutModal(false);
-    await unregisterPushToken();
-    await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
-    clearAuthTokenMemory();
-    await clearPersistedQueryCaches().catch(() => {});
-    await clearSocialQueue().catch(() => {});
-    destroySharedSocket();
-    await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
-    await syncRevenueCatLoginFromStorage();
+    await unregisterPushToken().catch(() => {});
+    await clearAuthSession();
     Toast.show({ type: 'success', text1: '👋 DO ZOBACZENIA!' });
     router.replace('/login');
   };
@@ -777,13 +768,7 @@ export default function SettingsScreen() {
     setDeleteLoading(true);
     try {
       await apiRequest('/auth/delete-account', { method: 'DELETE' });
-      await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
-      clearAuthTokenMemory();
-      await clearPersistedQueryCaches().catch(() => {});
-      await clearSocialQueue().catch(() => {});
-      destroySharedSocket();
-      await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
-      await syncRevenueCatLoginFromStorage();
+      await clearAuthSession();
       setDeleteModal(false);
       Toast.show({ type: 'success', text1: '🗑️ KONTO USUNIĘTE' });
       router.replace('/login');

@@ -35,13 +35,32 @@ import {
   getRequestBearerToken,
   isVroomApiRequest,
   subscribeToSessionExpired,
+  clearAuthSession,
+  markAuthSessionActive,
 } from './authSessionExpiry';
+import { getAuthSessionState } from './authSessionState';
 
 describe('auth session expiry', () => {
   beforeEach(() => {
     mocks.storage.clear();
     mocks.invalidateProfileCache.mockClear();
     mocks.syncRevenueCat.mockClear();
+  });
+
+  it('manual logout clears both token keys and closes navigation without an expiry alert', async () => {
+    mocks.storage.set('userToken', 'active-token');
+    mocks.storage.set('token', 'active-token');
+    mocks.storage.set('vroom_onboarding_required', '1');
+    markAuthSessionActive();
+    const listener = vi.fn();
+    const unsubscribe = subscribeToSessionExpired(listener);
+    await clearAuthSession();
+    expect(getAuthSessionState().status).toBe('guest');
+    expect(mocks.storage.has('userToken')).toBe(false);
+    expect(mocks.storage.has('token')).toBe(false);
+    expect(mocks.storage.has('vroom_onboarding_required')).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it('reads bearer tokens case-insensitively', () => {

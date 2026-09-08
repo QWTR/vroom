@@ -1,9 +1,8 @@
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Linking, Keyboard } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Dimensions, Linking, Keyboard } from 'react-native';
 import { AppText as Text, AppTextInput as TextInput } from '../components/ui/AppText';
-import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
@@ -34,8 +33,9 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
 import { track } from '../lib/analytics/client';
+import { WelcomeScreen } from '../components/auth/WelcomeScreen';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 const RED = '#e33835';
 
 const API_URL  = 'https://v-room.app/api/auth';
@@ -593,56 +593,7 @@ export default function LoginScreen() {
       track({ eventName: 'auth_path_selected', priority: 'medium', screenName: 'auth_welcome', surface: 'authentication', properties: { path: next } });
       switchScreen(next);
     };
-    return (
-      <View style={s.welcomeRoot} testID="auth-welcome">
-        <LinearGradient colors={['#020202', '#160303', '#050505']} style={StyleSheet.absoluteFill} />
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <StaticHudGrid isDark primary={RED} opacity={0.18} />
-          {Array.from({ length: 14 }).map((_, index) => (
-            <View key={index} style={[s.speedLine, { top: `${5 + index * 7}%` as any, opacity: 0.08 + (index % 3) * 0.04 }]} />
-          ))}
-          <Animated.View style={[s.welcomeGlow, pulseMotionStyle]} />
-          <View style={s.horizonLine} />
-        </View>
-
-        <ScrollView contentContainerStyle={s.welcomeScroll} showsVerticalScrollIndicator={false}>
-        <Animated.View style={[s.welcomeContent, entranceMotionStyle]}>
-          <View style={s.statusPill}>
-            <Animated.View style={[s.statusDot, pulseMotionStyle]} />
-            <Text style={s.statusText}>SYSTEM GOTOWY</Text>
-          </View>
-
-          <View style={s.ignitionWrap}>
-            <View style={s.ignitionRingOuter} />
-            <View style={s.ignitionRingInner} />
-            <Image source={require('../assets/images/Frame1933.png')} style={s.welcomeLogo} resizeMode="contain" />
-            <View style={s.startLights}>
-              {[0, 1, 2, 3, 4].map((light) => <View key={light} style={[s.startLight, light === 4 && s.startLightOn]} />)}
-            </View>
-          </View>
-
-          <Text contrastBackground="#070707" style={s.welcomeEyebrow}>TWOJA MOTORYZACYJNA SIEĆ</Text>
-          <Text contrastBackground="#070707" style={s.welcomeTitle}>ODPALAMY?</Text>
-          <Text contrastBackground="#070707" style={s.welcomeSubtitle}>Trasy, garaż, społeczność i rywalizacja. Wszystko zaczyna się tutaj.</Text>
-
-          <View style={s.welcomeActions}>
-            <TouchableOpacity testID="auth-create-account" activeOpacity={0.86} onPress={() => choosePath('register')} style={s.welcomePrimary}>
-              <LinearGradient colors={['#ff4a47', RED, '#a91414']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.welcomeButtonInner}>
-                <MaterialCommunityIcons name="flag-checkered" size={21} color="#fff" />
-                <Text contrastBackground={RED} style={s.welcomePrimaryText}>STWÓRZ KONTO</Text>
-                <MaterialIcons name="arrow-forward" size={21} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity testID="auth-sign-in" activeOpacity={0.82} onPress={() => choosePath('login')} style={s.welcomeSecondary}>
-              <MaterialIcons name="login" size={20} color="#fff" />
-              <Text contrastBackground="#111" style={s.welcomeSecondaryText}>ZALOGUJ SIĘ</Text>
-            </TouchableOpacity>
-          </View>
-          <Text contrastBackground="#050505" style={s.welcomeFoot}>VROOM · BUILT FOR DRIVERS</Text>
-        </Animated.View>
-        </ScrollView>
-      </View>
-    );
+    return <WelcomeScreen onChoosePath={choosePath} />;
   }
 
   if (screen === 'verify') {
@@ -961,33 +912,6 @@ function StrengthBar({ value }: { value: string }) {
 function makeLoginStyles(t: AppTheme) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: t.bg },
-  welcomeRoot: { flex: 1, backgroundColor: '#030303', overflow: 'hidden' },
-  welcomeScroll: { flexGrow: 1 },
-  welcomeContent: { minHeight: height, paddingHorizontal: 24, paddingTop: 78, paddingBottom: 28, alignItems: 'center', justifyContent: 'center' },
-  speedLine: { position: 'absolute', left: '-15%', width: '130%', height: 1, backgroundColor: '#ff4a47', transform: [{ rotate: '-8deg' }] },
-  horizonLine: { position: 'absolute', left: 0, right: 0, top: '47%', height: 1, backgroundColor: '#e3383544', shadowColor: RED, shadowOpacity: 0.8, shadowRadius: 12 },
-  welcomeGlow: { position: 'absolute', alignSelf: 'center', top: '25%', width: 260, height: 260, borderRadius: 130, backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383530' },
-  statusPill: { position: 'absolute', top: 58, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, backgroundColor: '#071607', borderWidth: 1, borderColor: '#4de92645' },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#4de926' },
-  statusText: { color: '#76f45a', fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
-  ignitionWrap: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  ignitionRingOuter: { position: 'absolute', width: 220, height: 220, borderRadius: 110, borderWidth: 2, borderColor: '#e3383540', borderStyle: 'dashed' },
-  ignitionRingInner: { position: 'absolute', width: 168, height: 168, borderRadius: 84, borderWidth: 1, borderColor: '#ffffff1f', backgroundColor: '#00000080' },
-  welcomeLogo: { width: 108, height: 108 },
-  startLights: { position: 'absolute', bottom: 12, flexDirection: 'row', gap: 7, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: '#080808', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff18' },
-  startLight: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#451010' },
-  startLightOn: { backgroundColor: RED, shadowColor: RED, shadowOpacity: 1, shadowRadius: 8 },
-  welcomeEyebrow: { color: '#ff625f', fontSize: 11, fontWeight: '900', letterSpacing: 2.1, marginBottom: 8 },
-  welcomeTitle: { color: '#fff', fontSize: Math.min(48, width * 0.12), lineHeight: Math.min(52, width * 0.13), fontWeight: '900', letterSpacing: -1.5, textAlign: 'center' },
-  welcomeSubtitle: { color: '#b8b8b8', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 330, marginTop: 10 },
-  welcomeActions: { alignSelf: 'stretch', gap: 12, marginTop: 32 },
-  welcomePrimary: { borderRadius: 17, overflow: 'hidden', shadowColor: RED, shadowOpacity: 0.42, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
-  welcomeButtonInner: { minHeight: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  welcomePrimaryText: { color: '#fff', fontSize: 15, fontWeight: '900', letterSpacing: 1 },
-  welcomeSecondary: { minHeight: 58, borderRadius: 17, borderWidth: 1, borderColor: '#ffffff30', backgroundColor: '#101010e8', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  welcomeSecondaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 0.8 },
-  welcomeFoot: { color: '#646464', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginTop: 26 },
-
   // Sheet
   sheet: {
     flex: 1,

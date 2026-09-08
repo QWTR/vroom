@@ -37,7 +37,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAppTutorial } from '../contexts/AppTutorialContext';
 import { useProfile } from '../hooks/useProfile';
 import { apiRequest } from '../lib/api/client';
-import { clearAuthTokenMemory } from '../lib/api/authTokenMemory';
+import { clearAuthSession } from '../lib/authSessionExpiry';
 import { track } from '../lib/analytics/client';
 import {
   ONBOARDING_STEPS as STEPS,
@@ -325,8 +325,7 @@ export default function OnboardingScreen() {
   };
 
   const logOut = async () => {
-    await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'vroom_onboarding_required']);
-    clearAuthTokenMemory();
+    await clearAuthSession();
     router.replace('/login' as any);
   };
 

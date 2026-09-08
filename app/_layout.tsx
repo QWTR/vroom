@@ -5,9 +5,11 @@ import { Manrope_500Medium } from '@expo-google-fonts/manrope/500Medium';
 import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
 import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
 import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope/800ExtraBold';
-import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
+import { Redirect, Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { getAuthSessionState, hydrateAuthSession, subscribeToAuthSession } from '../lib/authSessionState';
+import { AUTHENTICATED_ROUTES } from '../constants/authenticatedRoutes';
 import { View, StyleSheet, Animated, Easing, Image, Dimensions, AppState, Linking, Platform, DeviceEventEmitter, type AppStateStatus } from 'react-native';
 import { AppText as Text } from '../components/ui/AppText';
 import * as SplashScreen    from 'expo-splash-screen';
@@ -276,6 +278,8 @@ function StatusLine({ label, done }: { label: string; done: boolean }) {
 
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
+  const session = useSyncExternalStore(subscribeToAuthSession, getAuthSessionState, getAuthSessionState);
+  useEffect(() => { void hydrateAuthSession().catch(() => {}); }, []);
   const { isDark, theme } = useTheme();
   const { updateSetting, settings } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
@@ -333,6 +337,14 @@ function RootLayoutInner() {
       });
     }, 0);
   }), [pathname, router]);
+
+  useEffect(() => {
+    if (session.status !== 'guest') return;
+    setUgcTermsVisible(false);
+    setBgDisclosureVisible(false);
+    setOnboardingRequired(false);
+    void BackgroundDriveController.stop('app').catch(() => {});
+  }, [session.status]);
 
   const [loaded, error] = useFonts({
     Manrope_400Regular,
@@ -898,14 +910,20 @@ function RootLayoutInner() {
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : NavLightTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        key={session.navigationKey}
+        screenOptions={{ headerShown: false }}
+        screenLayout={({ children, route }) => session.status === 'loading'
+          ? <View style={{ flex: 1, backgroundColor: theme.bg }} />
+          : session.status === 'guest' && route.name !== 'login'
+            ? <Redirect href="/login" />
+            : children}
+      >
         <Stack.Screen name="login" />
-        <Stack.Screen name="onboarding" />
-        <Stack.Screen name="(tabs)" />
+        <Stack.Protected guard={session.status !== 'guest'}>
+          {AUTHENTICATED_ROUTES.map((name) => <Stack.Screen key={name} name={name} />)}
+        </Stack.Protected>
         <Stack.Screen name="+not-found" />
-        <Stack.Screen name="Community/clubs/[id]" />
-        <Stack.Screen name="notifications" />
-        <Stack.Screen name="quest-track" />
       </Stack>
       <AppPresenceHeartbeat />
       <AnalyticsBootstrap />

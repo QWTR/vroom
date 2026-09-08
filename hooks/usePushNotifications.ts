@@ -101,11 +101,14 @@ export async function unregisterPushToken(): Promise<void> {
     AsyncStorage.getItem(DEVICE_ID_KEY),
   ]);
   if (authToken && (token || deviceId)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
     await fetch(`${API_URL}/api/notifications/push-token`, {
       method: 'DELETE',
+      signal: controller.signal,
       headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, deviceId }),
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => clearTimeout(timeout));
   }
   await Notifications.unregisterForNotificationsAsync().catch(() => {});
   await clearPendingNotificationReplies();

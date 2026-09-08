@@ -3,6 +3,7 @@ import { API_URL } from '../constants/config';
 import { invalidateProfileMeClientCache } from './cachedProfileMe';
 import { syncRevenueCatLoginFromStorage } from './revenueCatUserSync';
 import { clearAuthTokenMemory } from './api/authTokenMemory';
+import { setAuthSessionAuthenticated } from './authSessionState';
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -17,6 +18,7 @@ const AUTH_STORAGE_KEYS = [
   'open_post_id',
   'vroom_expo_push_token',
   'vroom_pending_notification_replies_v1',
+  'vroom_onboarding_required',
 ] as const;
 
 const INTERCEPTOR_MARKER = '__vroomAuthSessionExpiryInterceptor';
@@ -112,26 +114,7 @@ export async function expireSessionIfCurrent(requestToken: string): Promise<bool
 
     if (!currentToken || currentToken !== requestToken) return false;
 
-    try {
-      await AsyncStorage.multiRemove([...AUTH_STORAGE_KEYS]);
-    } catch {
-      await Promise.all(
-        AUTH_STORAGE_KEYS.map((key) => AsyncStorage.removeItem(key).catch(() => {})),
-      );
-    }
-    await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
-    clearAuthTokenMemory();
-    void import('./query/client').then(({ clearPersistedQueryCaches }) => clearPersistedQueryCaches()).catch(() => {});
-    void import('./socialQueue').then(({ clearSocialQueue }) => clearSocialQueue()).catch(() => {});
-    void import('./sharedSocket').then(({ destroySharedSocket }) => destroySharedSocket()).catch(() => {});
-    try {
-      invalidateProfileMeClientCache();
-    } catch {
-      // Nawigacja do logowania ma zadziałać nawet przy błędzie czyszczenia cache.
-    }
-
-    // RevenueCat nie może opóźniać przejścia na ekran logowania.
-    void syncRevenueCatLoginFromStorage().catch(() => {});
+    await clearAuthSession();
     notifySessionExpired();
     return true;
   })();
@@ -141,6 +124,32 @@ export async function expireSessionIfCurrent(requestToken: string): Promise<bool
   } finally {
     expiryInFlight = null;
   }
+}
+
+/** Shared by manual logout, account deletion and rejected sessions. */
+export async function clearAuthSession(): Promise<void> {
+  clearAuthTokenMemory();
+  setAuthSessionAuthenticated(false);
+  try {
+    await AsyncStorage.multiRemove([...AUTH_STORAGE_KEYS]);
+  } catch {
+    await Promise.all(
+      AUTH_STORAGE_KEYS.map((key) => AsyncStorage.removeItem(key).catch(() => {})),
+    );
+  }
+  await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
+  clearAuthTokenMemory();
+  void import('./query/client').then(({ clearPersistedQueryCaches }) => clearPersistedQueryCaches()).catch(() => {});
+  void import('./socialQueue').then(({ clearSocialQueue }) => clearSocialQueue()).catch(() => {});
+  void import('./sharedSocket').then(({ destroySharedSocket }) => destroySharedSocket()).catch(() => {});
+  try {
+    invalidateProfileMeClientCache();
+  } catch {
+    // Nawigacja do logowania ma zadziałać nawet przy błędzie czyszczenia cache.
+  }
+
+  // RevenueCat nie może opóźniać przejścia na ekran logowania.
+  void syncRevenueCatLoginFromStorage().catch(() => {});
 }
 
 export function createAuthSessionAwareFetch(baseFetch: typeof fetch): typeof fetch {
@@ -194,4 +203,5 @@ export function subscribeToSessionExpired(listener: SessionExpiredListener): () 
 /** Czyści oczekujące zdarzenie po zapisaniu nowej, poprawnej sesji. */
 export function markAuthSessionActive(): void {
   pendingExpiryNotification = false;
+  setAuthSessionAuthenticated(true);
 }

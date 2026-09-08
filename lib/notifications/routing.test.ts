@@ -13,6 +13,7 @@ describe('notification routing', () => {
     ['like_vroomki_comment', { vroomkiPostId: 5, commentId: 6 }, '/Community/vroomki?vroomkiId=5&commentId=6'],
     ['comment_spot', { spotId: 10 }, '/(tabs)/spotmap?spotId=10'],
     ['comment_car', { carId: 11 }, '/profile/car-detail?id=11'],
+    ['comment_car_reply', { carId: 11, commentId: 7 }, '/profile/car-detail?id=11&commentId=7'],
     ['club_chat', { clubId: 12, channelId: 13, messageId: 14 }, '/Community/clubs/12?channelId=13&messageId=14'],
     ['mention_public_chat', { messageId: 15 }, '/Community/public/public?messageId=15'],
     ['meet_participant_applied', { meetId: 16 }, '/Community/meets/applications?id=16'],

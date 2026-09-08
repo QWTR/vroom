@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, ScrollView, TouchableOpacity, FlatList, Image, ActivityIndicator, Modal, Pressable } from 'react-native';
-import { AppText as Text, AppTextInput as TextInput } from '../../components/ui/AppText';
+import { View, ScrollView, TouchableOpacity, FlatList, Image, ActivityIndicator, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { AppText as Text } from '../../components/ui/AppText';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,6 +12,7 @@ import { useEffectivePremium }   from '../../hooks/useEffectivePremium';
 import { PhotoGalleryModal }     from '../../components/spots/PhotoGalleryModal';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 import { invalidateQuestTrack } from '../../lib/questTrack';
+import { CarComments, type CarComment } from '../../components/profile/CarComments';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -36,13 +37,6 @@ interface CarDetail {
   comments:          CarComment[];
 }
 
-interface CarComment {
-  id:        number;
-  text:      string;
-  createdAt: string;
-  user:      { id: number; username: string; avatarUrl: string | null };
-}
-
 export default function CarDetailScreen() {
   const router = useRouter();
   const { theme } = useTheme();
@@ -53,8 +47,6 @@ export default function CarDetailScreen() {
   const [car,            setCar]            = useState<CarDetail | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [likeLoading,    setLikeLoading]    = useState(false);
-  const [commentText,    setCommentText]    = useState('');
-  const [commentLoading, setCommentLoading] = useState(false);
   const [galleryVisible, setGalleryVisible] = useState(false);
   const [galleryIndex,   setGalleryIndex]   = useState(0);
   const [myUserId,       setMyUserId]       = useState<number | null>(null);
@@ -110,26 +102,26 @@ export default function CarDetailScreen() {
     } finally { setLikeLoading(false); }
   }, [car, likeLoading]);
 
-  const handleComment = useCallback(async () => {
-    if (!commentText.trim() || !car || commentLoading) return;
-    setCommentLoading(true);
-    try {
-      const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/cars/${car.id}/comments`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ text: commentText.trim() }),
-      });
-      if (!res.ok) throw new Error();
-      const comment: CarComment = await res.json();
-      setCar(prev => prev ? { ...prev, comments: [comment, ...prev.comments], commentsCount: prev.commentsCount + 1 } : prev);
-      setCommentText('');
-      invalidateQuestTrack();
-      Toast.show({ type: 'success', text1: '💬 DODANO', text2: 'Komentarz dodany!' });
-    } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można dodać komentarza.' });
-    } finally { setCommentLoading(false); }
-  }, [commentText, car, commentLoading]);
+  const handleComment = async (text: string, parentId?: number) => {
+    if (!car) return;
+    const token = await getToken();
+    const res = await fetch(`${API_URL}/api/cars/${car.id}/comments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, parentId }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.error || 'Nie udało się wysłać. Spróbuj ponownie.');
+    const comment = result as CarComment;
+    setCar(previous => previous ? {
+      ...previous,
+      comments: parentId
+        ? previous.comments.map(root => root.id === parentId ? { ...root, replies: [...(root.replies ?? []), comment] } : root)
+        : [comment, ...previous.comments],
+      commentsCount: previous.commentsCount + 1,
+    } : previous);
+    invalidateQuestTrack();
+  };
 
   if (loading) return (
     <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -147,7 +139,8 @@ export default function CarDetailScreen() {
 
   return (
     <>
-      <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 80 }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 80 }}>
 
         {/* NAGŁÓWEK */}
         <View style={{ paddingTop: headerTop, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -321,54 +314,9 @@ export default function CarDetailScreen() {
           </View>
         </View>
 
-        {/* KOMENTARZE */}
-        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, letterSpacing: 1, marginBottom: 12 }}>KOMENTARZE</Text>
-
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 16 }}>
-          <TextInput
-            style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border, maxHeight: 80 }}
-            placeholder="Dodaj komentarz..."
-            placeholderTextColor={theme.textFaint}
-            value={commentText}
-            onChangeText={setCommentText}
-            multiline maxLength={300}
-          />
-          <TouchableOpacity
-            style={[{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center' }, !commentText.trim() && { opacity: 0.4 }]}
-            onPress={handleComment} disabled={!commentText.trim() || commentLoading}
-          >
-            {commentLoading
-              ? <ActivityIndicator size={16} color="#fff" />
-              : <MaterialIcons name="send" size={18} color="#fff" />
-            }
-          </TouchableOpacity>
-        </View>
-
-        {car.comments.length === 0 ? (
-          <View style={{ paddingVertical: 24, alignItems: 'center', gap: 8 }}>
-            <MaterialIcons name="chat-bubble-outline" size={32} color={theme.border3} />
-            <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12 }}>Bądź pierwszy!</Text>
-          </View>
-        ) : (
-          car.comments.map(c => (
-            <View key={c.id} style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.primaryBg, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primaryBorder }}>
-                {c.user.avatarUrl
-                  ? <Image source={{ uri: c.user.avatarUrl }} style={{ width: 34, height: 34, borderRadius: 17 }} />
-                  : <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 14, fontWeight: '700' }}>{c.user.username.charAt(0).toUpperCase()}</Text>
-                }
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 12, fontWeight: '700' }}>{c.user.username}</Text>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textFaint, fontSize: 12 }}>{new Date(c.createdAt).toLocaleDateString('pl-PL')}</Text>
-                </View>
-                <Text style={{ color: theme.textMuted, fontSize: 13, lineHeight: 18 }}>{c.text}</Text>
-              </View>
-            </View>
-          ))
-        )}
+        <CarComments key={car.id} comments={car.comments} count={car.commentsCount} ownerId={car.ownerId} onSubmit={handleComment} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <PhotoGalleryModal visible={galleryVisible} photos={car.photos} initialIndex={galleryIndex} spotName={car.brand} onClose={() => setGalleryVisible(false)} />
 

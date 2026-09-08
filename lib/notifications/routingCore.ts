@@ -48,7 +48,7 @@ export function resolveNotificationUrl(data: NotificationData | null | undefined
   if (type === 'club_invite') return `/Community/clubs/clubs${params({ inviteId: numeric(data.inviteId), clubId })}`;
   if (['mention_public_chat', 'public_chat_message'].includes(type)) return `/Community/public/public${params({ messageId })}`;
   if (['like_spot', 'comment_spot'].includes(type) && numeric(data.spotId)) return `/(tabs)/spotmap${params({ spotId: numeric(data.spotId), commentId })}`;
-  if (['like_car', 'comment_car'].includes(type) && numeric(data.carId)) return `/profile/car-detail${params({ id: numeric(data.carId), commentId })}`;
+  if (['like_car', 'comment_car', 'comment_car_reply'].includes(type) && numeric(data.carId)) return `/profile/car-detail${params({ id: numeric(data.carId), commentId })}`;
   if (type === 'friend_request') return `/notifications${params({ focus: numeric(data.notificationId) })}`;
   if (type === 'friend_accepted' && numeric(data.userId)) return `/profile/${numeric(data.userId)}`;
   if (type === 'meet_participant_applied' && meetId) return `/Community/meets/applications${params({ id: meetId })}`;
