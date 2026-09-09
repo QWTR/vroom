@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Mapbox from '@rnmapbox/maps';
+import { TripRouteLine } from '../../components/trips/TripRouteLine';
+import { REPLAY_SPEED_PALETTE } from '../../lib/tripRouteLine';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -41,8 +43,12 @@ export default function ReplayScreen() {
   useEffect(() => { if (!data || !playing) return undefined; const timer = setInterval(() => setPlayhead((value) => { const next = value + (100 / 15_000) * playbackRate; if (next >= 1) { setPlaying(false); return 1; } return next; }), 100); return () => clearInterval(timer); }, [data, playbackRate, playing]);
   const visiblePoints = useMemo(() => { const points = data?.activity.routePoints ?? []; return capturing && !fullRoute ? trimEndpoints(points, 500) : points; }, [capturing, data, fullRoute]);
   const coordinates = useMemo(() => visiblePoints.map((p) => [p.longitude, p.latitude]), [visiblePoints]);
+  const routeBounds = useMemo(() => coordinates.length > 1 ? {
+    ne: [Math.max(...coordinates.map((p) => p[0])), Math.max(...coordinates.map((p) => p[1]))],
+    sw: [Math.min(...coordinates.map((p) => p[0])), Math.min(...coordinates.map((p) => p[1]))],
+    paddingTop: 36, paddingBottom: 36, paddingLeft: 36, paddingRight: 36,
+  } : undefined, [coordinates]);
   const canShowSpeedHeatmap = data?.availability?.speedHeatmap === true;
-  const shape = useMemo(() => ({ type: 'FeatureCollection', features: visiblePoints.slice(0, -1).map((point, index) => { const next = visiblePoints[index + 1]; const speeds = [point.speedKmh, next?.speedKmh].map(Number).filter(Number.isFinite); return { type: 'Feature', properties: { speed: speeds.length ? speeds.reduce((sum, value) => sum + value, 0) / speeds.length : null }, geometry: { type: 'LineString', coordinates: [[point.longitude, point.latitude], [next.longitude, next.latitude]] } }; }) }) as any, [visiblePoints]);
   const exportPng = async () => { let uri = ''; setCapturing(true); try { await new Promise((resolve) => setTimeout(resolve, 120)); uri = await captureRef(shareCard, { format: 'png', quality: 1, width: 1080, height: 1350 }); } finally { setCapturing(false); } if (uri && await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: 'image/png' }); };
   useEffect(() => { if (!asset?.id || !['queued', 'processing'].includes(asset.status)) return; let cancelled = false; const poll = () => apiRequest<any>(`/activity/replay-assets/${asset.id}`).then((response) => { if (!cancelled) { setAsset(response.asset); setRenderError(response.asset?.status === 'failed' ? response.asset?.error || 'Renderowanie nie powiodło się.' : ''); } }).catch((e) => { if (!cancelled) setRenderError(e?.message || 'Nie udało się sprawdzić stanu renderu.'); }); poll(); const timer = setInterval(poll, 2500); return () => { cancelled = true; clearInterval(timer); }; }, [asset?.id, asset?.status]);
   const renderMp4 = async () => { setRendering(true); setRenderError(''); try { const response = await apiRequest<any>(`/activity/history/${id}/replay/mp4`, { method: 'POST', body: { showSpeed: canShowSpeedHeatmap && showSpeed, fullRoute } }); setAsset(response.asset); } catch (e: any) { setRenderError(e.message); } finally { setRendering(false); } };
@@ -52,7 +58,7 @@ export default function ReplayScreen() {
   const first = coordinates[0];
   return <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}><View style={styles.header}><TouchableOpacity onPress={() => router.back()}><MaterialIcons name="arrow-back" size={24} color={theme.text} /></TouchableOpacity><Text style={[styles.title, { color: theme.text }]}>DRIVE REPLAY</Text><View style={{ width: 24 }} /></View><ScrollView contentContainerStyle={styles.content}>
     <ViewShot ref={shareCard} style={[styles.card, { backgroundColor: theme.surface }]} options={{ format: 'png', quality: 1 }}>
-      <View style={styles.map}>{first && <Mapbox.MapView style={{ flex: 1 }} styleURL={resolveStandardMapStyle(isDark, presetId)} logoEnabled={false} attributionEnabled={false}><Mapbox.Camera defaultSettings={{ centerCoordinate: first, zoomLevel: 11 }} /><Mapbox.ShapeSource id="replay-route" shape={shape}><Mapbox.LineLayer id="replay-line" style={{ lineColor: canShowSpeedHeatmap && (!capturing || showSpeed) ? ['interpolate', ['linear'], ['get', 'speed'], 0, '#4de926', 70, '#FFD447', 140, '#e33835'] as any : '#FFD447', lineWidth: 6, lineCap: 'round' }} /></Mapbox.ShapeSource>{coordinates.length > 0 && <Mapbox.PointAnnotation id="replay-playhead" coordinate={coordinates[Math.min(coordinates.length - 1, Math.floor(playhead * (coordinates.length - 1)))] as [number, number]}><View style={styles.marker} /></Mapbox.PointAnnotation>}</Mapbox.MapView>}</View>
+      <View style={styles.map}>{first && <Mapbox.MapView style={{ flex: 1 }} styleURL={resolveStandardMapStyle(isDark, presetId)} logoEnabled={false} attributionEnabled={false}><Mapbox.Camera defaultSettings={routeBounds ? { bounds: routeBounds } : { centerCoordinate: first, zoomLevel: 11 }} /><TripRouteLine id="replay-route" points={visiblePoints} showSpeed={canShowSpeedHeatmap && (!capturing || showSpeed)} palette={REPLAY_SPEED_PALETTE} />{coordinates.length > 0 && <Mapbox.PointAnnotation id="replay-playhead" coordinate={coordinates[Math.min(coordinates.length - 1, Math.floor(playhead * (coordinates.length - 1)))] as [number, number]}><View style={styles.marker} /></Mapbox.PointAnnotation>}</Mapbox.MapView>}</View>
       <Text style={styles.brand}>VROOM · DRIVE REPLAY</Text><View style={styles.stats}><Stat label="DYSTANS" value={`${Number(data.activity.distance || 0).toFixed(1)} km`} /><Stat label="CZAS" value={`${Math.round(Number(data.activity.duration || 0) / 60)} min`} /><Stat label="ŚREDNIA" value={!capturing || showSpeed ? `${formatSpeedKmh(data.activity.avgSpeed)} km/h` : 'UKRYTA'} /></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${playhead * 100}%` as any }]} /></View>
     </ViewShot>
