@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Modal, TouchableOpacity, Pressable, Platform, ScrollView } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 
 export type CameraType = 'fixed' | 'section' | 'mobile' | 'bump';
 

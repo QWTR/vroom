@@ -4,7 +4,7 @@ import { AppText as Text } from '../ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import type { GeoDropNearby } from '../../lib/gamificationClient';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 
 const RARITY_META: Record<string, { label: string; color: string; bg: string }> = {
   common: { label: 'COMMON', color: '#f3f4f6', bg: 'rgba(243,244,246,0.12)' },

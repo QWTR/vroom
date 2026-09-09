@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, Image, Modal, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 import type { GamificationReward, GeoDropRewardPreview } from '../../lib/gamificationClient';
 
 const CARD_W = 116;

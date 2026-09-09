@@ -20,7 +20,8 @@ import { showGpsLocationErrorToast } from '../../lib/gpsErrorToast';
 import { fetchProfileMeCached } from '../../lib/cachedProfileMe';
 import { track } from '../../lib/analytics/client';
 import { API_URL } from '../../constants/mapConfig';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../../components/map/useMapHudTheme';
+import { ManeuverGraphic } from '../../components/map/ManeuverGraphic';
 import { usePerformance } from '../../contexts/PerformanceContext';
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { useChat } from '../../hooks/useChats';
@@ -351,7 +352,6 @@ import {
   type StepArcIndex,
   findClosestPointIndex,
   formatDuration,
-  getManeuverIcon,
   haversineKm,
   isOnRoute,
   maxIdleBrowsingJumpM,
@@ -14150,7 +14150,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               {isOffroadRef.current ? (
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <View style={[hudStyles.maneuverBox, { borderColor: theme.warning + '55' }]}>
+                    <View style={[hudStyles.maneuverBox, { backgroundColor: theme.surface2, borderColor: theme.warning + '55' }]}>
                       <MaterialCommunityIcons name="terrain" size={28} color={theme.warning} />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -14172,11 +14172,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                     <View style={hudStyles.maneuverBox}>
-                      <MaterialIcons
-                        name={getManeuverIcon(displayStepData.maneuver) as any}
-                        size={28}
-                        color={theme.text}
-                      />
+                      <ManeuverGraphic maneuver={displayStepData.maneuver} modifier={displayStepData.maneuverModifier} exit={displayStepData.maneuverExit} color={theme.onPrimary} size={52} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={hudStyles.navDistance}>
@@ -14194,7 +14190,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
                   {activeSteps[announceStepIndex + 1] && (
                     <View style={hudStyles.thenRow}>
-                      <MaterialIcons name="subdirectory-arrow-right" size={16} color={theme.textMuted} />
+                      <ManeuverGraphic maneuver={activeSteps[announceStepIndex + 1].maneuver} modifier={activeSteps[announceStepIndex + 1].maneuverModifier} exit={activeSteps[announceStepIndex + 1].maneuverExit} size={24} color={theme.textMuted} />
                       <Text style={hudStyles.thenText} numberOfLines={1}>
                         Potem: {formatNavigationInstruction(activeSteps[announceStepIndex + 1])}
                       </Text>
@@ -14252,7 +14248,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                   </View>
                 </View>
               )}
-              <TouchableOpacity style={hudStyles.closeBtn} onPress={() => { void stopNavigation(); }}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Zakończ nawigację" style={hudStyles.closeBtn} onPress={() => { void stopNavigation(); }}>
                 <MaterialIcons name="close" size={18} color={theme.textMuted} />
               </TouchableOpacity>
             </HudPanelShell>
@@ -14427,19 +14423,19 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             onPress={() => setSearchModalVisible(true)}
             activeOpacity={0.8}
           >
-            <MaterialIcons name="search" size={18} color="#e33835ce" />
-            <Text style={styles.topSearchButtonText}>
+            <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center' }}><MaterialIcons name="search" size={25} color={theme.primary} /></View>
+            <Text numberOfLines={2} style={styles.topSearchButtonText}>
               {startLocation && endLocation
                 ? `${startLocation.name ?? 'Start'} → ${endLocation.name ?? 'Cel'}`
-                : 'Wyszukaj adres lub miejsce...'
+                : 'Dokąd jedziemy?'
               }
             </Text>
             {(startLocation || endLocation) ? (
               <TouchableOpacity onPress={handleReset} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <MaterialIcons name="close" size={18} color="#ffffff35" />
+                <MaterialIcons name="close" size={22} color={theme.textMuted} />
               </TouchableOpacity>
             ) : (
-              <MaterialIcons name="tune" size={18} color="#ffffff35" />
+              <MaterialIcons name="arrow-forward" size={22} color={theme.textMuted} />
             )}
           </TouchableOpacity>
         )}

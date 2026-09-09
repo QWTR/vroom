@@ -1,6 +1,6 @@
-import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { memo } from 'react';
-import { ActivityIndicator, Platform, TouchableOpacity, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, TouchableOpacity, View, type ViewStyle } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import {
   DriveSpeedTile,
@@ -205,108 +205,47 @@ export const MapScreenHud = memo(function MapScreenHud({
             <HudQuickReportButton onPress={onOpenReport} />
           )}
 
-          {!isNavigating && (
-            <TouchableOpacity
-              style={[
-                styles.sideBtn,
-                isDriving && {
-                  backgroundColor: theme.primaryBg,
-                  borderColor: theme.primaryBorder2,
-                },
-              ]}
-              onPress={onToggleDriving}
-              activeOpacity={0.75}
-            >
-              <MaterialCommunityIcons
-                name="car-outline"
-                size={22}
-                color={isDriving ? theme.primary : theme.textMuted}
-              />
-            </TouchableOpacity>
-          )}
-
-          {isNavigating && (
-            <TouchableOpacity
-              style={[styles.sideBtn, { borderColor: theme.primaryBorder }]}
-              onPress={onOpenSearch}
-              activeOpacity={0.75}
-            >
-              <MaterialIcons name="alt-route" size={22} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[
-              styles.sideBtn,
-              isSharing && {
-                backgroundColor: theme.online + '18',
-                borderColor: theme.online + '45',
-              },
-            ]}
-            onPress={onToggleSharing}
-            activeOpacity={0.75}
-          >
-            <MaterialIcons
-              name={isSharing ? 'location-on' : 'location-off'}
-              size={22}
-              color={isSharing ? theme.online : theme.textMuted}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.sideBtn}
-            onPress={onCenterOnUser}
-            activeOpacity={0.75}
-          >
-            <MaterialIcons name="my-location" size={22} color={theme.textMuted} />
-          </TouchableOpacity>
-
-          {isSharing && liveStatus !== 'off' && (
-            <View style={{
-              position: 'absolute',
-              top: -36,
-              right: 0,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              backgroundColor: theme.surface,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: 20,
-              borderWidth: 1.5,
-              borderColor: theme.border,
-              zIndex: 15,
-              pointerEvents: 'none',
-              elevation: 6,
-              shadowColor: '#000',
-              shadowOpacity: 0.25,
-              shadowRadius: 6,
-            }}>
-              <View style={{
-                width: 7,
-                height: 7,
-                borderRadius: 4,
-                backgroundColor: liveStatus === 'on' ? theme.online : liveStatus === 'error' ? '#E33835' : '#F5B942',
-              }} />
-              <Text style={{
-                color: liveStatus === 'on' ? theme.online : liveStatus === 'error' ? '#E33835' : '#F5B942',
-                fontSize: 12,
-                fontWeight: '700',
-              }}>
-                {liveStatus === 'on' ? 'LIVE' : liveStatus === 'error' ? 'BŁĄD LIVE' : 'ŁĄCZENIE…'}
-              </Text>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.sideBtn}
-            onPress={onOpenFabModal}
-            activeOpacity={0.75}
-          >
-            <MaterialCommunityIcons name="widgets-outline" size={24} color={theme.textMuted} />
-          </TouchableOpacity>
+          <View style={[controls.rail, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            {!isNavigating ? (
+              <HudAction icon="car-outline" label={isDriving ? 'Jedziesz' : 'Jazda'}
+                accessibilityLabel={isDriving ? 'Zakończ tryb jazdy' : 'Włącz tryb jazdy'}
+                active={isDriving} theme={theme} onPress={onToggleDriving} />
+            ) : (
+              <HudAction icon="map-marker-path" label="Trasa" accessibilityLabel="Zmień trasę"
+                theme={theme} onPress={onOpenSearch} />
+            )}
+            <HudAction icon={isSharing ? 'access-point' : 'access-point-off'}
+              label={isSharing ? liveStatus === 'error' ? 'Błąd' : liveStatus === 'connecting' ? 'Łączę…' : 'Live' : 'Live'}
+              accessibilityLabel={isSharing ? 'Wyłącz udostępnianie pozycji' : 'Udostępnij pozycję na żywo'}
+              active={isSharing} theme={theme} onPress={onToggleSharing}
+              statusColor={isSharing ? liveStatus === 'on' ? theme.online : liveStatus === 'error' ? '#E5484D' : '#F5B942' : undefined} />
+            <View style={{ height: 1, backgroundColor: theme.border, marginHorizontal: 10 }} />
+            <HudAction icon="crosshairs-gps" label="Centruj" accessibilityLabel="Wyśrodkuj mapę na mojej pozycji"
+              theme={theme} onPress={onCenterOnUser} />
+            <HudAction icon="view-grid-outline" label="Menu" accessibilityLabel="Otwórz menu mapy"
+              theme={theme} onPress={onOpenFabModal} />
+          </View>
         </View>
       )}
     </>
   );
+});
+
+function HudAction({ icon, label, accessibilityLabel, active = false, theme, onPress, statusColor }: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string; accessibilityLabel: string;
+  active?: boolean; theme: MapScreenHudTheme; onPress: () => void; statusColor?: string;
+}) {
+  const color = statusColor ?? (active ? theme.primary : theme.mapOverlayText);
+  return <TouchableOpacity accessibilityRole="button" accessibilityLabel={accessibilityLabel}
+    accessibilityState={{ selected: active }} onPress={onPress} activeOpacity={0.65}
+    style={[controls.action, active && { backgroundColor: theme.primaryBg }]}>
+    <MaterialCommunityIcons name={icon} size={23} color={color} />
+    <Text numberOfLines={1} style={[controls.caption, { color }]}>{label}</Text>
+  </TouchableOpacity>;
+}
+const controls = StyleSheet.create({
+  rail: { padding: 4, borderRadius: 22, borderWidth: 1, gap: 2,
+    shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  action: { width: 56, minHeight: 53, paddingVertical: 6, borderRadius: 17, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  caption: { fontFamily: 'Manrope_600SemiBold', fontSize: 11, fontWeight: '700' },
 });

@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { memo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 import { formatWarningDistance, type UpcomingWarning } from '../../lib/warnings/warningAhead';
 import { WARNING_CATALOG, warningSubtypeLabel } from '../../lib/warnings/warningCatalog';
 
@@ -53,11 +53,11 @@ export const LiveWarningHudCard = memo(function LiveWarningHudCard({
 
 const styles = StyleSheet.create({
   card: {
-    height: 48,
+    minHeight: 60,
     minWidth: 220,
     maxWidth: 270,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    borderRadius: 20,
+    borderWidth: 1,
     paddingHorizontal: 8,
     flexDirection: 'row',
     alignItems: 'center',
@@ -78,8 +78,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   copy: { flex: 1, minWidth: 0 },
-  title: { fontSize: 12, fontWeight: '800' },
-  distance: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', marginTop: 1 },
+  title: { fontSize: 14, fontWeight: '800' },
+  distance: { fontFamily: 'Manrope_600SemiBold', fontSize: 16, fontWeight: '900', marginTop: 2 },
   count: { minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   countText: { color: '#fff', fontSize: 12, fontWeight: '900' },
 });

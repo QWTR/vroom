@@ -9,7 +9,7 @@ import Toast from 'react-native-toast-message';
 import { User, LocationState } from '../../constants/types';
 import { calculateDistance } from '../../scripts/distance';
 import { MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import {
   usePlacesNearby,
   PLACE_CATEGORIES,
@@ -305,7 +305,7 @@ interface SearchModalProps {
 export const SearchModal = memo(({
   visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers, homeLocation, onPressSetHome,
 }: SearchModalProps) => {
-  const { theme: t } = useTheme();
+  const { theme: t, isDark } = useTheme();
   const keyboardInset = useKeyboardInset(visible);
   const listPadBottom = 32 + keyboardInset;
   const {
@@ -858,7 +858,7 @@ export const SearchModal = memo(({
         }
       }}
       >
-      <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={t.bg} />
       <SafeAreaProvider>
       <SafeAreaView
         edges={['top', 'right', 'bottom', 'left']}
@@ -1374,7 +1374,7 @@ const ss = StyleSheet.create({
     borderBottomWidth: 1,
   },
   iconBtn: {
-    width: 36, height: 36, borderRadius: 11,
+    width: 44, height: 44, borderRadius: 14,
     borderWidth: 1, alignItems: 'center', justifyContent: 'center',
   },
   tabsRow: {
@@ -1383,26 +1383,26 @@ const ss = StyleSheet.create({
   },
   tab: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'center', gap: 5, paddingVertical: 7,
+    justifyContent: 'center', gap: 6, minHeight: 44, paddingVertical: 10,
     borderRadius: 9, overflow: 'hidden',
   },
   tabLine: { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 2, borderRadius: 1 },
-  tabText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  tabText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   inputWrap: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: 16, marginVertical: 12,
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 13 : 10,
-    borderRadius: 14, borderWidth: 1, gap: 10,
+    borderRadius: 20, minHeight: 60, borderWidth: 1, gap: 10,
   },
-  input:    { flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.3 },
-  clearBtn: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  input:    { flex: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 16, letterSpacing: 0 },
+  clearBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   divider:  { height: 1 },
-  sectionLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginBottom: 12 },
+  sectionLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.2, marginBottom: 12 },
   myLocCard:  { borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, overflow: 'hidden' },
   myLocIcon:  { width: 44, height: 44, borderRadius: 13, backgroundColor: '#ffffff20', alignItems: 'center', justifyContent: 'center' },
   myLocTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: '#fff', fontWeight: '900' },
-  myLocSub:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#ffffff70', marginTop: 3 },
+  myLocSub:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFFFFF', marginTop: 3 },
   myLocArrow: { width: 30, height: 30, borderRadius: 9, backgroundColor: '#ffffff20', alignItems: 'center', justifyContent: 'center' },
   homeSecondaryCard: {
     borderRadius: 14,
@@ -1424,26 +1424,26 @@ const ss = StyleSheet.create({
   homeSecondaryTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
   homeSecondarySub: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, marginTop: 2 },
   nearbyGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
-  nearbyCard:  { width: '22.5%', aspectRatio: 1, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 5, overflow: 'hidden' },
+  nearbyCard:  { width: '47%', minHeight: 82, padding: 12, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 5, overflow: 'hidden' },
   nearbyEmoji: { fontSize: 24 },
   nearbyLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
   brandBanner:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 8, marginBottom: 2, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
   brandBannerText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.5, flex: 1 },
   chipsScroll: { borderBottomWidth: 1, flexGrow: 0 },
   chip:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
-  chipText:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  chipText:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   catCard:     { borderRadius: 14, borderWidth: 1, padding: 14, alignItems: 'center', gap: 6, overflow: 'hidden' },
   catIcon:     { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  catLabel:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  catLabel:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   catSub:      { fontFamily: 'Manrope_600SemiBold', fontSize: 12 },
   catBadge:    { borderRadius: 9, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, marginTop: 2 },
   catBadgeNum: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },
   hintRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  hintText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
+  hintText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.2 },
   row:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
   avatarBox: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   placeBox:  { width: 42, height: 42, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  rowTitle:  { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' },
+  rowTitle:  { fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '700' },
   rowSub:    { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.3 },
   rowMeta:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12 },
   arrowBox:  { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
@@ -1451,6 +1451,6 @@ const ss = StyleSheet.create({
   openBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1 },
   openText:  { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   emptyBox:   { alignItems: 'center', paddingVertical: 48, gap: 8 },
-  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1 },
+  emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.2 },
   emptySub:   { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5, textAlign: 'center', paddingHorizontal: 30, lineHeight: 16 },
 });

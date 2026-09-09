@@ -15,9 +15,10 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText as Text } from '../ui/AppText';
 import { useRadio } from '../../contexts/RadioContext';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 import { CONVOY_STATUS_LABELS, type ConvoySnapshot } from '../../lib/convoyLive';
 import type { RadioCity, RadioMode, RadioParticipant } from '../../types/radio';
 import { PremiumAvatar, PremiumName } from '../user/PremiumIdentity';
@@ -50,7 +51,8 @@ export function VroomCbRadioPanel({
   onConvoyPress?: () => void;
   onPlanPress?: () => void;
 }) {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const radio = useRadio();
   const { loadConfig, searchCities, updateGlobalPosition } = radio;
   const [visible, setVisible] = useState(false);
@@ -164,8 +166,8 @@ export function VroomCbRadioPanel({
           activeConvoy ? styles.fullDock : styles.radioOnlyDock,
           {
             top,
-            backgroundColor: isDark ? '#10151AF2' : '#FFFFFFF2',
-            borderColor: connected ? '#18D7A0' : activeConvoy ? '#FFD44788' : '#647381',
+            backgroundColor: theme.surface,
+            borderColor: theme.border2,
           },
         ]}
       >
@@ -174,7 +176,7 @@ export function VroomCbRadioPanel({
             <MaterialCommunityIcons name="car-multiple" size={20} color="#FFD447" />
             <View style={styles.mapButtonCopy}>
               <Text numberOfLines={1} style={[styles.mapButtonTitle, { color: theme.text }]}>{activeConvoy.convoy.name}</Text>
-              <Text numberOfLines={1} style={styles.convoyMeta}>
+              <Text numberOfLines={1} style={[styles.convoyMeta, { color: theme.textMuted }]}> 
                 {activeConvoy.participants.length}/{activeConvoy.convoy.maxParticipants ?? 50} · {convoyStatus}
               </Text>
             </View>
@@ -205,7 +207,7 @@ export function VroomCbRadioPanel({
             <MaterialCommunityIcons name={connected ? 'radio-handheld' : 'radio'} size={20} color={connected ? '#18D7A0' : theme.text} />
             <View style={styles.mapButtonCopy}>
               <Text numberOfLines={1} style={[styles.mapButtonTitle, { color: theme.text }]}>{connected ? radio.snapshot?.active.title : 'VROOM CB'}</Text>
-              {connected && <Text numberOfLines={1} style={styles.mapButtonMeta}>{radio.snapshot?.participants.length || 1} osób · {radio.snapshot?.speakers.length ? `${radio.snapshot.speakers.length} mówi` : 'cisza'}</Text>}
+              {connected && <Text numberOfLines={1} style={[styles.mapButtonMeta, { color: theme.online }]}> {radio.snapshot?.participants.length || 1} osób · {radio.snapshot?.speakers.length ? `${radio.snapshot.speakers.length} mówi` : 'cisza'}</Text>}
             </View>
           </TouchableOpacity>
         ) : null}
@@ -226,14 +228,14 @@ export function VroomCbRadioPanel({
 
       <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setVisible(false)} />
-        <View style={[styles.sheet, { backgroundColor: theme.bg, borderColor: theme.border2 }]}> 
+        <View style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border2, paddingBottom: Math.max(insets.bottom, 16) + 12, marginTop: insets.top }]}> 
           <View style={styles.handle} />
           <View style={styles.header}>
             <View>
-              <Text style={[styles.kicker, { color: '#18D7A0' }]}>DODATEK DO MAPY LIVE</Text>
+              <Text style={[styles.kicker, { color: theme.online }]}>ROZMOWY W DRODZE</Text>
               <Text style={[styles.title, { color: theme.text }]}>VROOM CB</Text>
             </View>
-            <TouchableOpacity onPress={() => setVisible(false)} style={[styles.close, { backgroundColor: theme.surface2 }]}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Zamknij CB radio" onPress={() => setVisible(false)} style={[styles.close, { backgroundColor: theme.surface2 }]}>
               <MaterialCommunityIcons name="close" size={22} color={theme.text} />
             </TouchableOpacity>
           </View>
@@ -248,7 +250,7 @@ export function VroomCbRadioPanel({
                   <MaterialCommunityIcons name="access-point" size={25} color="#18D7A0" />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.channelName, { color: theme.text }]}>{radio.snapshot?.active.title}</Text>
-                    <Text style={styles.channelMeta}>{radio.snapshot?.participants.length} osób · {radio.snapshot?.active.mode === 'private' ? `tryb ${radio.snapshot.active.voiceMode || 'otwarty'}` : 'pozycje są ukryte'}</Text>
+                    <Text style={[styles.channelMeta, { color: theme.textMuted }]}>{radio.snapshot?.participants.length} osób · {radio.snapshot?.active.mode === 'private' ? `tryb ${radio.snapshot.active.voiceMode || 'otwarty'}` : 'pozycje są ukryte'}</Text>
                   </View>
                   <TouchableOpacity onPress={() => { void radio.disconnect(); }} style={styles.leaveButton}><Text style={styles.leaveText}>WYJDŹ</Text></TouchableOpacity>
                 </View>
@@ -257,11 +259,11 @@ export function VroomCbRadioPanel({
               <View style={[styles.vadRow, { borderColor: theme.border2 }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.sectionTitle, { color: theme.text }]}>Wykrywanie mowy</Text>
-                  <Text style={styles.help}>Działa także po wygaszeniu ekranu. Po ponownym połączeniu mikrofon jest wyciszony.</Text>
+                  <Text style={[styles.help, { color: theme.textMuted }]}>Działa także po wygaszeniu ekranu. Po ponownym połączeniu mikrofon jest wyciszony.</Text>
                 </View>
                 <Switch value={radio.vadArmed} onValueChange={(value) => { void radio.setVadArmed(value); }} trackColor={{ true: '#18D7A0' }} />
               </View>
-              {radio.vadArmed && <View><Text style={[styles.sectionTitle, { color: theme.text }]}>Czułość: {radio.preferences.vadSensitivity}%</Text><Slider minimumValue={0} maximumValue={100} step={1} value={radio.preferences.vadSensitivity} onSlidingComplete={(value) => { void radio.updatePreferences({ vadSensitivity: value }); }} minimumTrackTintColor="#18D7A0" maximumTrackTintColor={theme.border2} thumbTintColor="#18D7A0" /><Text style={styles.help}>Próg hałasu kalibruje się automatycznie; suwakiem ustawiasz, jak łatwo mikrofon ma reagować.</Text></View>}
+              {radio.vadArmed && <View><Text style={[styles.sectionTitle, { color: theme.text }]}>Czułość: {radio.preferences.vadSensitivity}%</Text><Slider minimumValue={0} maximumValue={100} step={1} value={radio.preferences.vadSensitivity} onSlidingComplete={(value) => { void radio.updatePreferences({ vadSensitivity: value }); }} minimumTrackTintColor="#18D7A0" maximumTrackTintColor={theme.border2} thumbTintColor="#18D7A0" /><Text style={[styles.help, { color: theme.textMuted }]}>Próg hałasu kalibruje się automatycznie; suwakiem ustawiasz, jak łatwo mikrofon ma reagować.</Text></View>}
 
               {!radio.vadArmed && (
                 <Pressable
@@ -300,7 +302,7 @@ export function VroomCbRadioPanel({
               ))}
             </ScrollView>
           ) : (
-            <View style={{ flex: 1 }}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 16 }}>
               <View style={[styles.tabs, { backgroundColor: theme.surface2 }]}> 
                 {(['global', 'city', 'private'] as RadioMode[]).map((item) => (
                   <TouchableOpacity key={item} disabled={radio.config?.flags[item] === false} onPress={() => setMode(item)} style={[styles.tab, mode === item && styles.activeTab, radio.config?.flags[item] === false && { opacity: 0.35 }]}>
@@ -313,8 +315,8 @@ export function VroomCbRadioPanel({
                 <View style={styles.modeContent}>
                   <Text style={[styles.sectionTitle, { color: theme.text }]}>Promień odbioru: {Math.round(radiusKm)} km</Text>
                   <Slider minimumValue={1} maximumValue={100} step={1} value={radiusKm} onValueChange={setRadiusKm} minimumTrackTintColor="#18D7A0" maximumTrackTintColor={theme.border2} thumbTintColor="#18D7A0" />
-                  <View style={styles.rangeLabels}><Text style={styles.help}>1 km</Text><Text style={styles.help}>100 km</Text></View>
-                  <Text style={styles.explainer}>Usłyszysz wyłącznie osoby, których promień również obejmuje Ciebie. Lokalizacja nie jest pokazywana innym.</Text>
+                  <View style={styles.rangeLabels}><Text style={[styles.help, { color: theme.textMuted }]}>1 km</Text><Text style={[styles.help, { color: theme.textMuted }]}>100 km</Text></View>
+                  <Text style={[styles.explainer, { color: theme.textMuted }]}>Usłyszysz wyłącznie osoby, których promień również obejmuje Ciebie. Lokalizacja nie jest pokazywana innym.</Text>
                 </View>
               )}
 
@@ -323,18 +325,19 @@ export function VroomCbRadioPanel({
                   <TextInput value={cityQuery} onChangeText={setCityQuery} placeholder="Wyszukaj polskie miasto" placeholderTextColor="#7D8993" style={[styles.search, { color: theme.text, borderColor: theme.border2, backgroundColor: theme.surface2 }]} />
                   <FlatList
                     data={cities}
+                    scrollEnabled={false}
                     keyboardShouldPersistTaps="handled"
                     keyExtractor={(item) => item.slug}
-                    style={{ maxHeight: 230 }}
-                    renderItem={({ item }) => <TouchableOpacity onPress={() => { setSelectedCity(item); setCityQuery(item.name); }} style={[styles.city, selectedCity?.slug === item.slug && styles.selectedCity]}><Text style={[styles.personName, { color: theme.text }]}>{item.name}</Text><Text style={styles.help}>{item.voivodeship || 'Polska'}</Text></TouchableOpacity>}
+                    style={{ flexGrow: 0 }}
+                    renderItem={({ item }) => <TouchableOpacity onPress={() => { setSelectedCity(item); setCityQuery(item.name); }} style={[styles.city, selectedCity?.slug === item.slug && styles.selectedCity]}><Text style={[styles.personName, { color: theme.text }]}>{item.name}</Text><Text style={[styles.help, { color: theme.textMuted }]}>{item.voivodeship || 'Polska'}</Text></TouchableOpacity>}
                   />
-                  <Text style={styles.explainer}>Możesz wejść na kanał miasta z dowolnego miejsca. Pozycje uczestników pozostają ukryte.</Text>
+                  <Text style={[styles.explainer, { color: theme.textMuted }]}>Możesz wejść na kanał miasta z dowolnego miejsca. Pozycje uczestników pozostają ukryte.</Text>
                 </View>
               )}
 
               {mode === 'private' && (
                 <View style={styles.modeContent}>
-                  {activeConvoy ? <View style={[styles.privateCard, { backgroundColor: theme.surface2 }]}><MaterialCommunityIcons name="car-multiple" size={27} color="#FFD447" /><View style={{ flex: 1 }}><Text style={[styles.channelName, { color: theme.text }]}>{activeConvoy.convoy.name}</Text><Text style={styles.help}>{activeConvoy.participants.length}/50 · pozycje na obecnej mapie</Text></View></View> : <Text style={styles.explainer}>Nie masz aktywnego Convoy Live. Utwórz go lub dołącz kodem, linkiem albo zaproszeniem.</Text>}
+                  {activeConvoy ? <View style={[styles.privateCard, { backgroundColor: theme.surface2 }]}><MaterialCommunityIcons name="car-multiple" size={27} color="#FFD447" /><View style={{ flex: 1 }}><Text style={[styles.channelName, { color: theme.text }]}>{activeConvoy.convoy.name}</Text><Text style={[styles.help, { color: theme.textMuted }]}>{activeConvoy.participants.length}/50 · pozycje na obecnej mapie</Text></View></View> : <Text style={[styles.explainer, { color: theme.textMuted }]}>Nie masz aktywnego Convoy Live. Utwórz go lub dołącz kodem, linkiem albo zaproszeniem.</Text>}
                 </View>
               )}
 
@@ -343,7 +346,7 @@ export function VroomCbRadioPanel({
                 <Text style={styles.connectText}>DOŁĄCZ DO KANAŁU</Text>
               </TouchableOpacity>
               <Text style={[styles.help, { textAlign: 'center', marginTop: 10 }]}>Jednocześnie aktywny może być tylko jeden kanał audio.</Text>
-            </View>
+            </ScrollView>
           )}
         </View>
       </Modal>
@@ -352,37 +355,37 @@ export function VroomCbRadioPanel({
 }
 
 const styles = StyleSheet.create({
-  mapDock: { position: 'absolute', right: 12, zIndex: 131, minHeight: 52, paddingHorizontal: 6, borderRadius: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 5, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 12 },
+  mapDock: { position: 'absolute', right: 12, zIndex: 131, minHeight: 56, paddingHorizontal: 8, borderRadius: 20, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 5, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 12 },
   fullDock: { left: 12 },
   radioOnlyDock: { maxWidth: 238 },
   convoySection: { flex: 1, minWidth: 0, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 5 },
   radioSection: { flexShrink: 1, minWidth: 84, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 5 },
-  planButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#FFD44716', alignItems: 'center', justifyContent: 'center' },
+  planButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFD44716', alignItems: 'center', justifyContent: 'center' },
   radioDot: { width: 7, height: 7, borderRadius: 4 },
   mapButtonCopy: { flexShrink: 1, minWidth: 72 },
   mapButtonTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.2 },
-  mapButtonMeta: { color: '#18D7A0', fontSize: 10, marginTop: 1 },
-  convoyMeta: { color: '#FFD447', fontSize: 9, marginTop: 1, fontWeight: '800' },
-  miniPtt: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18D7A0' },
+  mapButtonMeta: { color: '#18D7A0', fontSize: 12, marginTop: 2 },
+  convoyMeta: { color: '#FFD447', fontSize: 12, marginTop: 2, fontWeight: '800' },
+  miniPtt: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18D7A0' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#00000088' },
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '76%', borderTopLeftRadius: 25, borderTopRightRadius: 25, borderWidth: 1, paddingHorizontal: 18, paddingBottom: 28 },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '84%', borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, paddingHorizontal: 18, paddingBottom: 28 },
   handle: { alignSelf: 'center', width: 45, height: 4, borderRadius: 2, backgroundColor: '#71808B', marginTop: 9, marginBottom: 14 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  kicker: { fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
+  kicker: { fontSize: 12, fontWeight: '900', letterSpacing: 1.4 },
   title: { fontSize: 25, fontWeight: '900' },
-  close: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  close: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   error: { color: '#FF6969', backgroundColor: '#FF696914', borderRadius: 10, padding: 9, marginBottom: 10 },
   warning: { color: '#FFB64D', backgroundColor: '#FFB64D14', borderRadius: 10, padding: 9, marginBottom: 10 },
   tabs: { flexDirection: 'row', padding: 4, borderRadius: 14, marginBottom: 17 },
-  tab: { flex: 1, minHeight: 40, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  tab: { flex: 1, minHeight: 48, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   activeTab: { backgroundColor: '#18D7A0' },
   tabText: { fontSize: 12, fontWeight: '900' },
   modeContent: { flex: 1 },
   sectionTitle: { fontSize: 14, fontWeight: '900', marginBottom: 8 },
   rangeLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-  help: { color: '#84919B', fontSize: 11, lineHeight: 15 },
+  help: { color: '#84919B', fontSize: 13, lineHeight: 19 },
   explainer: { color: '#92A0AA', fontSize: 13, lineHeight: 19, marginTop: 16 },
-  search: { height: 48, borderWidth: 1, borderRadius: 13, paddingHorizontal: 14, fontSize: 14, marginBottom: 8 },
+  search: { height: 54, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, fontSize: 14, marginBottom: 8 },
   city: { paddingVertical: 10, paddingHorizontal: 11, borderRadius: 10 },
   selectedCity: { backgroundColor: '#18D7A022' },
   connectButton: { minHeight: 52, borderRadius: 15, backgroundColor: '#18D7A0', flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', marginTop: 'auto' },
@@ -396,9 +399,9 @@ const styles = StyleSheet.create({
   leaveButton: { borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#EF535322' },
   leaveText: { color: '#EF6D6D', fontSize: 10, fontWeight: '900' },
   vadRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 13 },
-  ptt: { minHeight: 76, borderRadius: 20, backgroundColor: '#18D7A0', flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center' },
+  ptt: { paddingHorizontal: 16, minHeight: 88, borderRadius: 20, backgroundColor: '#18D7A0', flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center' },
   pttActive: { backgroundColor: '#FFD447', transform: [{ scale: 0.98 }] },
-  pttText: { color: '#06140F', fontSize: 13, fontWeight: '900' },
+  pttText: { color: '#06140F', fontSize: 13, fontWeight: '900', flexShrink: 1, textAlign: 'center' },
   person: { flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 9 },
   personName: { fontSize: 13, fontWeight: '800' },
   personMeta: { color: '#18D7A0', fontSize: 9, fontWeight: '800', marginTop: 2, textTransform: 'uppercase' },

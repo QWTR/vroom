@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { memo, useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useMapHudTheme } from './useMapHudTheme';
 import { AppText as Text } from '../ui/AppText';
 import { convoyStatusColor, type ConvoyMapNotice, type ConvoyNoticeAction } from '../../lib/convoyUi';
 import { useRadio } from '../../contexts/RadioContext';
@@ -24,6 +25,7 @@ export const ConvoyNoticeOverlay = memo(function ConvoyNoticeOverlay({
   onHeightChange,
 }: Props) {
   const radio = useRadio();
+  const { theme } = useMapHudTheme();
   const notice = notices[0] ?? null;
 
   useEffect(() => {
@@ -57,13 +59,13 @@ export const ConvoyNoticeOverlay = memo(function ConvoyNoticeOverlay({
     <View pointerEvents="box-none" style={[styles.position, { top }]}> 
       <View
         onLayout={(event) => onHeightChange?.(event.nativeEvent.layout.height)}
-        style={[styles.toast, { borderColor: `${accent}AA` }]}
+        style={[styles.toast, { backgroundColor: theme.surface, borderColor: theme.border2 }]}
       >
         <View style={[styles.icon, { backgroundColor: `${accent}22` }]}>
           <MaterialCommunityIcons name={icon} size={24} color={accent} />
         </View>
         <View style={styles.copy}>
-          <Text numberOfLines={1} style={styles.title}>{notice.title}</Text>
+          <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>{notice.title}</Text>
           <Text numberOfLines={2} style={[styles.message, { color: accent }]}>{notice.message}</Text>
         </View>
         {notice.action ? (
@@ -91,8 +93,8 @@ const styles = StyleSheet.create({
   position: { position: 'absolute', left: 12, right: 12, zIndex: 220, elevation: 24 },
   toast: {
     minHeight: 64,
-    borderRadius: 17,
-    borderWidth: 1.5,
+    borderRadius: 22,
+    borderWidth: 1,
     backgroundColor: '#0B0E13F5',
     paddingLeft: 10,
     paddingRight: 6,

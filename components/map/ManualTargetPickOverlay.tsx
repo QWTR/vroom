@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 
 type Props = {
   visible: boolean;
@@ -20,24 +20,25 @@ export function ManualTargetPickOverlay({ visible, onCancel }: Props) {
       <View
         pointerEvents="none"
         style={{
-          marginTop: 48,
+          marginTop: 88,
+          marginHorizontal: 16,
           alignSelf: 'center',
           backgroundColor: theme.mapOverlay,
           paddingHorizontal: 14,
-          paddingVertical: 8,
-          borderRadius: 12,
+          paddingVertical: 14,
+          borderRadius: 20,
           borderWidth: 1,
           borderColor: theme.border2,
         }}
       >
         <Text style={{
           fontFamily: 'Manrope_600SemiBold',
-          fontSize: 12,
+          fontSize: 14,
           color: theme.mapOverlayText,
           textAlign: 'center',
           letterSpacing: 0.5,
         }}>
-          PRZYTRZYMAJ MAPĘ W MIEJSCU DOCELOWYM
+          Przytrzymaj mapę, aby wskazać cel
         </Text>
       </View>
       <View style={{ position: 'absolute', left: 12, right: 12, bottom: insets.bottom + 88 }}>
@@ -52,8 +53,8 @@ export function ManualTargetPickOverlay({ visible, onCancel }: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
-            ANULUJ TRYB PUNKTU
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, fontWeight: '700' }}>
+            Anuluj wybór punktu
           </Text>
         </TouchableOpacity>
       </View>

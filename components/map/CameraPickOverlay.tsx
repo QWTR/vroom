@@ -3,7 +3,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 
 type Props = {
   visible: boolean;
@@ -25,24 +25,25 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
       <View
         pointerEvents="none"
         style={{
-          marginTop: 48,
+          marginTop: 88,
+          marginHorizontal: 16,
           alignSelf: 'center',
           backgroundColor: theme.mapOverlay,
           paddingHorizontal: 14,
-          paddingVertical: 8,
-          borderRadius: 12,
+          paddingVertical: 14,
+          borderRadius: 20,
           borderWidth: 1,
           borderColor: theme.border2,
         }}
       >
         <Text style={{
           fontFamily: 'Manrope_600SemiBold',
-          fontSize: 12,
+          fontSize: 14,
           color: theme.mapOverlayText,
           textAlign: 'center',
           letterSpacing: 0.5,
         }}>
-          PRZESUŃ MAPĘ · ŚRODEK = MIEJSCE FOTORADARU
+          Ustaw celownik w miejscu fotoradaru
         </Text>
       </View>
       <View
@@ -77,7 +78,7 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.text, fontWeight: '700' }}>
             ANULUJ
           </Text>
         </TouchableOpacity>
@@ -91,7 +92,7 @@ export function CameraPickOverlay({ visible, onCancel, onConfirm }: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.onPrimary, fontWeight: '700' }}>
+          <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 14, color: theme.onPrimary, fontWeight: '700' }}>
             DODAJ
           </Text>
         </TouchableOpacity>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Modal, TouchableOpacity, Pressable, Platform, Alert } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 

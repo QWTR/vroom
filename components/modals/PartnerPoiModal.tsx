@@ -5,7 +5,7 @@ import { Image } from 'expo-image';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 import type { PartnerPoi } from '../../hooks/usePartnerPois';
 import { normalizeMediaUri } from '../../lib/mediaUri';

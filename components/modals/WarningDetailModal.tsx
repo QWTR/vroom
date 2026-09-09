@@ -4,7 +4,7 @@ import { AppText as Text } from '../ui/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { makeMapStyles } from '../../styles/mapstyle';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { LiveWarning, getWarningColor, getWarningIcon, getWarningLabel } from '../../hooks/useLiveMap';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 import { warningSubtypeLabel } from '../../lib/warnings/warningCatalog';

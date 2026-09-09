@@ -3,7 +3,7 @@ import { View, TouchableOpacity, Switch, ActivityIndicator } from 'react-native'
 import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 type Props = {

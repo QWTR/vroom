@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { makeMapStyles } from '../../styles/mapstyle';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 interface SettingsModalProps {
   visible: boolean;

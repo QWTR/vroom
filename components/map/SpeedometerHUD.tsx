@@ -7,7 +7,7 @@ import {
   resetDriveSpeedometerThrottle,
   shouldEmitSpeedometerKmh,
 } from '../../lib/driveUi/driveUiScheduler';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from './useMapHudTheme';
 import type { AppTheme } from '../../constants/theme';
 import { sanitizeDisplaySpeedLimit } from '../../lib/navigation/osmMaxSpeed';
 
@@ -95,8 +95,8 @@ export const SpeedometerHUD = memo(function SpeedometerHUD({
 function makeHudStyles(theme: AppTheme, isDark: boolean) {
   return StyleSheet.create({
     panelShell: {
-      borderRadius: 20,
-      borderWidth: 1.5,
+      borderRadius: 24,
+      borderWidth: 1,
       borderColor: theme.border,
       backgroundColor: theme.surface,
       overflow: 'hidden',
@@ -106,19 +106,19 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       elevation: 8,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
+      shadowOpacity: 0.16,
       shadowRadius: 12,
     },
     speedTile: {
-      borderRadius: 18,
-      borderWidth: 1.5,
+      borderRadius: 22,
+      borderWidth: 1,
       borderColor: theme.border,
       backgroundColor: theme.surface,
       overflow: 'hidden',
       elevation: 8,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
+      shadowOpacity: 0.16,
       shadowRadius: 12,
       paddingVertical: 10,
       paddingHorizontal: 12,
@@ -140,11 +140,12 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     },
     speedNumber: {
       fontFamily: 'Manrope_600SemiBold',
-      fontSize: 36,
+      fontSize: 44,
       fontWeight: '900',
       color: theme.text,
-      letterSpacing: -0.2,
-      lineHeight: 40,
+      letterSpacing: -1,
+      fontVariant: ['tabular-nums'],
+      lineHeight: 50,
       width: '100%',
       textAlign: 'center',
     },
@@ -165,12 +166,12 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       letterSpacing: 0.2,
     },
     limitRing: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       backgroundColor: isDark ? '#f5f5f5' : '#ffffff',
       borderWidth: 2.5,
-      borderColor: isDark ? '#1a1a1a' : '#222222',
+      borderColor: '#E5484D',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -180,7 +181,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     },
     limitText: {
       fontFamily: 'Manrope_600SemiBold',
-      fontSize: 13,
+      fontSize: 17,
       fontWeight: '900',
       color: '#111111',
     },
@@ -202,8 +203,8 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     pendingDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#f59f00' },
     pendingText: { color: '#f59f00', fontSize: 12, fontWeight: '900' },
     quickReportBtn: {
-      width: 62,
-      height: 62,
+      width: 58,
+      height: 58,
       borderRadius: 16,
       backgroundColor: '#f23835',
       borderWidth: 2,
@@ -223,25 +224,26 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       marginTop: 2,
     },
     maneuverBox: {
-      width: 52,
-      height: 52,
-      borderRadius: 14,
-      backgroundColor: theme.surface2,
-      borderWidth: 1.5,
+      width: 72,
+      height: 80,
+      borderRadius: 20,
+      backgroundColor: theme.primary,
+      borderWidth: 1,
       borderColor: theme.border,
       alignItems: 'center',
       justifyContent: 'center',
     },
     navDistance: {
       fontFamily: 'Manrope_600SemiBold',
-      fontSize: 26,
+      fontSize: 32,
       fontWeight: '900',
       color: theme.text,
-      letterSpacing: -0.2,
-      lineHeight: 30,
+      letterSpacing: -1,
+      fontVariant: ['tabular-nums'],
+      lineHeight: 38,
     },
     instruction: {
-      fontSize: 14,
+      fontSize: 16,
       fontWeight: '600',
       color: theme.text,
       lineHeight: 20,
@@ -270,8 +272,8 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       position: 'absolute',
       top: 10,
       right: 10,
-      width: 32,
-      height: 32,
+      width: 44,
+      height: 44,
       borderRadius: 10,
       backgroundColor: theme.surface2,
       borderWidth: 1,
@@ -373,14 +375,14 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
     <View style={hud.speedTileCol}>
       <Pressable
         accessibilityRole={canReportSpeedLimit ? 'button' : undefined}
-        accessibilityLabel={canReportSpeedLimit ? 'Dodaj ograniczenie prędkości' : undefined}
+        accessibilityLabel={canReportSpeedLimit ? 'Dodaj ograniczenie prędkości' : displayLimit != null ? `Ograniczenie ${displayLimit} kilometrów na godzinę` : 'Brak danych o ograniczeniu'}
         disabled={!canReportSpeedLimit || !onPressSpeedLimit}
         onPress={onPressSpeedLimit}
         style={({ pressed }) => [hud.limitRing, overLimit && hud.limitRingOver, pressed && { opacity: 0.72 }]}
       >
         <Text
           style={[
-            limitSmall ? { fontSize: 12, fontFamily: 'Manrope_600SemiBold', fontWeight: '900' } : hud.limitText,
+            limitSmall ? { color: '#111111', fontSize: 15, fontFamily: 'Manrope_600SemiBold', fontWeight: '900' } : hud.limitText,
             overLimit && hud.limitTextOver,
           ]}
           numberOfLines={1}
@@ -568,7 +570,7 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
           borderRadius: size / 2,
           backgroundColor: isDark ? '#f5f5f5' : '#ffffff',
           borderWidth: 3,
-          borderColor: overLimit ? theme.danger : (isDark ? '#1a1a1a' : '#222222'),
+          borderColor: '#E5484D',
           alignItems: 'center',
           justifyContent: 'center',
         },

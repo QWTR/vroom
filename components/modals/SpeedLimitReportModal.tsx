@@ -3,7 +3,7 @@ import React, { memo, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import type { SpeedLimitResolution } from '../../hooks/useSpeedLimit';
 import { speedLimitDirectionLabel } from '../../lib/speedLimits/types';
 

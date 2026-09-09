@@ -4,7 +4,7 @@ import { AppText as Text, AppTextInput as TextInput } from '../ui/AppText';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 interface Props {
