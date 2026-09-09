@@ -3,501 +3,202 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { AppState } from 'react-native';
 import { API_URL } from '../constants/mapConfig';
 import type { SpeedLimitResolution } from '../lib/speedLimits/types';
-import {
-  enqueueSpeedLimitReport,
-  flushSpeedLimitReportOutbox,
-  isTransientSpeedLimitFailure,
-  readSpeedLimitReportOutbox,
-  type SpeedLimitDeliveryResult,
-  type SpeedLimitOutboxItem,
-  type SpeedLimitReportInput,
-} from '../lib/speedLimits/reportOutbox';
-import { vroomGpsLog, vroomGpsLogNow } from '../lib/vroomGpsLog';
-import {
-  parseOsmMaxSpeed,
-  sanitizeDisplaySpeedLimit,
-} from '../lib/navigation/osmMaxSpeed';
-
+import { enqueueSpeedLimitReport, flushSpeedLimitReportOutbox, readSpeedLimitReportOutbox, isTransientSpeedLimitFailure,
+  type SpeedLimitDeliveryResult, type SpeedLimitOutboxItem, type SpeedLimitReportInput } from '../lib/speedLimits/reportOutbox';
+import { sanitizeDisplaySpeedLimit } from '../lib/navigation/osmMaxSpeed';
+import { matchSpeedLimitRoad, speedLimitDistance, headingDifference,
+  type SpeedLimitPosition, type SpeedLimitWay } from '../lib/speedLimits/roadMatch';
 export type { SpeedLimitResolution } from '../lib/speedLimits/types';
-
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-];
-// Minimum distance (degrees) before re-fetching the speed limit.
-const REFETCH_DIST_DEG = 0.0018;      // ~200 m — browsing
-const REFETCH_DIST_NAV_DEG = 0.00045; // ~50 m — nawigacja / jazda
-// Minimum time between Overpass requests regardless of movement.
-const MIN_INTERVAL_MS = 20_000;       // 20 s — browsing
-const MIN_INTERVAL_NAV_MS = 6_000;    // 6 s — nawigacja / jazda
-const SEARCH_RADIUS_M = 25;
-/** Sticky: trzymaj ostatni limit gdy OSM chwilowo nie zwraca segmentu. */
-const STICKY_LIMIT_MS = 20_000;
-const STICKY_LIMIT_DISTANCE_M = 400;
-/** Dłuższy sticky w nawigacji — bez mrugania między throttled fetchami. */
-const STICKY_LIMIT_MS_NAV = 120_000;
-const STICKY_LIMIT_DISTANCE_M_NAV = 800;
-
-type OverpassElement = {
-  type: string;
-  id: number;
-  tags?: { maxspeed?: string; highway?: string };
-  geometry?: { lat: number; lon: number }[];
-};
-
-export type SpeedLimitUpdateOpts = {
-  /** Krótszy throttle przy nawigacji / trybie jazdy. */
-  nav?: boolean;
-  heading?: number | null;
-};
-
-const UNKNOWN_RESOLUTION: SpeedLimitResolution = {
-  limitKmh: null,
-  source: 'unknown',
-  status: 'unknown',
-  roadKey: null,
-  roadName: null,
-  direction: null,
-  votes: 0,
-};
-
-type StickyLimitState = {
-  limit: number;
-  sinceMs: number;
-  anchorLat: number;
-  anchorLng: number;
-};
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+export type SpeedLimitUpdateOpts = { nav?: boolean; heading?: number | null };
+const UNKNOWN: SpeedLimitResolution = { limitKmh: null, source: 'unknown', status: 'unknown',
+  roadKey: null, roadName: null, direction: null, votes: 0 };
+const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const CACHE_RADIUS = 500;
+type Sample = SpeedLimitPosition & { at: number; nav: boolean };
+type ServerSample = { position: Sample; at: number; value: SpeedLimitResolution };
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function queryOverpass(endpoint: string, query: string): Promise<any | null> {
-  try {
-    const postRes = await fetchWithTimeout(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        Accept: 'application/json',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    }, 9000);
-    if (postRes.ok) {
-      return await postRes.json();
-    }
-  } catch {
-    // fallback below
-  }
-
-  try {
-    const join = endpoint.includes('?') ? '&' : '?';
-    const getUrl = `${endpoint}${join}data=${encodeURIComponent(query)}`;
-    const getRes = await fetchWithTimeout(getUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    }, 9000);
-    if (getRes.ok) {
-      return await getRes.json();
-    }
-  } catch {
-    // no-op
-  }
-  return null;
-}
-
-function resolveLimitFromElements(
-  lat: number,
-  lng: number,
-  els: OverpassElement[],
-): { limit: number | null; highway: string | null } {
-  const elementsWithDistance = els
-    .filter(el => el.geometry && el.geometry.length > 0)
-    .map(el => {
-      let minDist = Infinity;
-      for (let i = 0; i < el.geometry!.length - 1; i++) {
-        const p1 = el.geometry![i];
-        const p2 = el.geometry![i + 1];
-        
-        // Approximate point-to-segment distance
-        const lat1R = p1.lat * Math.PI / 180;
-        
-        const dx = (p2.lon - p1.lon) * Math.cos(lat1R);
-        const dy = (p2.lat - p1.lat);
-        const lenSq = dx * dx + dy * dy;
-        
-        let projLat, projLon;
-        if (lenSq === 0) {
-          projLat = p1.lat;
-          projLon = p1.lon;
-        } else {
-          const px = (lng - p1.lon) * Math.cos(lat1R);
-          const py = (lat - p1.lat);
-          const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
-          projLat = p1.lat + t * dy;
-          projLon = p1.lon + t * (p2.lon - p1.lon);
-        }
-        
-        const distM = haversineMeters(lat, lng, projLat, projLon);
-        if (distM < minDist) minDist = distM;
-      }
-      return { el, minDist };
-    })
-    .sort((a, b) => a.minDist - b.minDist);
-
-  const ordered = elementsWithDistance.length > 0 
-    ? elementsWithDistance.map(item => item.el) 
-    : els;
-
-  for (const el of ordered) {
-    const limit = parseOsmMaxSpeed(el.tags?.maxspeed).kmh;
-    if (limit != null) {
-      return { limit, highway: el.tags?.highway ?? null };
-    }
-  }
-  return { limit: null, highway: ordered[0]?.tags?.highway ?? null };
+  try { return await fetch(url, { ...init, signal: controller.signal }); }
+  finally { clearTimeout(timer); }
 }
 
 export function useSpeedLimit(isActive: boolean) {
-  const [speedLimit, setSpeedLimit] = useState<number | null>(null);
-  const [resolution, setResolution] = useState<SpeedLimitResolution>(UNKNOWN_RESOLUTION);
-  const lastFetchRef = useRef(0);
-  const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
-  const fetchingRef = useRef(false);
-  const fetchSeqRef = useRef(0);
-  const stickyRef = useRef<StickyLimitState | null>(null);
-  const queuedResolutionRef = useRef<SpeedLimitResolution | null>(null);
+  // The number and its provenance are one state: a queued report cannot overwrite another road.
+  const [resolution, setResolution] = useState<SpeedLimitResolution>(UNKNOWN);
+  const currentResolution = useRef(resolution);
+  const latest = useRef<Sample | null>(null);
+  const server = useRef<ServerSample | null>(null);
+  const queued = useRef<SpeedLimitResolution[]>([]);
+  const area = useRef<{ position: Sample; at: number; ways: SpeedLimitWay[] } | null>(null);
+  const serverBusy = useRef(false);
+  const reportRevision = useRef(0);
+  const areaBusy = useRef(false);
+  const serverAttempt = useRef(0);
+  const areaAttempt = useRef(0);
+  const endpointIndex = useRef(0);
+  const mounted = useRef(true);
 
-  const isStickyValid = useCallback((
-    lat: number,
-    lng: number,
-    nav: boolean,
-    now = Date.now(),
-  ): boolean => {
-    const sticky = stickyRef.current;
-    if (!sticky) return false;
-    const ageMs = now - sticky.sinceMs;
-    const distM = haversineMeters(lat, lng, sticky.anchorLat, sticky.anchorLng);
-    const maxAgeMs = nav ? STICKY_LIMIT_MS_NAV : STICKY_LIMIT_MS;
-    const maxDistM = nav ? STICKY_LIMIT_DISTANCE_M_NAV : STICKY_LIMIT_DISTANCE_M;
-    return ageMs <= maxAgeMs && distM <= maxDistM;
+  const commit = useCallback((value: SpeedLimitResolution) => {
+    if (!mounted.current) return;
+    const next = { ...value, limitKmh: sanitizeDisplaySpeedLimit(value.limitKmh) };
+    if (JSON.stringify(currentResolution.current) === JSON.stringify(next)) return;
+    currentResolution.current = next;
+    setResolution(next);
   }, []);
 
-  const commitSpeedLimit = useCallback((
-    rawLimit: number | null,
-    lat: number,
-    lng: number,
-    nav: boolean,
-  ) => {
-    const limit = sanitizeDisplaySpeedLimit(rawLimit);
-    const now = Date.now();
-
-    if (limit != null) {
-      stickyRef.current = {
-        limit,
-        sinceMs: now,
-        anchorLat: lat,
-        anchorLng: lng,
-      };
-      setSpeedLimit(limit);
+  const resolveCurrent = useCallback(() => {
+    const position = latest.current;
+    if (!position || Date.now() - position.at > 15_000) { commit(UNKNOWN); return; }
+    const cached = area.current;
+    const covered = cached && Date.now() - cached.at < 120_000
+      && speedLimitDistance(position, cached.position) < CACHE_RADIUS - 60;
+    const road = covered ? matchSpeedLimitRoad(position, cached.ways) : null;
+    const remote = server.current;
+    const sameDirection = (a: string | null, b: string | null) => a === b || a === 'both';
+    const closeHeading = remote && (position.heading == null || remote.position.heading == null
+      || headingDifference(position.heading, remote.position.heading) < 35);
+    const remoteValid = remote && Date.now() - remote.at < 15_000 && closeHeading
+      && (road ? road.roadKey === remote.value.roadKey && sameDirection(remote.value.direction, road.direction)
+        : speedLimitDistance(position, remote.position) < 30);
+    if (covered) {
+      if (!road || road.ambiguous) { commit(UNKNOWN); return; }
+      if (road.limitKmh != null) {
+        commit({ ...UNKNOWN, ...road, limitKmh: road.limitKmh, source: 'osm_explicit', status: 'known', roadRecognized: true });
+        return;
+      }
+      const pending = queued.current.find(value => value.roadKey === road.roadKey
+        && (value.direction === road.direction || value.direction === 'both'));
+      if (!road.hasExplicitRule && pending && (!remoteValid || remote.value.status === 'unknown')) {
+        commit(pending); return;
+      }
+      if (remoteValid && !road.hasExplicitRule) { commit(remote.value); return; }
+      commit({ ...UNKNOWN, roadKey: road.roadKey, roadName: road.roadName, direction: road.direction,
+        roadRecognized: true, temporarilyUnavailable: true });
       return;
     }
-
-    if (isStickyValid(lat, lng, nav, now)) {
-      const sticky = stickyRef.current!;
-      setSpeedLimit(sticky.limit);
-      return;
-    }
-
-    stickyRef.current = null;
-    setSpeedLimit(null);
-  }, [isStickyValid]);
+    if (remoteValid) { commit(remote.value); return; }
+    commit({ ...UNKNOWN, temporarilyUnavailable: true });
+  }, [commit]);
 
   const update = useCallback(async (lat: number, lng: number, opts?: SpeedLimitUpdateOpts) => {
-    if (!isActive) return;
-
-    const nav = !!opts?.nav;
-    const minIntervalMs = nav ? MIN_INTERVAL_NAV_MS : MIN_INTERVAL_MS;
-    const refetchDeg = nav ? REFETCH_DIST_NAV_DEG : REFETCH_DIST_DEG;
-
+    if (!isActive || !mounted.current || !Number.isFinite(lat) || !Number.isFinite(lng)
+      || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
     const now = Date.now();
-    if (lastFetchRef.current > 0 && now - lastFetchRef.current < minIntervalMs) {
-      vroomGpsLog('SPEED_LIMIT_SKIP', {
-        reason: 'interval',
-        nav,
-        ageMs: now - lastFetchRef.current,
-        minIntervalMs,
-        sticky: stickyRef.current?.limit ?? null,
-      }, 8000);
-      return;
+    const position: Sample = { lat, lng, nav: !!opts?.nav, at: now,
+      heading: opts?.heading != null && Number.isFinite(opts.heading) && opts.heading >= 0 ? opts.heading % 360 : null };
+    const previous = latest.current;
+    if (position.heading == null && previous?.heading != null && speedLimitDistance(position, previous) < 8
+      && now - previous.at < 10_000) position.heading = previous.heading;
+    latest.current = position;
+    resolveCurrent();
+    const cached = area.current;
+    const needsArea = !cached || now - cached.at > 60_000 || speedLimitDistance(position, cached.position) > 300;
+    if (needsArea && !areaBusy.current && now - areaAttempt.current >= 12_000) {
+      areaBusy.current = true;
+      areaAttempt.current = now;
+      // Fetch surrounding geometry once; reselect the actual segment on every GPS update.
+      const query = '[out:json][timeout:7];way(around:' + CACHE_RADIUS + ',' + lat + ',' + lng
+        + ')[highway~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|living_street|service|unclassified|road)$"];out geom tags;';
+      void (async () => {
+        try {
+          const endpoint = ENDPOINTS[endpointIndex.current % ENDPOINTS.length];
+          const response = await fetchWithTimeout(endpoint, { method: 'POST', headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' },
+            body: 'data=' + encodeURIComponent(query) }, 8_000);
+          if (!response.ok) throw new Error('Road lookup unavailable');
+          const data = await response.json();
+          if (!Array.isArray(data.elements) || data.remark) throw new Error('Incomplete road lookup');
+          if (!mounted.current) return;
+          area.current = { position, at: Date.now(), ways: data.elements };
+          resolveCurrent();
+        } catch { endpointIndex.current += 1; }
+        finally { areaBusy.current = false; }
+      })();
     }
-
-    if (lastPosRef.current) {
-      const dLat = Math.abs(lat - lastPosRef.current.lat);
-      const dLng = Math.abs(lng - lastPosRef.current.lng);
-      if (dLat < refetchDeg && dLng < refetchDeg) {
-        vroomGpsLog('SPEED_LIMIT_SKIP', {
-          reason: 'distance',
-          nav,
-          dLatM: Math.round(dLat * 111000),
-          dLngM: Math.round(dLng * 71000),
-          sticky: stickyRef.current?.limit ?? null,
-        }, 8000);
-        return;
-      }
-    }
-
-    if (fetchingRef.current) {
-      vroomGpsLog('SPEED_LIMIT_SKIP', { reason: 'in_flight', nav }, 8000);
-      return;
-    }
-    fetchingRef.current = true;
-    const fetchSeq = ++fetchSeqRef.current;
-    const fetchGuard = setTimeout(() => {
-      if (fetchingRef.current) {
-        fetchingRef.current = false;
-        vroomGpsLogNow('SPEED_LIMIT_FAIL', {
-          lat: Number(lat.toFixed(5)),
-          lng: Number(lng.toFixed(5)),
-          nav,
-          reason: 'timeout_guard',
-        });
-      }
-    }, 12_000);
-
-    vroomGpsLogNow('SPEED_LIMIT_FETCH', {
-      lat: Number(lat.toFixed(5)),
-      lng: Number(lng.toFixed(5)),
-      nav,
-    });
-
+    if (area.current && Date.now() - area.current.at < 120_000
+      && speedLimitDistance(position, area.current.position) < CACHE_RADIUS - 60
+      && currentResolution.current.source === 'osm_explicit') return;
+    // Unknown results are retried even while stopped; never permanently gated by distance.
+    if (serverBusy.current || now - serverAttempt.current < (position.nav ? 3_000 : 8_000)) return;
+    serverBusy.current = true;
+    serverAttempt.current = now;
+    const revision = reportRevision.current;
     try {
       const token = await AsyncStorage.getItem('token');
-      if (token) {
-        try {
-          const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
-          if (Number.isFinite(opts?.heading)) params.set('heading', String(opts?.heading));
-          const serverRes = await fetchWithTimeout(`${API_URL}/api/speed-limits/resolve?${params.toString()}`, {
-            method: 'GET',
-            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-          }, 7000);
-          if (serverRes.ok) {
-            const serverResolution = await serverRes.json() as SpeedLimitResolution;
-            if (fetchSeq !== fetchSeqRef.current) return;
-            lastFetchRef.current = now;
-            lastPosRef.current = { lat, lng };
-            const queuedForRoad = queuedResolutionRef.current;
-            const keepQueued = queuedForRoad?.status === 'queued'
-              && serverResolution.status === 'unknown'
-              && queuedForRoad.roadKey === serverResolution.roadKey;
-            if (!keepQueued) {
-              queuedResolutionRef.current = null;
-              setResolution(serverResolution);
-            }
-            if (serverResolution.limitKmh != null) {
-              commitSpeedLimit(serverResolution.limitKmh, lat, lng, nav);
-            } else {
-              stickyRef.current = null;
-              setSpeedLimit(null);
-            }
-            return;
-          }
-        } catch {
-          // Awaryjny odczyt jawnego maxspeed z OSM poniżej.
-        }
-      }
-
-      const query = `
-        [out:json][timeout:10];
-        way(around:${SEARCH_RADIUS_M},${lat},${lng})[highway~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|living_street|service|unclassified)$"];
-        out geom tags 80;
-      `;
-
-      let data: any = null;
-      let endpointUsed: string | null = null;
-      for (const endpoint of OVERPASS_ENDPOINTS) {
-        try {
-          data = await queryOverpass(endpoint, query);
-          if (!data) continue;
-          endpointUsed = endpoint;
-          break;
-        } catch {
-          // spróbuj kolejny endpoint
-        }
-      }
-
-      if (fetchSeq !== fetchSeqRef.current) return;
-
-      if (!data) {
-        if (!queuedResolutionRef.current) {
-          setResolution({ ...UNKNOWN_RESOLUTION, temporarilyUnavailable: true });
-          stickyRef.current = null;
-          setSpeedLimit(null);
-        }
-        vroomGpsLogNow('SPEED_LIMIT_FAIL', {
-          lat: Number(lat.toFixed(5)),
-          lng: Number(lng.toFixed(5)),
-          nav,
-          reason: 'no_data',
-        });
-        return;
-      }
-
-      const els: OverpassElement[] = data.elements ?? [];
-      const { limit, highway } = resolveLimitFromElements(lat, lng, els);
-
-      if (fetchSeq !== fetchSeqRef.current) return;
-
-      lastFetchRef.current = now;
-      lastPosRef.current = { lat, lng };
-
-      if (limit != null) {
-        queuedResolutionRef.current = null;
-        setResolution({
-          ...UNKNOWN_RESOLUTION,
-          limitKmh: limit,
-          source: 'osm_explicit',
-          status: 'known',
-          roadRecognized: true,
-        });
-        commitSpeedLimit(limit, lat, lng, nav);
-        vroomGpsLogNow('SPEED_LIMIT_OK', {
-          limit,
-          highway,
-          elements: els.length,
-          nav,
-          endpoint: endpointUsed,
-          sticky: false,
-        });
-      } else {
-        if (!queuedResolutionRef.current) {
-          setResolution({
-            ...UNKNOWN_RESOLUTION,
-            roadRecognized: els.length > 0,
-            temporarilyUnavailable: true,
-          });
-          stickyRef.current = null;
-          setSpeedLimit(null);
-        }
-        vroomGpsLogNow('SPEED_LIMIT_FAIL', {
-          lat: Number(lat.toFixed(5)),
-          lng: Number(lng.toFixed(5)),
-          nav,
-          reason: 'no_limit',
-          elements: els.length,
-          highway,
-          endpoint: endpointUsed,
-          stickyHeld: null,
-        });
-      }
-    } catch (err) {
-      if (fetchSeq !== fetchSeqRef.current) return;
-      if (!queuedResolutionRef.current) {
-        setResolution({ ...UNKNOWN_RESOLUTION, temporarilyUnavailable: true });
-        stickyRef.current = null;
-        setSpeedLimit(null);
-      }
-      vroomGpsLogNow('SPEED_LIMIT_FAIL', {
-        lat: Number(lat.toFixed(5)),
-        lng: Number(lng.toFixed(5)),
-        nav,
-        reason: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        stickyHeld: null,
-      });
-    } finally {
-      clearTimeout(fetchGuard);
-      if (fetchSeq === fetchSeqRef.current) {
-        fetchingRef.current = false;
-      }
-    }
-  }, [isActive, commitSpeedLimit]);
+      if (!token || !mounted.current) return;
+      const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+      if (position.heading != null) params.set('heading', String(position.heading));
+      const response = await fetchWithTimeout(API_URL + '/api/speed-limits/resolve?' + params.toString(), {
+        method: 'GET', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } }, 6_000);
+      if (!response.ok) return;
+      const value = await response.json() as SpeedLimitResolution;
+      if (!mounted.current || revision !== reportRevision.current || !value || !['known', 'unknown', 'pending', 'queued'].includes(value.status)) return;
+      server.current = { position, at: Date.now(), value };
+      // Evaluate against the newest position, not the position before the request.
+      resolveCurrent();
+    } catch { /* Retain only geographically valid data until the next bounded retry. */ }
+    finally { serverBusy.current = false; }
+  }, [isActive, resolveCurrent]);
 
   const submitSpeedLimit = useCallback(async (input: {
-    lat: number;
-    lng: number;
-    heading?: number | null;
-    accuracy: number;
-    limitKmh: number;
+    lat: number; lng: number; heading?: number | null; accuracy: number; limitKmh: number;
   }): Promise<SpeedLimitResolution> => {
-    if (!Number.isFinite(input.accuracy) || input.accuracy <= 0 || input.accuracy > 50) {
+    if (!Number.isFinite(input.accuracy) || input.accuracy <= 0 || input.accuracy > 50)
       throw new Error('Sygnał GPS jest zbyt słaby. Wymagana dokładność do 50 m.');
-    }
-    await flushSpeedLimitReportOutbox(deliverQueuedSpeedLimit);
-    const reportInput: SpeedLimitReportInput = {
-      ...input,
-      direction: resolution.direction,
-      roadContextToken: resolution.roadContextToken ?? null,
-    };
+    const context = currentResolution.current;
+    const reportInput: SpeedLimitReportInput = { ...input, direction: context.direction, roadContextToken: context.roadContextToken ?? null };
     const request = await postSpeedLimitReport(reportInput);
     if (request.kind === 'error') throw new Error(request.message);
-    if (request.kind === 'retry') {
-      const queued = await enqueueSpeedLimitReport(reportInput, resolution);
-      const next = queued.optimisticResolution;
-      queuedResolutionRef.current = next;
-      setResolution(next);
-      commitSpeedLimit(input.limitKmh, input.lat, input.lng, true);
-      return next;
+    const next = request.kind === 'retry'
+      ? (await enqueueSpeedLimitReport(reportInput, context)).optimisticResolution : request.resolution;
+    if (next.status === 'queued') queued.current = [...queued.current.filter(value => value.roadKey !== next.roadKey || value.direction !== next.direction), next];
+    if (mounted.current && context.roadKey && context.roadKey === currentResolution.current.roadKey
+      && context.direction === currentResolution.current.direction) {
+      reportRevision.current += 1;
+      server.current = { position: { ...input, nav: true, at: Date.now() }, at: Date.now(), value: next };
+      resolveCurrent();
     }
-    const next = request.resolution;
-    setResolution(next);
-    commitSpeedLimit(next.limitKmh, input.lat, input.lng, true);
     return next;
-  }, [commitSpeedLimit, resolution]);
+  }, [resolveCurrent]);
 
   const flushQueuedSpeedLimits = useCallback(async (): Promise<SpeedLimitResolution | null> => {
     const delivered = await flushSpeedLimitReportOutbox(deliverQueuedSpeedLimit);
-    const latest = delivered.at(-1) ?? null;
-    if (latest) {
-      queuedResolutionRef.current = null;
-      setResolution(latest);
-      const lastPos = lastPosRef.current;
-      if (lastPos) commitSpeedLimit(latest.limitKmh, lastPos.lat, lastPos.lng, true);
-      else setSpeedLimit(sanitizeDisplaySpeedLimit(latest.limitKmh));
+    const outstanding = await readSpeedLimitReportOutbox();
+    if (mounted.current) queued.current = outstanding.map(item => item.optimisticResolution);
+    const current = currentResolution.current;
+    const matching = [...delivered].reverse().find(value => value.roadKey != null && value.roadKey === current.roadKey
+      && (value.direction === current.direction || value.direction === 'both'));
+    if (matching && latest.current && mounted.current) {
+      reportRevision.current += 1;
+      server.current = { position: latest.current, at: Date.now(), value: matching };
+      resolveCurrent();
     }
-    return latest;
-  }, [commitSpeedLimit]);
-
-  const hydrateQueuedSpeedLimit = useCallback(async () => {
-    const items = await readSpeedLimitReportOutbox();
-    const latest = items.at(-1)?.optimisticResolution ?? null;
-    if (!latest) return;
-    queuedResolutionRef.current = latest;
-    setResolution(latest);
-    setSpeedLimit(sanitizeDisplaySpeedLimit(latest.limitKmh));
-  }, []);
+    return delivered.at(-1) ?? null;
+  }, [resolveCurrent]);
 
   useEffect(() => {
-    if (!isActive) return undefined;
-    void hydrateQueuedSpeedLimit().then(flushQueuedSpeedLimits);
-    const interval = setInterval(() => void flushQueuedSpeedLimits(), 30_000);
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void flushQueuedSpeedLimits();
+    mounted.current = true;
+    if (!isActive) { commit(UNKNOWN); return () => { mounted.current = false; }; }
+    // Outbox delivery never restores an old sign until its current road is identified.
+    void flushQueuedSpeedLimits();
+    const flushInterval = setInterval(() => void flushQueuedSpeedLimits(), 30_000);
+    const retryInterval = setInterval(() => {
+      const sample = latest.current;
+      if (sample && Date.now() - sample.at < 10_000) {
+        // Preserve GPS sample age when retrying from the timer.
+        void update(sample.lat, sample.lng, sample);
+        if (latest.current) latest.current.at = sample.at;
+      } else resolveCurrent();
+    }, 2_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') { serverAttempt.current = 0; void flushQueuedSpeedLimits(); }
     });
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
-  }, [flushQueuedSpeedLimits, hydrateQueuedSpeedLimit, isActive]);
+    return () => { mounted.current = false; clearInterval(flushInterval); clearInterval(retryInterval); subscription.remove(); };
+  }, [isActive, commit, update, resolveCurrent, flushQueuedSpeedLimits]);
 
-  return { speedLimit, resolution, updateSpeedLimit: update, submitSpeedLimit, flushQueuedSpeedLimits };
+  return { speedLimit: resolution.limitKmh, resolution, updateSpeedLimit: update, submitSpeedLimit, flushQueuedSpeedLimits };
 }
 
 type ReportRequestResult =

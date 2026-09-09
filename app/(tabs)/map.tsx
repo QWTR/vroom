@@ -4022,6 +4022,8 @@ function MapScreenInner() {
     const lng = drOk ? drLngRef.current : userLocation?.longitude;
     if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
+    void updateSpeedLimit(lat, lng, { nav: isNavigating || isDriving, heading: speedKmhRef.current >= 5 ? lastHeadingRef.current : null });
+
     const gateM = (isNavigating || isDriving) ? CAMERA_SPEED_LIMIT_GATE_NAV_M : CAMERA_SPEED_LIMIT_GATE_M;
     if (lastCameraUpdateLocRef.current) {
       const movedM = haversineKm(lat, lng,
@@ -4038,7 +4040,6 @@ function MapScreenInner() {
       headingDeg: lastHeadingRef.current,
       speedKmh: speedKmhRef.current,
     });
-    updateSpeedLimit(lat, lng, { nav: isNavigating || isDriving, heading: lastHeadingRef.current });
   }, [userLocation?.latitude, userLocation?.longitude, isNavigating, isDriving, updateCameras, updateSpeedLimit]);
 
   const canPollCameras = isMapFocused || isNavigating || isDriving;
@@ -5802,8 +5803,8 @@ function MapScreenInner() {
         }
         lastRawForHeadingRef.current = { lat: rawLat, lng: rawLng };
         lastAcceptedFixWallClockRef.current = now;
-        if (isDrivingRef.current || isNavigatingRef.current) {
-          updateSpeedLimitRef.current(rawLat, rawLng, { nav: true, heading: lastHeadingRef.current });
+        if (out && !out.rejected && (isDrivingRef.current || isNavigatingRef.current)) {
+          void updateSpeedLimitRef.current(rawLat, rawLng, { nav: true, heading: speedKmhRef.current >= 5 ? lastHeadingRef.current : null });
         }
         return;
       }

@@ -45,22 +45,12 @@ export function parseOsmMaxSpeed(raw: string | undefined | null): OsmMaxSpeedPar
     return { kmh: PL_ZONE_LIMITS[plKey], unlimited: false };
   }
 
-  if (compact.includes('mph')) {
-    const mph = parseInt(compact.replace(/[^\d]/g, ''), 10);
-    if (Number.isFinite(mph) && mph > 0 && mph <= 155) {
-      return { kmh: Math.round(mph * 1.60934), unlimited: false };
-    }
-  }
-
-  const digitLead = compact.match(/^(\d{1,3})/);
-  if (digitLead) {
-    const n = parseInt(digitLead[1], 10);
-    if (n > 0 && n <= 250) return { kmh: n, unlimited: false };
-  }
-
-  const loose = parseInt(trimmed.replace(/[^\d]/g, ''), 10);
-  if (Number.isFinite(loose) && loose > 0 && loose <= 250) {
-    return { kmh: loose, unlimited: false };
+  // Reject compound/conditional values rather than accidentally reading their first digits.
+  const numeric = compact.match(/^(\d{1,3})(km\/h|kmh|kph|mph)?$/);
+  if (numeric) {
+    const value = Number(numeric[1]);
+    const kmh = numeric[2] === 'mph' ? Math.round(value * 1.60934) : value;
+    if (kmh > 0 && kmh <= 250) return { kmh, unlimited: false };
   }
 
   return { kmh: null, unlimited: false };
