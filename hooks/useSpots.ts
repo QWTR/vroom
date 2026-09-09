@@ -37,10 +37,12 @@ export type SortMode = 'distance' | 'likes' | 'newest';
 
 export function useSpots(active = true) {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [region,       setRegion]       = useState<any>(null);
+  const [region,       setRegion]       = useState<any>(DEFAULT_REGION);
   const [spots,        setSpots]        = useState<Spot[]>([]);
   const [maxDistance,  setMaxDistance]  = useState(25);
   const [loading,      setLoading]      = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const [activeCategories, setActiveCategories] = useState<SpotCategory[]>([]);
   const [sortMode,         setSortMode]         = useState<SortMode>('distance');
@@ -48,6 +50,8 @@ export function useSpots(active = true) {
 
   const locationInitialized = useRef(false);
   const lastFetchRef = useRef<{ lat: number; lng: number; radius: number; at: number } | null>(null);
+  const pendingFetchRef = useRef<{ lat: number; lng: number; radius: number } | null>(null);
+  const retryAfterRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
 
   const toggleCategory  = useCallback((cat: SpotCategory) => {
@@ -68,7 +72,7 @@ export function useSpots(active = true) {
         const cached = await AsyncStorage.getItem(LAST_LOCATION_KEY);
         if (cached) {
           const { latitude, longitude } = JSON.parse(cached);
-          if (!locationInitialized.current && mounted) {
+          if (!locationInitialized.current && mounted && Number.isFinite(latitude) && Number.isFinite(longitude)) {
             setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
             setUserLocation({ latitude, longitude });
           }
@@ -87,7 +91,9 @@ export function useSpots(active = true) {
       } catch {}
 
       // 2. Poproś o uprawnienia
+      if (!mounted) return;
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!mounted) return;
       if (status !== 'granted') {
         Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Włącz lokalizację' });
         return;
@@ -148,7 +154,7 @@ export function useSpots(active = true) {
       } catch (e) {
         console.log('getCurrentPosition error:', e);
       }
-    })();
+    })().catch(() => { /* The map remains usable with the last known region. */ });
     return () => {
       mounted = false;
       watchSub?.remove();
@@ -157,57 +163,88 @@ export function useSpots(active = true) {
   }, [active]);
 
   // ── Pobierz spoty z API ──────────────────────────────────────────────────────
-  const fetchSpots = useCallback(async (lat: number, lng: number, radius: number) => {
+  const fetchSpots = useCallback(async (lat: number, lng: number, radius: number, force = false) => {
+    if (![lat, lng, radius].every(Number.isFinite)) return;
+    const pending = pendingFetchRef.current;
+    if (!force && fetchAbortRef.current && !fetchAbortRef.current.signal.aborted && pending
+      && pending.radius === radius && calculateDistance(lat, lng, pending.lat, pending.lng) < SPOTS_REFETCH_DISTANCE_KM) return;
+    if (!force && Date.now() < retryAfterRef.current) return;
     fetchAbortRef.current?.abort();
     const controller = new AbortController();
     fetchAbortRef.current = controller;
+    pendingFetchRef.current = { lat, lng, radius };
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const res  = await fetch(`${API_URL}?lat=${lat}&lng=${lng}&radius=${radius}`, { signal: controller.signal });
-      if (!res.ok) throw new Error('Błąd serwera');
-      const data = await res.json();
-
-      const mapped: Spot[] = data.map((s: any) => ({
-        id:            String(s.id),
-        name:          s.name,
-        description:   s.description   || '',
-        category:      s.category      as SpotCategory,
-        latitude:      s.latitude,
-        longitude:     s.longitude,
-        photos:        s.photos        || [],
-        author:        s.author?.username || 'Nieznany',
-        createdAt:     s.createdAt?.split('T')[0] || '',
-        likesCount:    s.likesCount    ?? 0,
-        commentsCount: s.commentsCount ?? 0,
-        isLiked:       s.isLiked       ?? false,
-      }));
-
-      setSpots(mapped);
-      lastFetchRef.current = { lat, lng, radius, at: Date.now() };
-    } catch (e) {
-      if (controller.signal.aborted) return;
-      console.log('fetchSpots error:', e);
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można pobrać spotów' });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (controller.signal.aborted) return;
+        const request = new AbortController();
+        const cancel = () => request.abort();
+        controller.signal.addEventListener('abort', cancel);
+        const timeout = setTimeout(cancel, 10_000);
+        let retryable = true;
+        try {
+          const res = await fetch(API_URL + '?lat=' + lat + '&lng=' + lng + '&radius=' + radius, { signal: request.signal });
+          if (!res.ok) {
+            retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+            throw new Error('HTTP ' + res.status);
+          }
+          const data = await res.json();
+          if (!Array.isArray(data)) throw new Error('Invalid spots response');
+          const mapped: Spot[] = data.filter(item => item && Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)))
+            .map(item => ({ id: String(item.id), name: item.name || 'Spot', description: item.description || '',
+              category: item.category as SpotCategory, latitude: Number(item.latitude), longitude: Number(item.longitude),
+              photos: Array.isArray(item.photos) ? item.photos : [], author: item.author?.username || 'Nieznany',
+              createdAt: item.createdAt?.split('T')[0] || '', likesCount: item.likesCount ?? 0,
+              commentsCount: item.commentsCount ?? 0, isLiked: item.isLiked ?? false }));
+          if (controller.signal.aborted || fetchAbortRef.current !== controller) return;
+          setSpots(mapped);
+          setHasLoaded(true);
+          setError(null);
+          retryAfterRef.current = 0;
+          lastFetchRef.current = { lat, lng, radius, at: Date.now() };
+          return;
+        } catch {
+          if (controller.signal.aborted || fetchAbortRef.current !== controller) return;
+          if (!retryable || attempt === 2) throw new Error('Spots unavailable');
+        } finally {
+          clearTimeout(timeout);
+          controller.signal.removeEventListener('abort', cancel);
+        }
+        await new Promise<void>(resolve => {
+          const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve(); };
+          const timer = setTimeout(finish, 1000 * (attempt + 1));
+          controller.signal.addEventListener('abort', finish, { once: true });
+          if (controller.signal.aborted) finish();
+        });
+      }
+    } catch {
+      if (!controller.signal.aborted && fetchAbortRef.current === controller) {
+        retryAfterRef.current = Date.now() + 30_000;
+        setError('Nie udało się odświeżyć spotów. Spróbujemy ponownie.');
+      }
     } finally {
       if (fetchAbortRef.current === controller) {
         fetchAbortRef.current = null;
+        pendingFetchRef.current = null;
         setLoading(false);
       }
     }
   }, []);
 
+  const fetchOrigin = userLocation ?? region;
   useEffect(() => {
-    if (!active || !userLocation) return;
-    const previous = lastFetchRef.current;
-    const movedKm = previous
-      ? calculateDistance(previous.lat, previous.lng, userLocation.latitude, userLocation.longitude)
-      : Number.POSITIVE_INFINITY;
-    const stale = !previous || Date.now() - previous.at >= SPOTS_STALE_MS;
-    const radiusChanged = !previous || previous.radius !== maxDistance;
-    if (stale || radiusChanged || movedKm >= SPOTS_REFETCH_DISTANCE_KM) {
-      void fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance);
-    }
-  }, [active, userLocation, maxDistance, fetchSpots]);
+    if (!active || !fetchOrigin) return;
+    const refreshIfNeeded = () => {
+      const previous = lastFetchRef.current;
+      const movedKm = previous ? calculateDistance(previous.lat, previous.lng, fetchOrigin.latitude, fetchOrigin.longitude) : Infinity;
+      if (!previous || previous.radius !== maxDistance || Date.now() - previous.at >= SPOTS_STALE_MS || movedKm >= SPOTS_REFETCH_DISTANCE_KM)
+        void fetchSpots(fetchOrigin.latitude, fetchOrigin.longitude, maxDistance);
+    };
+    refreshIfNeeded();
+    const timer = setInterval(refreshIfNeeded, 30_000);
+    return () => clearInterval(timer);
+  }, [active, fetchOrigin?.latitude, fetchOrigin?.longitude, maxDistance, fetchSpots]);
 
   useEffect(() => {
     if (!userLocation) return;
@@ -225,10 +262,11 @@ export function useSpots(active = true) {
 
   // ── Widoczne spoty ───────────────────────────────────────────────────────────
   const visibleSpots = useMemo(() => {
-    if (!layerLocation) return [];
+    const origin = layerLocation ?? region;
+    if (!origin) return [];
 
     let result = spots.filter(s =>
-      calculateDistance(layerLocation.latitude, layerLocation.longitude, s.latitude, s.longitude) <= maxDistance
+      calculateDistance(origin.latitude, origin.longitude, s.latitude, s.longitude) <= maxDistance
     );
 
     if (activeCategories.length > 0) {
@@ -238,8 +276,8 @@ export function useSpots(active = true) {
     switch (sortMode) {
       case 'distance':
         result = [...result].sort((a, b) =>
-          calculateDistance(layerLocation.latitude, layerLocation.longitude, a.latitude, a.longitude) -
-          calculateDistance(layerLocation.latitude, layerLocation.longitude, b.latitude, b.longitude)
+          calculateDistance(origin.latitude, origin.longitude, a.latitude, a.longitude) -
+          calculateDistance(origin.latitude, origin.longitude, b.latitude, b.longitude)
         );
         break;
       case 'likes':
@@ -253,7 +291,7 @@ export function useSpots(active = true) {
     }
 
     return result;
-  }, [spots, layerLocation, maxDistance, activeCategories, sortMode]);
+  }, [spots, layerLocation, region, maxDistance, activeCategories, sortMode]);
 
   // ── Dodaj spot ───────────────────────────────────────────────────────────────
   const addSpot = useCallback(async (
@@ -263,10 +301,10 @@ export function useSpots(active = true) {
     photos:      string[],
     pickedCoord?: { latitude: number; longitude: number } | null,
   ): Promise<boolean> => {
-    if (!userLocation) return false;
+    if (!userLocation && !pickedCoord) return false;
 
-    const lat = pickedCoord?.latitude  ?? userLocation.latitude;
-    const lng = pickedCoord?.longitude ?? userLocation.longitude;
+    const lat = pickedCoord?.latitude  ?? userLocation!.latitude;
+    const lng = pickedCoord?.longitude ?? userLocation!.longitude;
 
     try {
       const token = await AsyncStorage.getItem('token');
@@ -359,7 +397,7 @@ export function useSpots(active = true) {
     setSortMode,
     addSpot,
     getDistance,
-    loading,
-    refetch: () => userLocation && fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance),
+    loading, error, hasLoaded,
+    refetch: () => fetchOrigin && fetchSpots(fetchOrigin.latitude, fetchOrigin.longitude, maxDistance, true),
   };
 }

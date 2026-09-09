@@ -8,7 +8,7 @@ import Toast from 'react-native-toast-message';
 import { useModalSheetPadding } from '../layout/ModalKeyboardSheet';
 import { Spot, SpotDetails, SpotComment, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
 import { PhotoGalleryModal } from './PhotoGalleryModal';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 
 const API_URL = 'https://v-room.app/api/spots';
 
@@ -112,7 +112,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
     <>
       <Modal visible={visible && !galleryVisible} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: sheetPaddingBottom, maxHeight: '88%' }}>
+          <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 20, paddingBottom: sheetPaddingBottom, maxHeight: '88%' }}>
 
             {/* Header */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -121,7 +121,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                   <MaterialIcons name={CATEGORY_ICONS[spot.category] as any} size={20} color={color} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }} numberOfLines={1}>{spot.name}</Text>
+                  <Text style={{ color: theme.text, fontSize: 21, fontWeight: '800' }} numberOfLines={1}>{spot.name}</Text>
                   <Text style={{ color, fontSize: 12, fontWeight: '600', marginTop: 2 }}>{spot.category}</Text>
                 </View>
               </View>

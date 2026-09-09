@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
-import { View, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { AppText as Text } from '../../components/ui/AppText';
 import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
@@ -11,9 +11,10 @@ import { ensureMapboxToken, initMapbox } from '../../lib/mapboxInit';
 ensureMapboxToken();
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
-import { Spot, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORIES, OFFROAD_CATEGORIES } from '../../constants/spotTypes';
+import { Spot } from '../../constants/spotTypes';
 import { useSpots }  from '../../hooks/useSpots';
-import { useTheme }  from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../../components/map/useMapHudTheme';
+import { SpotMapHud } from '../../components/spots/SpotMapHud';
 
 import { AddSpotModal }    from '../../components/spots/AddSpotModal';
 import { SpotListModal }   from '../../components/spots/SpotListModal';
@@ -41,7 +42,7 @@ export default function SpotMap() {
 
   const {
     region, spots, visibleSpots, maxDistance, setMaxDistance,
-    addSpot, getDistance, loading, refetch,
+    addSpot, getDistance, loading, error, hasLoaded, refetch,
     activeCategories, toggleCategory, clearCategories,
     sortMode, setSortMode,
     userLocation,
@@ -57,6 +58,13 @@ export default function SpotMap() {
   const [isSatellite,       setIsSatellite]       = useState(false);
   const [categorySprites,   setCategorySprites]   = useState<Record<string, string> | null>(null);
   const handledSpotIdRef = useRef<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const initiallyCentered = useRef(false);
+  useEffect(() => {
+    if (!mapReady || !userLocation || initiallyCentered.current || spotId) return;
+    initiallyCentered.current = true;
+    cameraRef.current?.setCamera({ centerCoordinate: [userLocation.longitude, userLocation.latitude], zoomLevel: 12, animationDuration: 450 });
+  }, [mapReady, userLocation, spotId]);
 
   useEffect(() => {
     const requestedId = String(spotId || '');
@@ -88,8 +96,6 @@ export default function SpotMap() {
       });
   }, [spotId, spots]);
 
-  const panelBg     = theme.surface + 'f0';
-  const panelBorder = theme.border2;
 
   const toggleMapType = useCallback(() => {
     setIsSatellite(prev => !prev);
@@ -144,8 +150,7 @@ export default function SpotMap() {
   }, []);
 
   const handleRefresh = useCallback(() => {
-    refetch();
-    Toast.show({ type: 'success', text1: '🔄 Odświeżanie...', text2: 'Pobieranie spotów z serwera' });
+    void refetch();
   }, [refetch]);
 
   const handleLikeToggle = useCallback((spotId: string, liked: boolean, count: number) => {
@@ -191,8 +196,10 @@ export default function SpotMap() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
+        scaleBarEnabled={false}
         surfaceView={false}
         onPress={handleMapPress}
+        onDidFinishLoadingMap={() => setMapReady(true)}
       >
         <Mapbox.Camera
           ref={cameraRef}
@@ -253,202 +260,17 @@ export default function SpotMap() {
       </Mapbox.MapView>
       </View>
 
-      {/* GÓRNY PASEK */}
-      {picking === 'idle' && (
-        <>
-          <View style={{ position: 'absolute', top: headerTop, left: 16, right: 16, flexDirection: 'row', gap: 8 }}>
-
-            {/* Dystans */}
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: panelBg, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 10, borderWidth: 1, borderColor: panelBorder }}
-              onPress={() => setDistanceVisible(true)} activeOpacity={0.8}
-            >
-              <View style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialIcons name="radar" size={14} color="#e33835" />
-              </View>
-              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{maxDistance} km</Text>
-              <MaterialIcons name="keyboard-arrow-down" size={16} color={theme.textDim} />
-            </TouchableOpacity>
-
-            {/* Lista */}
-            <TouchableOpacity
-              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: panelBg, borderRadius: 14, paddingVertical: 10, borderWidth: 1, borderColor: panelBorder }}
-              onPress={() => setListVisible(true)} activeOpacity={0.8}
-            >
-              <MaterialIcons name="format-list-bulleted" size={16} color="#e33835" />
-              <Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '600' }}>Spoty</Text>
-              {visibleSpots.length > 0 && (
-                <View style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 }}>
-                  <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{visibleSpots.length}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            {/* Satellite */}
-            <TouchableOpacity
-              style={{
-                width: 44, height: 44,
-                backgroundColor: isSatellite ? '#e33835' : panelBg,
-                borderRadius: 14, justifyContent: 'center', alignItems: 'center',
-                borderWidth: 1, borderColor: isSatellite ? '#e33835' : panelBorder,
-              }}
-              onPress={toggleMapType} activeOpacity={0.8}
-            >
-              <MaterialIcons name="satellite-alt" size={20} color={isSatellite ? '#fff' : theme.textMuted} />
-            </TouchableOpacity>
-
-            {/* Refresh */}
-            <TouchableOpacity
-              style={{ width: 44, height: 44, backgroundColor: panelBg, borderRadius: 14, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: panelBorder }}
-              onPress={handleRefresh} activeOpacity={0.8} disabled={loading}
-            >
-              {loading
-                ? <ActivityIndicator size={16} color="#e33835" />
-                : <MaterialIcons name="refresh" size={20} color={theme.textMuted} />
-              }
-            </TouchableOpacity>
-          </View>
-
-          {/* PASEK FILTRÓW */}
-          <View style={{ position: 'absolute', top: 108, left: 0, right: 0 }}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
-            >
-              {/* Wszystkie */}
-              <TouchableOpacity
-                style={[{
-                  flexDirection: 'row', alignItems: 'center', gap: 5,
-                  paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10,
-                  backgroundColor: panelBg, borderWidth: 1, borderColor: panelBorder,
-                }, activeCategories.length === 0 && { borderColor: '#e33835', backgroundColor: '#e3383520' }]}
-                onPress={clearCategories} activeOpacity={0.8}
-              >
-                <MaterialIcons name="layers" size={13} color={activeCategories.length === 0 ? '#e33835' : theme.textDim} />
-                <Text style={{ color: activeCategories.length === 0 ? '#e33835' : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>
-                  WSZYSTKIE
-                </Text>
-              </TouchableOpacity>
-
-              {/* Divider OFFROAD */}
-              <View style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>OFFROAD</Text>
-              </View>
-
-              {OFFROAD_CATEGORIES.map(cat => {
-                const active = activeCategories.includes(cat);
-                const color  = CATEGORY_COLORS[cat];
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[{
-                      flexDirection: 'row', alignItems: 'center', gap: 5,
-                      paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10,
-                      backgroundColor: panelBg, borderWidth: 1, borderColor: panelBorder,
-                    }, active && { borderColor: color, backgroundColor: color + '22' }]}
-                    onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
-                  >
-                    <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
-                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{cat}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-
-              {/* Divider INNE */}
-              <View style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>INNE</Text>
-              </View>
-
-              {CATEGORIES.filter(c => !OFFROAD_CATEGORIES.includes(c)).map(cat => {
-                const active = activeCategories.includes(cat);
-                const color  = CATEGORY_COLORS[cat];
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[{
-                      flexDirection: 'row', alignItems: 'center', gap: 5,
-                      paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10,
-                      backgroundColor: panelBg, borderWidth: 1, borderColor: panelBorder,
-                    }, active && { borderColor: color, backgroundColor: color + '22' }]}
-                    onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
-                  >
-                    <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
-                    <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700' }}>{cat}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </>
-      )}
-
-      {/* BANNER — picking */}
-      {picking === 'picking' && (
-        <View style={{
-          position: 'absolute', top: headerTop, left: 16, right: 16,
-          flexDirection: 'row', alignItems: 'center', gap: 10,
-          backgroundColor: panelBg, borderRadius: 14,
-          paddingHorizontal: 14, paddingVertical: 12,
-          borderWidth: 1, borderColor: '#e3383550',
-        }}>
-          <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' }}>
-            <MaterialIcons name="touch-app" size={18} color="#e33835" />
-          </View>
-          <Text style={{ flex: 1, color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 0.5 }}>
-            Dotknij mapę aby ustawić lokalizację
-          </Text>
-          <TouchableOpacity
-            onPress={() => setPicking('idle')}
-            style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, justifyContent: 'center', alignItems: 'center' }}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="close" size={18} color={theme.textDim} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* MOJA LOKALIZACJA */}
-      {picking === 'idle' && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute', bottom: 120, right: 16,
-            width: 48, height: 48, borderRadius: 14,
-            backgroundColor: panelBg,
-            borderWidth: 1, borderColor: panelBorder,
-            justifyContent: 'center', alignItems: 'center',
-            elevation: 8,
-            shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15, shadowRadius: 6,
-          }}
-          onPress={handleLocateMe} activeOpacity={0.8}
-        >
-          <MaterialIcons name="my-location" size={22} color="#e33835" />
-        </TouchableOpacity>
-      )}
-
-      {/* PRZYCISK DODAJ */}
-      {picking === 'idle' && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute', bottom: 40, alignSelf: 'center',
-            flexDirection: 'row', alignItems: 'center', gap: 10,
-            backgroundColor: '#e33835', borderRadius: 18,
-            paddingHorizontal: 24, paddingVertical: 14,
-            elevation: 12,
-            shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.45, shadowRadius: 12,
-          }}
-          onPress={handleStartPicking} activeOpacity={0.85}
-        >
-          <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' }}>
-            <MaterialIcons name="add-location-alt" size={20} color="#fff" />
-          </View>
-          <Text style={{ color: '#fff', fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
-            DODAJ SPOT
-          </Text>
-        </TouchableOpacity>
-      )}
+      <SpotMapHud top={headerTop} count={visibleSpots.length} radius={maxDistance}
+        loading={loading} error={error} hasLoaded={hasLoaded} satellite={isSatellite}
+        picking={picking === 'picking'} categories={activeCategories}
+        onCategory={category => {
+          track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category } });
+          toggleCategory(category);
+        }}
+        onClear={clearCategories} onDistance={() => setDistanceVisible(true)}
+        onList={() => setListVisible(true)} onRefresh={handleRefresh} onSatellite={toggleMapType}
+        onLocate={handleLocateMe} onAdd={handleStartPicking} onCancel={() => setPicking('idle')}
+      />
 
       {/* MODALE */}
       <AddSpotModal

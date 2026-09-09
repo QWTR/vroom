@@ -5,7 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
 import { SpotCategory, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useMapHudTheme as useTheme } from '../map/useMapHudTheme';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 interface AddSpotModalProps {
@@ -67,11 +67,11 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
-        <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' }}>
+        <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 20, maxHeight: '90%' }}>
 
           {/* Header */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', letterSpacing: 1 }}>📍 NOWY SPOT</Text>
+            <Text style={{ color: theme.text, fontSize: 23, fontWeight: '800', letterSpacing: -0.4 }}>Nowa miejscówka</Text>
             <TouchableOpacity onPress={handleClose} disabled={isBlocked} activeOpacity={0.8}>
               <MaterialIcons name="close" size={24} color={isBlocked ? theme.textFaint : theme.textDim} />
             </TouchableOpacity>
@@ -107,7 +107,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, height: 50, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
               <MaterialIcons name="label-outline" size={18} color={theme.primary} />
               <TextInput
-                style={{ flex: 1, color: theme.text, fontSize: 13, marginLeft: 10 }}
+                style={{ flex: 1, color: theme.text, fontSize: 16, marginLeft: 10 }}
                 placeholder="np. Widok na dolinę" placeholderTextColor={theme.textDim}
                 value={name} onChangeText={setName} maxLength={50} editable={!isBlocked}
               />
@@ -118,7 +118,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             <View style={[{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, paddingTop: 12, height: 90, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
               <MaterialIcons name="notes" size={18} color={theme.primary} style={{ marginTop: 2 }} />
               <TextInput
-                style={{ flex: 1, color: theme.text, fontSize: 13, marginLeft: 10, height: 70, textAlignVertical: 'top' }}
+                style={{ flex: 1, color: theme.text, fontSize: 16, marginLeft: 10, height: 70, textAlignVertical: 'top' }}
                 placeholder="Opisz to miejsce..." placeholderTextColor={theme.textDim}
                 value={description} onChangeText={setDescription} multiline maxLength={200} editable={!isBlocked}
               />
