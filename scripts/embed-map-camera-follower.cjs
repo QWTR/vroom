@@ -4,27 +4,27 @@ const zlib = require('zlib');
 
 const root = path.resolve(__dirname, '..');
 const pluginPath = path.join(root, 'plugins', 'withVroomMapCameraFollower.js');
-const canonicalDir = path.join(root, 'native', 'map-camera-follower', 'ios');
-const mirrorDir = path.join(root, 'plugins', 'map-camera-follower', 'ios');
-const files = [
-  'VroomMapCameraFollower.swift',
-  'VroomNativeMotionPredictor.swift',
-  'VroomMapCameraFollowerBridge.m',
-];
-
 let plugin = fs.readFileSync(pluginPath, 'utf8');
-for (const file of files) {
-  const source = fs.readFileSync(path.join(canonicalDir, file), 'utf8');
-  const encoded = zlib.gzipSync(Buffer.from(source)).toString('base64');
-  const entry = `  '${file}': decodeEmbeddedSource('${encoded}'),`;
-  const pattern = new RegExp(`  '${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}': decodeEmbeddedSource\\('[^']*'\\),`);
-  if (pattern.test(plugin)) {
-    plugin = plugin.replace(pattern, entry);
-  } else {
-    const anchor = "const IOS_SOURCE_FILES = {";
-    plugin = plugin.replace(anchor, `${anchor}\n${entry}`);
+for (const [platform, files] of Object.entries({
+  ios: ['VroomMapCameraFollower.swift', 'VroomMapCameraFollowerBridge.m'],
+  android: ['VroomMapCameraFollower.kt', 'VroomMapCameraFollowerManager.kt', 'VroomMapCameraFollowerPackage.kt'],
+})) {
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(root, 'native', 'map-camera-follower', platform, file), 'utf8');
+    const encoded = zlib.gzipSync(Buffer.from(source)).toString('base64');
+    const prefix = `  '${file}': decodeEmbeddedSource('`;
+    const start = plugin.indexOf(prefix);
+    if (start < 0) throw new Error(`Missing embedded source: ${file}`);
+    const end = plugin.indexOf("'),", start) + 3;
+    plugin = plugin.slice(0, start) + `${prefix}${encoded}'),` + plugin.slice(end);
+    if (platform === 'ios') {
+      const mirror = path.join(root, 'plugins', 'map-camera-follower', 'ios');
+      fs.mkdirSync(mirror, { recursive: true });
+      fs.writeFileSync(path.join(mirror, file), source);
+    } else {
+      const generated = path.join(root, 'android', 'app', 'src', 'main', 'java', 'com', 'lexuuw', 'vroom', 'app', 'mapcamera');
+      if (fs.existsSync(generated)) fs.writeFileSync(path.join(generated, file), source.replaceAll('__PACKAGE__', 'com.lexuuw.vroom.app'));
+    }
   }
-  fs.mkdirSync(mirrorDir, { recursive: true });
-  fs.copyFileSync(path.join(canonicalDir, file), path.join(mirrorDir, file));
 }
 fs.writeFileSync(pluginPath, plugin);

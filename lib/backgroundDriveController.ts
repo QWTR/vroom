@@ -17,6 +17,10 @@ export type BackgroundDriveRuntimeState = {
   lastFixTimestampMs?: number;
   lastFixAgeMs?: number;
   retryAttempt?: number;
+  consumerCount?: number;
+  providerActive?: boolean;
+  immediateDelivery?: boolean;
+  rejectedFixCount?: number;
 };
 
 export type BackgroundDriveReadiness = {
@@ -109,6 +113,7 @@ const IOS_DRIVE_NOTIFICATION_ID_KEY = 'wiroom_drive_notification_id';
 
 const { VroomBgTracking, WiroomLocationService } = NativeModules as {
   VroomBgTracking?: {
+    setNavigationVisible?: (visible: boolean) => void;
     startDriveTracking?: (
       mode: BackgroundDriveMode,
       tripSessionId?: string,
@@ -228,6 +233,9 @@ async function dismissIosDriveNotification(): Promise<void> {
 }
 
 export const BackgroundDriveController = {
+  setNavigationVisible(visible: boolean): void {
+    if (Platform.OS === 'android') VroomBgTracking?.setNavigationVisible?.(visible);
+  },
   async getReadiness(): Promise<BackgroundDriveReadiness> {
     const settingEnabled = (await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY).catch(() => null)) === 'true';
     const [foreground, background] = await Promise.all([

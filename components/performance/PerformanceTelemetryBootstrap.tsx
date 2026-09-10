@@ -1,3 +1,5 @@
+import { BackgroundDriveController } from '../../lib/backgroundDriveController';
+import { navigationMotionSnapshot } from '../../lib/performance/telemetry';
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'expo-router';
 import { usePerformance } from '../../contexts/PerformanceContext';
@@ -81,7 +83,8 @@ export function PerformanceTelemetryBootstrap() {
           if (diagnosticsEnabledRef.current) {
             const tasks = managedTaskStats();
             const surfaces = performanceRuntimeStats();
-            void readBatterySnapshot().then((battery) => {
+            void Promise.all([readBatterySnapshot(), BackgroundDriveController.getDiagnostics()]).then(([battery, diagnostics]) => {
+              const gps = diagnostics.find(row => row.state === 'locationProvider');
               if (!diagnosticsEnabledRef.current) return undefined;
               return appendPerformanceUsageSample({
               at: Date.now(),
@@ -96,6 +99,13 @@ export function PerformanceTelemetryBootstrap() {
               activeTasks: tasks.active,
               hiddenTaskViolations: tasks.hiddenViolations,
               heavySurfaces: surfaces.heavySurfaces,
+              navigation: {
+                ...navigationMotionSnapshot(),
+                gpsConsumers: gps?.consumerCount,
+                gpsProviderActive: gps?.providerActive,
+                gpsImmediateDelivery: gps?.immediateDelivery,
+                gpsRejectedFixes: gps?.rejectedFixCount,
+              },
               });
             });
           }

@@ -1,3 +1,5 @@
+import { recordNavigationRouteRebuild } from '../../lib/performance/telemetry';
+import { createRouteLineController } from '../../lib/navigationV3/routeLineController';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
@@ -1789,6 +1791,36 @@ function MapScreenInner() {
   const [selectedRouteIndex,   setSelectedRouteIndex]   = useState(0);
   const [tripStatsVisible,     setTripStatsVisible]     = useState(false);
   const [addCameraVisible,     setAddCameraVisible]     = useState(false);
+  const routeLineControllerRef = useRef(createRouteLineController());
+  const routeLineRevisionRef = useRef(0);
+  const routeLineGeometryRef = useRef<{ latitude: number; longitude: number }[] | null>(null);
+  const mapVisualsVisibleRef = useRef(false);
+  const updateRouteLine = useCallback((
+    points: { latitude: number; longitude: number }[],
+    latitude: number,
+    longitude: number,
+    options: { replace?: boolean; segmentIndex?: number; offRoute?: boolean } = {},
+  ) => {
+    if (options.offRoute) return;
+    if (options.replace) {
+      routeLineGeometryRef.current = points;
+      routeLineRevisionRef.current = routeLineControllerRef.current.replace(points);
+    }
+    if (routeLineGeometryRef.current !== points) return;
+    const next = routeLineControllerRef.current.update({
+      revision: routeLineRevisionRef.current,
+      latitude, longitude,
+      segmentIndex: options.segmentIndex,
+      visible: mapVisualsVisibleRef.current,
+      offRoute: options.offRoute ?? false,
+      now: Date.now(),
+      radiusM: NAV_ROUTE_SNAP_M,
+    });
+    if (next) {
+      recordNavigationRouteRebuild(mapVisualsVisibleRef.current);
+      setRemainingRoutePoints(next);
+    }
+  }, []);
   const [cameraPickMode,       setCameraPickMode]       = useState(false);
   const [manualTargetPickMode, setManualTargetPickMode] = useState(false);
   const [pendingAddCameraParams, setPendingAddCameraParams] = useState<{
@@ -1940,6 +1972,11 @@ function MapScreenInner() {
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
   const mapScene = useSceneLifecycle('map', { tripActive: isTripActiveMap });
+  mapVisualsVisibleRef.current = mapScene.uiVisible;
+  useEffect(() => {
+    BackgroundDriveController.setNavigationVisible(mapScene.uiVisible && isTripActiveMap);
+    return () => BackgroundDriveController.setNavigationVisible(false);
+  }, [mapScene.uiVisible, isTripActiveMap]);
   const { profile: performanceProfile } = usePerformance();
   /** Aktywne 3D nie ma 2D underlay; 2D renderuje się tylko jako fallback przez showSelf2DMarker. */
   const showTripArrowUnderlay = false;
@@ -1974,8 +2011,12 @@ function MapScreenInner() {
     return { lat: pose.latitude, lng: pose.longitude, headingDeg };
   }, [userLocation]);
 
+  const [mapPreferredFramesPerSecond, setMapPreferredFramesPerSecond] = useState<15 | 30 | 60>(() => (
+    resolveMapFps({ profile: performanceProfile, speedKmh: 0, idleForMs: 0 })
+  ));
+
   /** Marker prowadzony po łuku drogi na UI thread. */
-  const driveMarker = useDriveMarkerV3(isTripActiveMap, getDriveMarkerSeedPose);
+  const driveMarker = useDriveMarkerV3(isTripActiveMap, getDriveMarkerSeedPose, mapScene.uiVisible, mapPreferredFramesPerSecond);
   const navV3Mode: NavMode = isNavigating
     ? 'navigation'
     : isDriving
@@ -2201,7 +2242,7 @@ function MapScreenInner() {
   const cameraV3 = useCameraV3({
     cameraRef,
     marker: driveMarker,
-    enabled: isTripActiveMap,
+    enabled: isTripActiveMap && mapScene.uiVisible,
     mode: navV3Mode,
     speedKmhRef,
     rawGpsRef: rawGpsCourseRef,
@@ -2737,9 +2778,7 @@ function MapScreenInner() {
     updateSpeedLimitRef.current = updateSpeedLimit;
   }, [updateSpeedLimit]);
   const speedKmh = (speed ?? 0) * 3.6;
-  const [mapPreferredFramesPerSecond, setMapPreferredFramesPerSecond] = useState<15 | 30 | 60>(() => (
-    resolveMapFps({ profile: performanceProfile, speedKmh: 0, idleForMs: 0 })
-  ));
+
   const mapGestureActiveRef = useRef(false);
   const mapFpsIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -11055,17 +11094,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       }
 
       if (points.length > 1) {
-        const snapped = snapToRoute(lat, lng, points, NAV_ROUTE_SNAP_M);
-        const idx     = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
-        setRemainingRoutePoints([
-          { latitude: snapped.latitude, longitude: snapped.longitude },
-          ...points.slice(idx + 1),
-        ]);
+        updateRouteLine(points, lat, lng, { replace: true });
       }
 
       feedSpeedSample(speedMs);
       lastNavLocRef.current = { latitude: lat, longitude: lng };
-    }, [processMotionFix]),
+    }, [processMotionFix, updateRouteLine]),
     speedKmh:   120,
     intervalMs: 100,
   });
@@ -11193,13 +11227,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       });
       navRouteIdxRef.current = idx;
       lastRemainingRouteHeadRef.current = null;
-      const remainingPts = [
-        { latitude: syncLat, longitude: syncLng },
-        ...trimmedReroute.points.slice(idx + 1),
-      ];
-      requestAnimationFrame(() => {
-        setRemainingRoutePoints(remainingPts);
-      });
+      updateRouteLine(trimmedReroute.points, syncLat, syncLng, { replace: true, segmentIndex: idx });
       lastRerouteMotionAnchorRef.current = { lat: curLat, lng: curLng };
     }
     setCurrentStep(0);
@@ -11221,7 +11249,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       type: 'info',
       text2: 'Nowa trasa od Twojej pozycji (w kierunku jazdy).',
     });
-  }, [rerouteResult, offRoute, userLocation, navV3, driveMarker, setFollowMode]);
+  }, [rerouteResult, offRoute, userLocation, navV3, driveMarker, setFollowMode, updateRouteLine]);
 
   useEffect(() => {
     if (!offRoute || !reroutePendingRef.current) return;
@@ -11512,6 +11540,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   useEffect(() => {
     const points = activeRoute?.points;
+    if (!points?.length || !isNavigating) {
+      if (routeLineGeometryRef.current) {
+        routeLineGeometryRef.current = null;
+        routeLineRevisionRef.current = routeLineControllerRef.current.replace([]);
+      }
+    }
+    if (!mapScene.uiVisible) return;
     if (!points?.length) { setRemainingRoutePoints([]); return; }
     // W trybie jazdy nie rysuj trasy podglądu — tylko nawigacja; inaczej „ślad” 483 + marker obok.
     if (!isNavigating) {
@@ -11531,20 +11566,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       ? mLng
       : (lastTripMarkerPoseRef.current?.lng ?? userLocation?.longitude);
     if (!Number.isFinite(anchorLat) || !Number.isFinite(anchorLng)) {
-      setRemainingRoutePoints(points);
       return;
     }
     const anchorLatNum = Number(anchorLat);
     const anchorLngNum = Number(anchorLng);
-    const snapped = snapToRoute(anchorLatNum, anchorLngNum, points, NAV_ROUTE_SNAP_M);
-    const idx = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
-    const headLat = hasSmoothedMarker ? mLat : snapped.latitude;
-    const headLng = hasSmoothedMarker ? mLng : snapped.longitude;
-    setRemainingRoutePoints([
-      { latitude: headLat, longitude: headLng },
-      ...points.slice(idx + 1),
-    ]);
-  }, [isNavigating, isDriving, navigationUiReady, activeRoute, driveMarker, userLocation]);
+    updateRouteLine(points, anchorLatNum, anchorLngNum, {
+      replace: true,
+      offRoute: offRouteRef.current || reroutePendingRef.current,
+    });
+  }, [isNavigating, isDriving, navigationUiReady, activeRoute, driveMarker, userLocation, mapScene.uiVisible, updateRouteLine]);
 
   // ── Live location sharing ────────────────────────────────────────────────────
   // Single interval-based mechanism (replaces the previous dual send: event + interval).
@@ -11748,6 +11778,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   const [fleetAnchor, setFleetAnchor] = useState<{ latitude: number; longitude: number } | null>(null);
 
   const syncFleetAnchor = useCallback(() => {
+    if (!mapVisualsVisibleRef.current) return;
     const tripActive = isDriving || isNavigating;
     if (tripActive) {
       const pose = lastTripMarkerPoseRef.current;
@@ -11770,8 +11801,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setFleetAnchor(null);
   }, [isDriving, isNavigating, userLocation?.latitude, userLocation?.longitude]);
 
-  useEffect(() => { syncFleetAnchor(); }, [syncFleetAnchor]);
-  useMapAnchorSync({ enabled: isDriving || isNavigating, syncAnchor: syncFleetAnchor });
+  useEffect(() => { syncFleetAnchor(); }, [syncFleetAnchor, mapScene.uiVisible]);
+  useMapAnchorSync({ enabled: mapScene.uiVisible && (isDriving || isNavigating), syncAnchor: syncFleetAnchor });
 
   const liveUsersAnchor = fleetAnchor;
 
@@ -12348,7 +12379,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     const runNavProgress = () => {
       const mLat = driveMarker.lat.value;
       const mLng = driveMarker.lng.value;
-      const hasSmoothedMarker = Number.isFinite(mLat) && Number.isFinite(mLng)
+      const hasSmoothedMarker = mapVisualsVisibleRef.current && Number.isFinite(mLat) && Number.isFinite(mLng)
         && !(Math.abs(mLat) < 1e-6 && Math.abs(mLng) < 1e-6);
       const drFresh =
         drLatRef.current !== 0
@@ -12642,35 +12673,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           navRouteIdxRef.current = Math.max(0, idx);
         }
 
-        const previousHead = lastRemainingRouteHeadRef.current;
-        // Linia trasy zawsze zaczyna się na geometrii drogi. Łączenie jej z
-        // animowanym markerem tworzyło ukośny, trójkątny artefakt na zakrętach.
-        const headLat = routeProjection.latitude;
-        const headLng = routeProjection.longitude;
-        const headMovedM = previousHead
-          ? haversineKm(
-              previousHead.lat,
-              previousHead.lng,
-              headLat,
-              headLng,
-            ) * 1000
-          : Number.POSITIVE_INFINITY;
-        const routeLineNowMs = Date.now();
-        const shouldRefreshRouteLine = !previousHead
-          || previousHead.idx !== idx
-          || (headMovedM >= 8 && routeLineNowMs - previousHead.atMs >= 1_000);
-        if (shouldRefreshRouteLine) {
-          lastRemainingRouteHeadRef.current = {
-            lat: headLat,
-            lng: headLng,
-            idx,
-            atMs: routeLineNowMs,
-          };
-          setRemainingRoutePoints([
-            { latitude: headLat, longitude: headLng },
-            ...points.slice(idx + 1),
-          ]);
-        }
+        updateRouteLine(points, routeProjection.latitude, routeProjection.longitude, {
+          segmentIndex: idx,
+          offRoute: offRouteRef.current || reroutePendingRef.current,
+        });
 
         if (routePrefixSumsRef.current.points !== points) {
           const sums = new Array(points.length).fill(0);
@@ -12748,6 +12754,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     navigationVoice.enqueue,
     navigationVoice.stop,
     driveMarker,
+    updateRouteLine,
   ]);
 
   useMapNavigationSession({
@@ -13940,6 +13947,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           />
           <VroomMapCameraFollower
             {...cameraV3.nativeFollower}
+            framesPerSecond={mapPreferredFramesPerSecond}
             markerVisible={isTripActive && (showSelf2DMarker || useVehicle3DMarker || showTripArrowUnderlay)}
           />
           <Mapbox.LocationPuck visible={false} />

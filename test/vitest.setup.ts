@@ -16,3 +16,8 @@ vi.mock('expo-file-system/legacy', () => ({
   writeAsStringAsync: vi.fn(() => Promise.resolve()),
   readAsStringAsync: vi.fn(() => Promise.resolve('')),
 }));
+
+// Node tests exercise the JS fallback without loading Expo's native runtime.
+vi.mock('expo-modules-core', () => ({
+  requireOptionalNativeModule: vi.fn(() => null),
+}));

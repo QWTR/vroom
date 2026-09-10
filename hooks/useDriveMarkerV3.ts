@@ -528,6 +528,8 @@ function projectPointToWindowArcJs(
 export function useDriveMarkerV3(
   enabled = true,
   getSeedPose?: () => DriveMarkerSeedPose | null,
+  renderActive = true,
+  framesPerSecond: 15 | 30 | 60 = 60,
 ): UseDriveMarkerV3Return {
   const getSeedPoseRef = useRef(getSeedPose);
   getSeedPoseRef.current = getSeedPose;
@@ -540,7 +542,9 @@ export function useDriveMarkerV3(
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
   const markerRoadHeading = useSharedValue(0);
-  const enabledSv = useSharedValue(enabled ? 1 : 0);
+  const enabledSv = useSharedValue(enabled && renderActive ? 1 : 0);
+  const lastRenderedTimestamp = useSharedValue(0);
+  const renderFps = useSharedValue(framesPerSecond);
   const bootstrapped = useSharedValue(0);
 
   const displayArcM = useSharedValue(0);
@@ -638,9 +642,14 @@ export function useDriveMarkerV3(
     'worklet';
     if (enabledSv.value < 0.5 || bootstrapped.value < 0.5) return;
 
+    const elapsedMs = lastRenderedTimestamp.value > 0
+      ? frame.timestamp - lastRenderedTimestamp.value
+      : 1000 / renderFps.value;
+    if (elapsedMs + 0.5 < 1000 / renderFps.value) return;
+    lastRenderedTimestamp.value = frame.timestamp;
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
-    const dtSec = clampWorklet((frame.timeSincePreviousFrame ?? 16.67) / 1000, 0.008, 0.05);
+    const dtSec = clampWorklet(elapsedMs / 1000, 0.008, 0.1);
     const nowMs = Date.now();
     const segmentElapsedMs = segmentStartedAtMs.value > 0
       ? Math.max(0, nowMs - segmentStartedAtMs.value)
@@ -765,12 +774,16 @@ export function useDriveMarkerV3(
     const nowMs = Date.now();
     const sourceMs = Number.isFinite(target.sourceTimestampMs) ? Number(target.sourceTimestampMs) : nowMs;
     const sourceAgeMs = Math.max(0, nowMs - sourceMs);
+    const previousTarget = lastTargetJsRef.current;
+    if (!target.allowInstant && previousTarget?.sourceTimestampMs != null
+      && target.sourceTimestampMs != null && target.sourceTimestampMs <= previousTarget.sourceTimestampMs
+      && target.geometryRevision === previousTarget.geometryRevision) return;
+
     if (bootstrappedJsRef.current && sourceAgeMs > TRIP_MOTION.staleSampleMs && !target.allowInstant) {
       sampleSpeedMs.value = 0;
       speedMs.value = 0;
       return;
     }
-    const previousTarget = lastTargetJsRef.current;
 
     const tgtHdg = safeHeadingJs(target.headingDeg, safeHeadingJs(heading.value, 0));
 
@@ -1257,13 +1270,15 @@ export function useDriveMarkerV3(
   ]);
 
   const ensureFrameActive = useCallback(() => {
-    enabledSv.value = enabled ? 1 : 0;
-    frameCallback.setActive(enabled);
-  }, [enabled, enabledSv, frameCallback]);
+    enabledSv.value = enabled && renderActive ? 1 : 0;
+    frameCallback.setActive(enabled && renderActive);
+  }, [enabled, renderActive, enabledSv, frameCallback]);
 
   useEffect(() => {
-    enabledSv.value = enabled ? 1 : 0;
-    frameCallback.setActive(enabled);
+    enabledSv.value = enabled && renderActive ? 1 : 0;
+    lastRenderedTimestamp.value = 0;
+    if (enabled && renderActive) resumeFromBackground();
+    frameCallback.setActive(enabled && renderActive);
     if (!enabled) {
       bootstrappedJsRef.current = false;
       lastTargetJsRef.current = null;
@@ -1273,7 +1288,9 @@ export function useDriveMarkerV3(
     return () => {
       frameCallback.setActive(false);
     };
-  }, [enabled, enabledSv, frameCallback]);
+  }, [enabled, renderActive, enabledSv, frameCallback, lastRenderedTimestamp, resumeFromBackground]);
+
+  useEffect(() => { renderFps.value = framesPerSecond; }, [framesPerSecond, renderFps]);
 
   /** Trip ON bez wcześniejszego resetTo — seed z najlepszej znanej pozycji (cold start / postój). */
   useEffect(() => {
@@ -1299,8 +1316,8 @@ export function useDriveMarkerV3(
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
-    frameCallback.setActive(true);
-  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, geometryRevisionSv, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
+    frameCallback.setActive(renderActive);
+  }, [enabled, renderActive, applyInstantPose, baseArcM, displayArcM, frameCallback, geometryRevisionSv, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
 
   return useMemo(
     () => ({

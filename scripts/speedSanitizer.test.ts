@@ -1,3 +1,4 @@
+import { clampSpeedKmhToGeometry } from './speedSanitizer';
 import { describe, expect, it } from 'vitest';
 import {
   computeStandstillNetM,
@@ -111,5 +112,19 @@ describe('isStationaryGpsSpike', () => {
       accuracyM: 8,
     });
     expect(kmh).toBeGreaterThanOrEqual(70);
+  });
+});
+
+
+describe('geometry speed clamp', () => {
+  it('preserves highway speed supported by geometry without throwing', () => {
+    expect(clampSpeedKmhToGeometry(95, {
+      netMoveM: 28, sustainedKmh: 95, motionKmh: 95, rawGpsKmh: 95, isTripActive: true,
+    })).toBe(95);
+  });
+  it('rejects a stationary GPS speed spike', () => {
+    expect(clampSpeedKmhToGeometry(95, {
+      netMoveM: 0, sustainedKmh: 0, motionKmh: 0, rawGpsKmh: 95, isTripActive: true,
+    })).toBe(0);
   });
 });

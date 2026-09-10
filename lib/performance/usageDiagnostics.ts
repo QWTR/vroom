@@ -20,6 +20,18 @@ export type PerformanceUsageSample = {
   activeTasks: number;
   hiddenTaskViolations: number;
   heavySurfaces: number;
+  /** Counters since the last performance summary; optional for older recordings. */
+  navigation?: {
+    cameraWrites: number;
+    markerWrites: number;
+    frames: number;
+    routeRebuilds: number;
+    hiddenVisualWork: number;
+    gpsConsumers?: number;
+    gpsProviderActive?: boolean;
+    gpsImmediateDelivery?: boolean;
+    gpsRejectedFixes?: number;
+  };
 };
 
 export type PerformanceUsageSummary = {

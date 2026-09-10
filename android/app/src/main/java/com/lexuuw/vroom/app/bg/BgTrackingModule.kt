@@ -2,6 +2,7 @@ package com.lexuuw.vroom.app.bg
 
 import android.content.Context
 import android.location.Location
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -14,13 +15,30 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class BgTrackingModule(private val reactContext: ReactApplicationContext) :
-  ReactContextBaseJavaModule(reactContext) {
+  ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
 
   init {
     instance = this
+    reactContext.addLifecycleEventListener(this)
   }
 
   override fun getName(): String = "VroomBgTracking"
+
+  override fun invalidate() {
+    reactContext.removeLifecycleEventListener(this)
+    VroomLocationBroker.setImmediateDelivery("phone-map", false)
+    if (instance === this) instance = null
+    super.invalidate()
+  }
+
+  override fun onHostResume() = Unit
+  override fun onHostPause() { VroomLocationBroker.setImmediateDelivery("phone-map", false) }
+  override fun onHostDestroy() { VroomLocationBroker.setImmediateDelivery("phone-map", false) }
+
+  @ReactMethod
+  fun setNavigationVisible(visible: Boolean) {
+    VroomLocationBroker.setImmediateDelivery("phone-map", visible)
+  }
 
   @ReactMethod
   fun startForegroundNotification(promise: Promise) {
@@ -130,6 +148,8 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
       putInt("consumerCount", values["consumerCount"] as? Int ?: 0)
       putBoolean("providerActive", values["providerActive"] == true)
       putBoolean("idleProfile", values["idleProfile"] == true)
+      putBoolean("immediateDelivery", values["immediateDelivery"] == true)
+      putDouble("rejectedFixCount", (values["rejectedFixCount"] as? Long ?: 0L).toDouble())
       putDouble("fixCount", (values["fixCount"] as? Long ?: 0L).toDouble())
       putDouble("providerUptimeMs", (values["providerUptimeMs"] as? Long ?: 0L).toDouble())
     }

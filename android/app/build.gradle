@@ -3,6 +3,9 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def vroomNavigationTest = (findProperty("vroomNavigationTest") ?: "false").toBoolean()
+def vroomAppConfig = new groovy.json.JsonSlurper().parse(new File(projectRoot, "app.json")).expo
+
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -106,7 +109,11 @@ packagingOptions {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0.30"
+        versionName (vroomNavigationTest ? "${vroomAppConfig.version}-navfix-test" : "1.0.30")
+        manifestPlaceholders += [
+            vroomUpdatesEnabled: vroomNavigationTest ? "false" : "true",
+            vroomRuntimeVersion: vroomNavigationTest ? "${vroomAppConfig.runtimeVersion}-navfix-test" : "@string/expo_runtime_version"
+        ]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

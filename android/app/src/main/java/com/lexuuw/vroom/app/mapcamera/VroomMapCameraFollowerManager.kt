@@ -8,8 +8,18 @@ class VroomMapCameraFollowerManager : SimpleViewManager<VroomMapCameraFollower>(
   override fun getName() = "VroomMapCameraFollower"
   override fun createViewInstance(context: ThemedReactContext) = VroomMapCameraFollower(context)
 
+  override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> = mutableMapOf(
+    "topMotionDiagnostics" to mapOf("registrationName" to "onMotionDiagnostics"),
+  )
+
+  @ReactProp(name = "diagnosticsEnabled", defaultBoolean = false)
+  fun setDiagnosticsEnabled(view: VroomMapCameraFollower, value: Boolean) = view.setDiagnosticsEnabled(value)
+
   @ReactProp(name = "enabled", defaultBoolean = false)
   fun setEnabled(view: VroomMapCameraFollower, value: Boolean) = view.setFollowerEnabled(value)
+
+  @ReactProp(name = "framesPerSecond", defaultInt = 60)
+  fun setFramesPerSecond(view: VroomMapCameraFollower, value: Int) = view.setFramesPerSecond(value)
 
   @ReactProp(name = "cameraMode")
   fun setCameraMode(view: VroomMapCameraFollower, value: String?) = view.setCameraMode(value)

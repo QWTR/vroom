@@ -1,6 +1,9 @@
 package __PACKAGE__.mapcamera
 
 import android.content.Context
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReactContext
+import com.facebook.react.uimanager.events.RCTEventEmitter
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
@@ -48,26 +51,20 @@ internal fun mapCameraAdvanceCenter(
   dtMs: Double,
   clampTrackingError: Boolean = true,
 ): MapCameraCenter {
-  if (!currentLat.isFinite() || !currentLng.isFinite()) return MapCameraCenter(targetLat, targetLng)
-  val frameSeconds = dtMs.coerceIn(1.0, 50.0) / 1_000.0
-  val predictedDistanceM = speedMps.coerceAtLeast(0.0) * frameSeconds
-  val headingRad = mapCameraNormalizeHeading(targetHeading) * PI / 180.0
-  val predictedLat = targetLat + cos(headingRad) * predictedDistanceM / 111_320.0
-  val lngScale = 111_320.0 * max(0.15, cos(targetLat * PI / 180.0))
-  val predictedLng = targetLng + sin(headingRad) * predictedDistanceM / lngScale
-  val alpha = 1.0 - exp(-ln(2.0) * dtMs.coerceIn(1.0, 50.0) / CAMERA_CENTER_HALF_LIFE_MS)
-  var nextLat = currentLat + (predictedLat - currentLat) * alpha
-  var nextLng = currentLng + (predictedLng - currentLng) * alpha
-  if (clampTrackingError) {
-    val maxErrorM = if (speedMps >= CAMERA_MOVING_SPEED_MPS) CAMERA_MOVING_MAX_ERROR_M else CAMERA_STOPPED_MAX_ERROR_M
-    val remainingM = mapCameraDistanceMeters(nextLat, nextLng, targetLat, targetLng)
-    if (remainingM > maxErrorM) {
-      val correction = (remainingM - maxErrorM) / remainingM
-      nextLat += (targetLat - nextLat) * correction
-      nextLng += (targetLng - nextLng) * correction
-    }
-  }
-  return MapCameraCenter(nextLat, nextLng)
+  if (clampTrackingError || !currentLat.isFinite() || !currentLng.isFinite()) return MapCameraCenter(targetLat, targetLng)
+  val alpha = 1.0 - exp(-ln(2.0) * dtMs.coerceIn(1.0, 100.0) / CAMERA_CENTER_HALF_LIFE_MS)
+  return MapCameraCenter(
+    currentLat + (targetLat - currentLat) * alpha,
+    currentLng + (targetLng - currentLng) * alpha,
+  )
+}
+
+internal fun mapCameraReentryCenter(
+  originLat: Double, originLng: Double, targetLat: Double, targetLng: Double, elapsedMs: Double,
+): MapCameraCenter {
+  val t = (elapsedMs / 400.0).coerceIn(0.0, 1.0)
+  val blend = t * t * (3.0 - 2.0 * t)
+  return MapCameraCenter(originLat + (targetLat - originLat) * blend, originLng + (targetLng - originLng) * blend)
 }
 
 internal fun mapCameraAdvanceBearing(current: Double, target: Double, dtMs: Double): Double {
@@ -137,9 +134,20 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var paddingRight = 0.0
   private var dirty = false
   private var framePosted = false
+  private var framesPerSecond = 60
+  private var diagnosticsEnabled = false
+  private var cameraWrites = 0
+  private var markerWrites = 0
+  private var diagnosticFrames = 0
+  private var lastDiagnosticsMs = 0L
+  private var lastCameraValues: DoubleArray? = null
+  private var lastAppliedFrameNanos = 0L
   private var framingInitialized = false
   private var poseInitialized = false
   private var cameraReentry = false
+  private var reentryElapsedMs = 0.0
+  private var reentryOriginLat = 0.0
+  private var reentryOriginLng = 0.0
   private var displayedLatitude = Double.NaN
   private var displayedLongitude = Double.NaN
   private var displayedHeading = 0.0
@@ -160,6 +168,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
 
   fun setFollowerEnabled(value: Boolean) {
     if (value && !enabled) {
+      lastCameraValues = null
       framingInitialized = false
       poseInitialized = false
       cameraReentry = true
@@ -168,6 +177,31 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
     }
     enabled = value
     if (isMotionActive()) scheduleFrame() else cancelFrame()
+  }
+
+  fun setDiagnosticsEnabled(value: Boolean) { diagnosticsEnabled = value }
+
+  private fun reportDiagnostics() {
+    if (!diagnosticsEnabled) return
+    diagnosticFrames += 1
+    val now = android.os.SystemClock.elapsedRealtime()
+    if (lastDiagnosticsMs == 0L) lastDiagnosticsMs = now
+    if (now - lastDiagnosticsMs < 10_000L) return
+    val event = Arguments.createMap().apply {
+      putInt("cameraWrites", cameraWrites)
+      putInt("markerWrites", markerWrites)
+      putInt("frames", diagnosticFrames)
+    }
+    (context as? ReactContext)?.getJSModule(RCTEventEmitter::class.java)
+      ?.receiveEvent(id, "topMotionDiagnostics", event)
+    cameraWrites = 0
+    markerWrites = 0
+    diagnosticFrames = 0
+    lastDiagnosticsMs = now
+  }
+
+  fun setFramesPerSecond(value: Int) {
+    framesPerSecond = value.coerceIn(15, 60)
   }
 
   fun setCameraMode(value: String?) {
@@ -244,13 +278,22 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
     arrowImageRegistered = false
     lastStyleIdentity = 0
     dirty = true
+    lastCameraValues = null
     scheduleFrame()
   }
 
   override fun doFrame(frameTimeNanos: Long) {
     framePosted = false
     if (!isMotionActive()) return
-    if (dirty || hasPendingWork()) applyLatestPose(frameTimeNanos)
+    val intervalNanos = 1_000_000_000L / framesPerSecond
+    if (lastAppliedFrameNanos > 0L && frameTimeNanos - lastAppliedFrameNanos + 500_000L < intervalNanos) {
+      scheduleFrame()
+      return
+    }
+    if (dirty || hasPendingWork()) {
+      lastAppliedFrameNanos = frameTimeNanos
+      applyLatestPose(frameTimeNanos)
+    }
     if (dirty || hasPendingWork()) scheduleFrame()
   }
 
@@ -282,7 +325,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
     val mapboxMap = mMapView?.getMapboxMap() ?: return
 
     val dtMs = if (lastFrameNanos > 0L) {
-      ((frameTimeNanos - lastFrameNanos).coerceIn(1_000_000L, 50_000_000L) / 1_000_000.0)
+      ((frameTimeNanos - lastFrameNanos).coerceIn(1_000_000L, 100_000_000L) / 1_000_000.0)
     } else 16.0
     lastFrameNanos = frameTimeNanos
 
@@ -308,6 +351,9 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
         displayedLongitude = targetLongitude
         displayedHeading = mapCameraNormalizeHeading(targetHeading)
       }
+      reentryOriginLat = displayedLatitude
+      reentryOriginLng = displayedLongitude
+      reentryElapsedMs = 0.0
       poseInitialized = true
     }
     advanceDisplayedPose(dtMs)
@@ -326,39 +372,43 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       displayedPaddingBottom += (paddingBottom - displayedPaddingBottom) * alpha
       displayedPaddingLeft += (paddingLeft - displayedPaddingLeft) * alpha
       displayedPaddingRight += (paddingRight - displayedPaddingRight) * alpha
-      mapboxMap.setCamera(
-        CameraOptions.Builder()
-          .center(Point.fromLngLat(displayedLongitude, displayedLatitude))
-          .bearing(if (cameraMode == "northUp") 0.0 else cameraWorldHeading)
-          .zoom(displayedZoom)
-          .pitch(displayedPitch)
-          .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
-          .build(),
-      )
-      appliedCameraBearing = if (cameraMode == "northUp") 0.0 else cameraWorldHeading
+      val values = doubleArrayOf(displayedLatitude, displayedLongitude,
+        if (cameraMode == "northUp") 0.0 else cameraWorldHeading,
+        displayedZoom, displayedPitch, displayedPaddingTop, displayedPaddingLeft,
+        displayedPaddingBottom, displayedPaddingRight)
+      val tolerances = doubleArrayOf(0.00000001, 0.00000001, 0.02, 0.002, 0.03, 0.25, 0.25, 0.25, 0.25)
+      val previousCamera = lastCameraValues
+      if (previousCamera == null || values.indices.any { abs(values[it] - previousCamera[it]) > tolerances[it] }) {
+        mapboxMap.setCamera(
+          CameraOptions.Builder()
+            .center(Point.fromLngLat(displayedLongitude, displayedLatitude))
+            .bearing(if (cameraMode == "northUp") 0.0 else cameraWorldHeading)
+            .zoom(displayedZoom)
+            .pitch(displayedPitch)
+            .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
+            .build(),
+        )
+        lastCameraValues = values
+        if (diagnosticsEnabled) cameraWrites += 1
+      }
+      appliedCameraBearing = lastCameraValues?.get(2) ?: appliedCameraBearing
     }
 
     val screenHeading = mapCameraScreenHeading(markerWorldHeading, appliedCameraBearing)
     updateMarkerSource(mapboxMap, targetLatitude, targetLongitude, markerWorldHeading, screenHeading)
+    reportDiagnostics()
   }
 
   private fun advanceDisplayedPose(dtMs: Double) {
-    val center = mapCameraAdvanceCenter(
-      displayedLatitude,
-      displayedLongitude,
-      targetLatitude,
-      targetLongitude,
-      targetHeading,
-      targetSpeedMps,
-      dtMs,
-      clampTrackingError = !cameraReentry,
-    )
+    reentryElapsedMs += dtMs
+    val center = if (cameraReentry) {
+      mapCameraReentryCenter(reentryOriginLat, reentryOriginLng, targetLatitude, targetLongitude, reentryElapsedMs)
+    } else mapCameraAdvanceCenter(displayedLatitude, displayedLongitude, targetLatitude, targetLongitude,
+      targetHeading, targetSpeedMps, dtMs)
     displayedLatitude = center.latitude
     displayedLongitude = center.longitude
     displayedHeading = mapCameraAdvanceBearing(displayedHeading, targetHeading, dtMs)
-    if (cameraReentry && mapCameraDistanceMeters(displayedLatitude, displayedLongitude, targetLatitude, targetLongitude) <= CAMERA_MOVING_MAX_ERROR_M) {
-      cameraReentry = false
-    }
+    if (reentryElapsedMs >= 400.0) cameraReentry = false
   }
 
   private fun updateMarkerSource(
@@ -380,6 +430,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[$longitude,$latitude]},\"properties\":{\"heading\":$screenHeading,\"screenHeading\":$screenHeading,\"worldHeading\":$worldHeading}}]}"
     try {
       style.setStyleSourceProperty(MARKER_SOURCE_ID, "data", Value.valueOf(geoJson))
+      if (diagnosticsEnabled) markerWrites += 1
       lastMarkerLatitude = latitude
       lastMarkerLongitude = longitude
       lastMarkerHeading = screenHeading

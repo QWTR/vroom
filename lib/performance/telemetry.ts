@@ -57,11 +57,40 @@ export function flushPerformanceSummary(profile: PerformanceProfile, reason: 'in
       heavy_surfaces_max: maxHeavySurfaces,
       dropped_frame_bucket: droppedRatio < 0.01 ? 'lt_1pct' : droppedRatio < 0.05 ? '1_5pct' : droppedRatio < 0.15 ? '5_15pct' : 'gte_15pct',
       summary_index: summariesSent,
+      ...(navigationDiagnosticsEnabled ? {
+        navigation_camera_writes: navigationCounters.cameraWrites,
+        navigation_marker_writes: navigationCounters.markerWrites,
+        navigation_frames: navigationCounters.frames,
+        navigation_route_rebuilds: navigationCounters.routeRebuilds,
+        navigation_hidden_visual_work: navigationCounters.hiddenVisualWork,
+      } : {}),
     },
   });
+  for (const key of Object.keys(navigationCounters) as (keyof typeof navigationCounters)[]) navigationCounters[key] = 0;
   summariesSent += 1;
   resumeSamples.length = 0;
   sampledFrames = 0;
   sampledDroppedFrames = 0;
   maxHeavySurfaces = heavySurfaces.size;
+}
+
+let navigationDiagnosticsEnabled = false;
+const navigationCounters = { cameraWrites: 0, markerWrites: 0, frames: 0, routeRebuilds: 0, hiddenVisualWork: 0 };
+export function setNavigationDiagnosticsEnabled(enabled: boolean): void {
+  navigationDiagnosticsEnabled = enabled;
+}
+export function recordNavigationMotion(values: { cameraWrites: number; markerWrites: number; frames: number }): void {
+  if (!navigationDiagnosticsEnabled) return;
+  for (const key of ['cameraWrites', 'markerWrites', 'frames'] as const) {
+    if (Number.isFinite(values[key])) navigationCounters[key] += Math.max(0, values[key]);
+  }
+}
+export function recordNavigationRouteRebuild(visible: boolean): void {
+  if (!navigationDiagnosticsEnabled) return;
+  navigationCounters.routeRebuilds += 1;
+  if (!visible) navigationCounters.hiddenVisualWork += 1;
+}
+
+export function navigationMotionSnapshot() {
+  return { ...navigationCounters };
 }

@@ -4,6 +4,34 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class MapCameraDensityTest {
+  @Test fun recenterCompletesWhileTheVehicleKeepsMoving() {
+    for (fps in listOf(15, 30, 60)) {
+      val elapsed = 400.0
+      val target = 52.001 + (95.0 / 3.6 * elapsed / 1000) / 111_320.0
+      val center = mapCameraReentryCenter(52.0, 21.0, target, 21.0, elapsed)
+      assertEquals(target, center.latitude, 0.0)
+      assertEquals(21.0, center.longitude, 0.0)
+    }
+  }
+
+  @Test fun highwayCameraUsesTheExactRenderedMarkerPoseAtEveryFrameRate() {
+    for (fps in listOf(15, 30, 60)) {
+      var lat = 52.0
+      for (frame in 0..300) {
+        val target = lat + (95.0 / 3.6 / fps) / 111_320.0
+        val camera = mapCameraAdvanceCenter(lat, 21.0, target, 21.0, 0.0, 95.0 / 3.6, 1000.0 / fps)
+        assertEquals(target, camera.latitude, 0.0)
+        assertEquals(21.0, camera.longitude, 0.0)
+        lat = target
+      }
+    }
+  }
+
+  @Test fun recenterBlendsWithoutPredictingBeyondTheMarker() {
+    val camera = mapCameraAdvanceCenter(52.0, 21.0, 52.001, 21.0, 0.0, 26.4, 16.67, false)
+    org.junit.Assert.assertTrue(camera.latitude > 52.0 && camera.latitude < 52.001)
+  }
+
   @Test fun convertsDpToPhysicalPixelsAcrossCommonDensities() {
     assertEquals(120.0, mapCameraDpToPx(120.0, 1.0), 0.0001)
     assertEquals(240.0, mapCameraDpToPx(120.0, 2.0), 0.0001)

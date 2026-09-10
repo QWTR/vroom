@@ -46,7 +46,7 @@ object AutoLocationTracker {
 
         NativeRoadMatcher.reset()
         started = true
-        VroomLocationBroker.subscribe(appContext, BROKER_OWNER) { location ->
+        VroomLocationBroker.subscribe(appContext, BROKER_OWNER, immediateDelivery = true) { location ->
             handleLocation(appContext, location)
         }
     }

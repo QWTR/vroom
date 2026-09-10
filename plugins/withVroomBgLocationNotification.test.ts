@@ -35,7 +35,8 @@ describe('Android native background drive contract', () => {
     const broker = readFileSync(resolve('native/android-bg/VroomLocationBroker.kt'), 'utf8');
 
     expect(broker).toContain('Priority.PRIORITY_HIGH_ACCURACY');
-    expect(broker).toContain('.setMaxUpdateDelayMillis(MAX_UPDATE_DELAY_MS)');
+    expect(broker).toContain('.setMaxUpdateDelayMillis(if (immediateOwners.isNotEmpty()) 0L else MAX_UPDATE_DELAY_MS)');
+    expect(broker).toContain('fun setImmediateDelivery');
     expect(broker).toContain('.setMaxUpdateAgeMillis(0L)');
     expect(broker).not.toContain('Priority.PRIORITY_BALANCED_POWER_ACCURACY');
   });

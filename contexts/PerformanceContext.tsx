@@ -1,3 +1,4 @@
+import { setNavigationDiagnosticsEnabled } from '../lib/performance/telemetry';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
@@ -51,6 +52,11 @@ export function PerformanceProvider({ children }: { children: React.ReactNode })
     if (!hydrated) return;
     VroomCarPlay?.setPerformanceProfile(profile);
   }, [hydrated, profile]);
+
+  useEffect(() => {
+    setNavigationDiagnosticsEnabled(diagnosticsEnabled);
+    return () => setNavigationDiagnosticsEnabled(false);
+  }, [diagnosticsEnabled]);
 
   const setProfile = useCallback(async (next: PerformanceProfile) => {
     setProfileState(next);

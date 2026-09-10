@@ -45,3 +45,5 @@ yarn-error.*
 
 app-example
 .bin
+# Local native module compilation output
+/modules/*/android/build/

@@ -461,7 +461,7 @@ export function clampSpeedKmhToGeometry(
   if (isStationaryGpsSpike({
     rawGpsKmh: opts.rawGpsKmh,
     derivedKmh: kmh,
-    netMoveM,
+    netMoveM: netM,
     sustainedKmh: opts.sustainedKmh,
     motionKmh: opts.motionKmh,
   })) {

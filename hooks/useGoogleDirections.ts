@@ -244,7 +244,7 @@ export function useGoogleDirections(
   heading?:    number,
   fetchOpts?:  DirectionsFetchOpts,
 ) {
-  const [route,   setRoute]   = useState<DirectionsResult | null>(null);
+  const [routeState, setRouteState] = useState<{ key: string | null; route: DirectionsResult | null }>({ key: null, route: null });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -264,7 +264,13 @@ export function useGoogleDirections(
     ? (Math.round((((heading % 360) + 360) % 360) / headingQuantizeDeg) * headingQuantizeDeg) % 360
     : null;
 
+  const requestKey = originLat == null || originLng == null || destLat == null || destLng == null
+    ? null
+    : makeCacheKey(originLat, originLng, destLat, destLng, roundedHeading, false, headingRangeDeg, continueStraight)
+      + `:pf${preferForward ? 1 : 0}:rr${isReroute ? 1 : 0}`;
+
   useEffect(() => {
+    const setRoute = (route: DirectionsResult | null) => setRouteState({ key: requestKey, route });
     if (originLat == null || originLng == null || destLat == null || destLng == null) {
       setRoute(null);
       setLoading(false);
@@ -272,16 +278,7 @@ export function useGoogleDirections(
       return;
     }
 
-    const cacheKey = makeCacheKey(
-      originLat,
-      originLng,
-      destLat,
-      destLng,
-      roundedHeading,
-      false,
-      headingRangeDeg,
-      continueStraight,
-    ) + `:pf${preferForward ? 1 : 0}`;
+    const cacheKey = requestKey!;
 
     // ── Cache hit: serve immediately without a network call ──────────────────
     const cached = directionsCache.get(cacheKey);
@@ -397,9 +394,9 @@ export function useGoogleDirections(
     return () => {
       controller.abort();
     };
-  }, [originLat, originLng, destLat, destLng, roundedHeading, headingRangeDeg, continueStraight, isReroute, preferForward]);
+  }, [originLat, originLng, destLat, destLng, roundedHeading, headingRangeDeg, continueStraight, isReroute, preferForward, requestKey]);
 
-  return { route, loading, error };
+  return { route: routeState.key === requestKey ? routeState.route : null, loading, error };
 }
 
 // ── Hook dla alternatywnych tras (wybór przed startem) ────────────────────────

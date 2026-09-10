@@ -398,6 +398,7 @@ export function useDriveLocationWatch({
       const sub = await Location.watchPositionAsync(
         buildWatchOptions(profile),
         (loc) => {
+          if (opId !== opSeqRef.current || nativeProviderActiveRef.current) return;
           try {
             const now = Date.now();
             const rawLat = loc.coords.latitude;
@@ -686,8 +687,8 @@ export function useDriveLocationWatch({
 
   useEffect(() => BackgroundDriveController.addLocationListener((fix) => {
     if (!isActiveGpsProfile(profileRef.current)) return;
+    if (!nativeProviderActiveRef.current || subRef.current) teardownSubscription();
     nativeProviderActiveRef.current = true;
-    if (subRef.current) teardownSubscription();
     const now = Date.now();
     lastValidFixAtRef.current = now;
 
@@ -748,18 +749,8 @@ export function useDriveLocationWatch({
         isStationaryParkedRef.current,
       )
       : currentProfile();
-    if (isActiveGpsProfile(profile)) {
-      const nativeState = await BackgroundDriveController.getState().catch(() => null);
-      if (nativeState?.active) {
-        nativeProviderActiveRef.current = true;
-        profileRef.current = profile;
-        teardownSubscription();
-        return;
-      }
-    }
-    nativeProviderActiveRef.current = false;
     await subscribe(profile, isActiveGpsProfile(profile), 'start');
-  }, [currentProfile, subscribe, teardownSubscription]);
+  }, [currentProfile, subscribe]);
 
   const stop = useCallback(() => {
     teardownSubscription();
