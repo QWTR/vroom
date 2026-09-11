@@ -7,6 +7,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 import { API_URL } from '../../constants/config';
+import { seasonRequest } from '../../lib/seasonApi';
 
 type Stats = Record<string, number | null>;
 type Season = { id: string; name: string; kind: string; status: string; startsAt: string; endsAt: string; current?: boolean; splits: Season[]; achievementDefinitions?: { id: string; label: string; icon: string }[] };
@@ -24,19 +25,26 @@ export default function SeasonArchive() {
   const [seasons, setSeasons] = useState<Season[]>([]); const [details, setDetails] = useState<Details | null>(null);
   const [trail, setTrail] = useState<string[]>([]); const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(''); const [busy, setBusy] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [addressGrant, setAddressGrant] = useState<Grant | null>(null); const [address, setAddress] = useState(blankAddress);
   const selectedId = trail[trail.length - 1];
   const api = useCallback(async (path: string, options?: RequestInit) => {
-    const token = (await AsyncStorage.getItem('token')) ?? (await AsyncStorage.getItem('userToken'));
-    const response = await fetch(`${API_URL}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
-    const data = await response.json();
-    if (!response.ok) throw Object.assign(new Error(data.error || 'Nie udało się pobrać danych'), { code: data.code });
-    return data;
+    const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+    return seasonRequest(`${API_URL}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
   }, []);
   const load = useCallback(async () => {
-    setLoading(true); setMessage('');
-    try { if (selectedId) setDetails(await api(`/api/seasons/archive/${selectedId}`)); else { setSeasons(await api('/api/seasons/archive')); setDetails(null); } }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Nie udało się pobrać sezonów'); }
+    setLoading(true); setMessage(''); setLoadFailed(false);
+    try {
+      const payload = await api(selectedId ? `/api/seasons/archive/${selectedId}` : '/api/seasons/archive');
+      if (selectedId) {
+        if (!payload.season || !Array.isArray(payload.passRewards) || !Array.isArray(payload.rankingRewards) || !Array.isArray(payload.unlocks)) throw new Error('Serwer nie zwrócił szczegółów sezonu. Spróbuj ponownie.');
+        setDetails(payload);
+      } else {
+        if (!Array.isArray(payload)) throw new Error('Serwer nie zwrócił listy sezonów. Spróbuj ponownie.');
+        setSeasons(payload); setDetails(null);
+      }
+    }
+    catch (error) { setLoadFailed(true); setMessage(error instanceof Error ? error.message : 'Nie udało się pobrać sezonów'); }
     finally { setLoading(false); }
   }, [api, selectedId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -68,7 +76,7 @@ export default function SeasonArchive() {
     <View style={[styles.header, { paddingTop: top, borderColor: theme.border }]}><TouchableOpacity accessibilityLabel="Wstecz" onPress={back}><MaterialCommunityIcons name="arrow-left" size={25} color={theme.text} /></TouchableOpacity><Text style={[styles.title, { color: theme.text }]}>{details?.season.name || 'Sezony'}</Text></View>
     <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.primary} />}>
       {message ? <Text accessibilityRole="alert" style={{ color: theme.primary }}>{message}</Text> : null}
-      {loading ? <ActivityIndicator color={theme.primary} /> : !selectedId ? <>
+      {loading ? <ActivityIndicator color={theme.primary} /> : loadFailed ? <TouchableOpacity accessibilityRole="button" onPress={() => void load()} style={[styles.button, { backgroundColor: theme.primary }]}><Text style={styles.buttonText}>Spróbuj ponownie</Text></TouchableOpacity> : !selectedId ? <>
         <Text style={{ color: theme.textDim }}>Twoja historia VROOM — od bety do kolejnych sezonów. Statystyki całego konta pozostają zachowane.</Text>
         {[...seasons].sort((a, b) => Number(Boolean(b.current)) - Number(Boolean(a.current))).map(card)}
         {!seasons.length && <Text style={{ color: theme.textDim }}>Historia sezonów pojawi się tutaj.</Text>}

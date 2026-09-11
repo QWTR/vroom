@@ -13,6 +13,7 @@ import { withAlpha } from '../../constants/theme';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 import { formatQuestProgress, useQuestTrack } from '../../lib/questTrack';
 import { LiveCountdownText } from '../../components/home/LiveCountdownText';
+import { hasTimedPassOffer, seasonRequest } from '../../lib/seasonApi';
 
 type SeasonDetails = {
   season: { id: string; number: number; calendarYear?: number; kind?: string; name: string; description?: string | null; imageUrl?: string | null; rules?: unknown; startsAt: string; endsAt: string } | null;
@@ -50,6 +51,7 @@ export default function CurrentSeasonScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [passError, setPassError] = useState('');
   const [now, setNow] = useState(Date.now());
   const [passBusy, setPassBusy] = useState('');
   const [passView, setPassView] = useState<'rewards' | 'missions'>('rewards');
@@ -61,13 +63,21 @@ export default function CurrentSeasonScreen() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError('');
+    setPassError('');
+    setPassData(null);
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-      const [response, passResponse] = await Promise.all([fetch(`${API_URL}/api/seasons/current`, { headers }), fetch(`${API_URL}/api/seasons/pass`, { headers })]);
-      const [payload, passPayload] = await Promise.all([response.json().catch(() => ({})), passResponse.json().catch(() => ({}))]);
-      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-      setData(payload); if (passResponse.ok) setPassData(passPayload);
+      const [currentResult, passResult] = await Promise.allSettled([
+        seasonRequest(`${API_URL}/api/seasons/current`, { headers }),
+        seasonRequest(`${API_URL}/api/seasons/pass`, { headers }),
+      ]);
+      if (currentResult.status === 'rejected') throw currentResult.reason;
+      if (!('season' in currentResult.value)) throw new Error('Nie udało się pobrać sezonu. Spróbuj ponownie.');
+      setData(currentResult.value);
+      if (passResult.status === 'rejected') setPassError(passResult.reason instanceof Error ? passResult.reason.message : 'Nie udało się pobrać Passa.');
+      else if (!('pass' in passResult.value)) setPassError('Nie udało się pobrać Passa. Spróbuj ponownie.');
+      else setPassData(passResult.value);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Nie udało się pobrać sezonu');
     } finally {
@@ -83,27 +93,28 @@ export default function CurrentSeasonScreen() {
   const rules = useMemo(() => rulesText(season?.rules), [season?.rules]);
   const image = mediaUrl(season?.imageUrl);
   const stats = data?.stats;
+  const timedOffer = hasTimedPassOffer(passData?.pass);
   const buyPass = useCallback(async () => {
+    if (!hasTimedPassOffer(passData?.pass)) { setPassError('Oferta Passa jest aktualizowana. Odśwież ekran za chwilę.'); return; }
     setPassBusy('purchase');
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-      const response = await fetch(`${API_URL}/api/seasons/pass/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Nie udało się rozpocząć płatności');
+      const payload = await seasonRequest(`${API_URL}/api/seasons/pass/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
       if (payload.alreadyOwned) { await load(true); return; }
       if (payload.url) await WebBrowser.openBrowserAsync(payload.url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN });
       await load(true);
     } catch (purchaseError) { setError(purchaseError instanceof Error ? purchaseError.message : 'Błąd zakupu'); } finally { setPassBusy(''); }
-  }, [load]);
+  }, [load, passData?.pass]);
   const claimPass = useCallback(async (rewardId: string, withAddress = false) => {
     setPassBusy(rewardId);
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-      const response = await fetch(`${API_URL}/api/seasons/pass/rewards/${rewardId}/claim`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(withAddress ? { shippingAddress: address } : {}) });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) { if (payload.code === 'ADDRESS_REQUIRED') { setAddressRewardId(rewardId); return; } throw new Error(payload.error || 'Nie udało się odebrać nagrody'); }
+      await seasonRequest(`${API_URL}/api/seasons/pass/rewards/${rewardId}/claim`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(withAddress ? { shippingAddress: address } : {}) });
       setAddressRewardId(null); await load(true);
-    } catch (claimError) { setError(claimError instanceof Error ? claimError.message : 'Błąd odbioru'); } finally { setPassBusy(''); }
+    } catch (claimError) {
+      if (claimError instanceof Error && 'code' in claimError && claimError.code === 'ADDRESS_REQUIRED') setAddressRewardId(rewardId);
+      else setError(claimError instanceof Error ? claimError.message : 'Błąd odbioru');
+    } finally { setPassBusy(''); }
   }, [address, load]);
 
   if (loading && !data) return <View style={[styles.center, { backgroundColor: theme.bg }]}><ActivityIndicator color={theme.primary} /><Text style={[styles.loadingText, { color: theme.textDim }]}>ŁADOWANIE SEZONU</Text></View>;
@@ -120,12 +131,15 @@ export default function CurrentSeasonScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); void refreshQuests(); }} tintColor={theme.primary} />}
       >
         {error ? <View style={[styles.notice, { borderColor: theme.primary }]}><Text style={{ color: theme.primary }}>{error}</Text></View> : null}
+        {passError ? <View style={[styles.notice, { borderColor: theme.primary }]}><Text style={{ color: theme.primary }}>{passError}</Text></View> : null}
+        <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/profile/seasons')} style={[styles.secondaryAction, { borderColor: theme.border }]}><MaterialCommunityIcons name="calendar-multiple" size={20} color={theme.primary} /><Text style={[styles.secondaryActionText, { color: theme.text }]}>WSZYSTKIE SEZONY I SPLITY</Text></TouchableOpacity>
+        {season && (!season.kind || season.kind === 'legacy' || season.kind === 'beta') && now < Date.parse('2026-09-30T22:00:00Z') ? <Text style={[styles.body, { color: theme.textDim }]}>Beta trwa do 1 października 2026. Następnie rusza Jesień 2026 — pierwszy split. Statystyki bety pozostaną w historii sezonów.</Text> : null}
         {!season ? <View style={styles.empty}><MaterialCommunityIcons name="calendar-blank-outline" size={48} color={theme.textDim} /><Text style={[styles.emptyTitle, { color: theme.text }]}>OBECNIE NIE TRWA SEZON</Text><Text style={[styles.body, { color: theme.textDim }]}>Informacja o kolejnym sezonie pojawi się tutaj po jego uruchomieniu.</Text></View> : <>
           <View style={[styles.hero, { borderColor: withAlpha(theme.primary, '66'), backgroundColor: theme.surface }]}>
             {image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFillObject} contentFit="cover" transition={220} cachePolicy="memory-disk" /> : <LinearGradient colors={[withAlpha(theme.primary, '55'), theme.surface, '#080808']} style={StyleSheet.absoluteFillObject} />}
             <LinearGradient colors={['rgba(0,0,0,.02)', 'rgba(0,0,0,.42)', 'rgba(0,0,0,.96)']} style={StyleSheet.absoluteFillObject} />
             <View style={styles.heroContent}>
-              <View style={styles.live}><View style={styles.liveDot} /><Text style={styles.liveText}>{season.kind === 'split' ? 'SPLIT' : 'SEZON'} · {season.calendarYear || season.number} · AKTYWNY</Text></View>
+              <View style={styles.live}><View style={styles.liveDot} /><Text style={styles.liveText}>{season.kind === 'split' ? `SPLIT · ${season.calendarYear}` : season.kind === 'annual' ? `SEZON · ${season.calendarYear}` : 'BETA'} · AKTYWNY</Text></View>
               <View><Text style={styles.heroTitle}>{season.name}</Text><Text style={styles.heroCountdown}><MaterialCommunityIcons name="timer-sand" size={14} /> {countdown(season.endsAt, now)}</Text></View>
             </View>
           </View>
@@ -136,8 +150,8 @@ export default function CurrentSeasonScreen() {
           </View>
 
           {passData?.pass ? <Section title="VROOMPASS" theme={theme}>
-            <View style={styles.passHead}><View><Text style={[styles.passLevel, { color: theme.text }]}>POZIOM {passData.progress?.currentLevel || 0}</Text><Text style={[styles.rowMeta, { color: theme.textDim }]}>{Number(passData.progress?.xp || 0).toLocaleString('pl-PL')} XP{passData.progress?.nextLevelXp ? ` / ${Number(passData.progress.nextLevelXp).toLocaleString('pl-PL')} XP` : ' · UKOŃCZONY'}</Text></View><TouchableOpacity disabled={passBusy === 'purchase'} onPress={buyPass} style={[styles.buyPass, { backgroundColor: '#FFD447' }]}>{passBusy === 'purchase' ? <ActivityIndicator size="small" color="#111" /> : <><MaterialCommunityIcons name="crown" size={15} color="#111" /><Text>{passData.premium?.active ? 'PRZEDŁUŻ' : 'KUP'} · {(passData.pass.priceGross / 100).toFixed(2)} PLN</Text></>}</TouchableOpacity></View>
-            <Text style={[styles.body, { color: theme.textDim }]}>{passData.pass.durationDays} dni dostępu · zakup jednorazowy, bez automatycznego odnawiania.{passData.premium?.expiresAt ? ` Ważny do ${new Date(passData.premium.expiresAt).toLocaleString('pl-PL')}` : ''}</Text>
+            <View style={styles.passHead}><View><Text style={[styles.passLevel, { color: theme.text }]}>POZIOM {passData.progress?.currentLevel || 0}</Text><Text style={[styles.rowMeta, { color: theme.textDim }]}>{Number(passData.progress?.xp || 0).toLocaleString('pl-PL')} XP{passData.progress?.nextLevelXp ? ` / ${Number(passData.progress.nextLevelXp).toLocaleString('pl-PL')} XP` : ' · UKOŃCZONY'}</Text></View><TouchableOpacity disabled={passBusy === 'purchase' || !timedOffer} onPress={buyPass} style={[styles.buyPass, { backgroundColor: '#FFD447' }]}>{passBusy === 'purchase' ? <ActivityIndicator size="small" color="#111" /> : <><MaterialCommunityIcons name="crown" size={15} color="#111" /><Text>{timedOffer ? `${passData.premium?.active ? 'PRZEDŁUŻ' : 'KUP'} · ${(passData.pass.priceGross / 100).toLocaleString('pl-PL', { style: 'currency', currency: passData.pass.currency })}` : 'OFERTA NIEDOSTĘPNA'}</Text></>}</TouchableOpacity></View>
+            <Text style={[styles.body, { color: theme.textDim }]}>{timedOffer ? `${passData.pass.durationDays} dni dostępu · zakup jednorazowy, bez automatycznego odnawiania.` : 'Oferta Passa jest aktualizowana. Odśwież ekran za chwilę.'}{passData.premium?.expiresAt ? ` Ważny do ${new Date(passData.premium.expiresAt).toLocaleString('pl-PL')}` : ''}</Text>
             <View style={[styles.passTrack, { backgroundColor: theme.border }]}><View style={[styles.passTrackFill, { backgroundColor: theme.primary, width: `${passData.progress?.completed ? 100 : Math.max(1, Math.min(100, (((passData.progress?.xp || 0) - (passData.progress?.levelStartXp || 0)) / Math.max(1, (passData.progress?.nextLevelXp || 1) - (passData.progress?.levelStartXp || 0))) * 100))}%` }]} /></View>
             <View style={[styles.passTabs, { backgroundColor: theme.bg }]}>{(['rewards', 'missions'] as const).map((view) => <TouchableOpacity key={view} onPress={() => setPassView(view)} style={[styles.passTab, passView === view && { backgroundColor: theme.primary }]}><MaterialCommunityIcons name={view === 'rewards' ? 'gift-outline' : 'target'} size={16} color={passView === view ? '#fff' : theme.textDim} /><Text style={[styles.passTabText, { color: passView === view ? '#fff' : theme.textDim }]}>{view === 'rewards' ? 'NAGRODY' : 'MISJE'}</Text></TouchableOpacity>)}</View>
 

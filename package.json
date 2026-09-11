@@ -4,6 +4,7 @@
   "main": "index.js",
   "version": "53.0.43",
   "scripts": {
+    "test:seasons": "node --test scripts/seasonApi.test.cjs",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
