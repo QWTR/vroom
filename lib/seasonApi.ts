@@ -1,6 +1,6 @@
 const unavailable = 'Nie udało się połączyć z usługą sezonów. Spróbuj ponownie za chwilę.';
 
-export async function seasonRequest(url: string, options: RequestInit = {}) {
+async function requestOnce(url: string, options: RequestInit) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
@@ -20,6 +20,15 @@ export async function seasonRequest(url: string, options: RequestInit = {}) {
     if (error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError)) throw new Error(unavailable);
     throw error;
   } finally { clearTimeout(timer); }
+}
+
+export async function seasonRequest(url: string, options: RequestInit = {}) {
+  const mayRetry = String(options.method || 'GET').toUpperCase() === 'GET';
+  try { return await requestOnce(url, options); }
+  catch (error) {
+    if (mayRetry && error instanceof Error && error.message === unavailable) return requestOnce(url, options);
+    throw error;
+  }
 }
 
 export function hasTimedPassOffer(pass: unknown): boolean {

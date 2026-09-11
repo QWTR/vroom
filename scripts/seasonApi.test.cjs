@@ -35,6 +35,18 @@ test('connection errors are readable and database errors are not exposed', async
   global.fetch = async () => Response.json({ error: 'secret SQL internals' }, { status: 500 });
   await assert.rejects(seasonRequest('https://example.invalid'), /Nie udało się połączyć/);
 });
+test('a GET retries one transient invalid response and then returns data', async () => {
+  let calls = 0;
+  global.fetch = async () => ++calls === 1 ? new Response('<html>temporary</html>', { status: 502 }) : Response.json([{ id: 'beta' }]);
+  assert.deepEqual(await seasonRequest('https://example.invalid'), [{ id: 'beta' }]);
+  assert.equal(calls, 2);
+});
+test('a POST is never retried automatically', async () => {
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return new Response('<html>temporary</html>', { status: 502 }); };
+  await assert.rejects(seasonRequest('https://example.invalid', { method: 'POST' }));
+  assert.equal(calls, 1);
+});
 test('old and incomplete offers cannot be sold as timed passes; configured prices remain supported', () => {
   assert.equal(hasTimedPassOffer({ priceGross: 9999, currency: 'pln' }), false);
   assert.equal(hasTimedPassOffer({ priceGross: 3499, durationDays: 0, currency: 'pln' }), false);
