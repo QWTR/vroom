@@ -980,6 +980,11 @@ export default function ProfileView({
             <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
           </TouchableOpacity>
 
+          {isOwner && <TouchableOpacity testID="profile-seasons" onPress={() => router.push('/profile/seasons')} style={{ ...widgetGlass(theme), padding: 18, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <MaterialCommunityIcons name="calendar-star" size={28} color={theme.text} />
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Sezony</Text><Text style={{ color: theme.textDim, marginTop: 4 }}>Beta, splity i historia Twoich wyników</Text></View>
+            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
+          </TouchableOpacity>}
           {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
           <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
             <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>

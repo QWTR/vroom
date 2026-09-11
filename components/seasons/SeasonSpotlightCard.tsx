@@ -12,7 +12,7 @@ import { withAlpha } from '../../constants/theme';
 import { useReadability } from '../../contexts/ReadabilityContext';
 
 type Spotlight = {
-  season: { id: string; number: number; name: string; description?: string | null; imageUrl?: string | null; endsAt: string } | null;
+  season: { id: string; number: number; calendarYear?: number; kind?: string; name: string; description?: string | null; imageUrl?: string | null; endsAt: string } | null;
   stats?: { points?: number; distanceKm?: number } | null;
   rewardCount?: number;
   achievementCount?: number;
@@ -109,7 +109,7 @@ export function SeasonSpotlightCard({ active = true, compact = false, style }: {
       <LinearGradient colors={compact ? ['rgba(0,0,0,.2)', 'rgba(0,0,0,.92)'] : ['rgba(0,0,0,.05)', 'rgba(0,0,0,.48)', 'rgba(0,0,0,.96)']} style={StyleSheet.absoluteFillObject} />
       <View style={compact ? styles.compactContent : styles.content}>
         <View style={[styles.topRow, expandedLayout && styles.topRowExpanded]}>
-          <View style={styles.livePill}><View style={styles.liveDot} /><Text style={styles.liveText}>SEZON {season.number} TRWA</Text></View>
+          <View style={styles.livePill}><View style={styles.liveDot} /><Text style={styles.liveText}>{season.kind === 'split' ? 'SPLIT' : 'SEZON'} {season.calendarYear || season.number} TRWA</Text></View>
           <Text style={styles.countdown}>{remainingLabel(season.endsAt, now)}</Text>
         </View>
         <View style={[styles.bottomRow, expandedLayout && styles.bottomRowExpanded]}>
