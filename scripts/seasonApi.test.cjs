@@ -47,6 +47,12 @@ test('a POST is never retried automatically', async () => {
   await assert.rejects(seasonRequest('https://example.invalid', { method: 'POST' }));
   assert.equal(calls, 1);
 });
+test('a GET stops after five invalid responses', async () => {
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return new Response('<html>old server</html>', { status: 404 }); };
+  await assert.rejects(seasonRequest('https://example.invalid'));
+  assert.equal(calls, 5);
+});
 test('old and incomplete offers cannot be sold as timed passes; configured prices remain supported', () => {
   assert.equal(hasTimedPassOffer({ priceGross: 9999, currency: 'pln' }), false);
   assert.equal(hasTimedPassOffer({ priceGross: 3499, durationDays: 0, currency: 'pln' }), false);

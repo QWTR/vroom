@@ -23,6 +23,7 @@ const blankAddress = { fullName: '', phone: '', street: '', postalCode: '', city
 const labels: Record<string, string> = { fullName: 'Imię i nazwisko', phone: 'Telefon', street: 'Ulica i numer', postalCode: 'Kod pocztowy', city: 'Miasto', country: 'Kraj' };
 const metrics = [['points', 'Punkty'], ['distanceKm', 'Kilometry'], ['ridesCount', 'Przejazdy'], ['driveSeconds', 'Czas jazdy'], ['maxSpeed', 'Maks. prędkość'], ['maxStreak', 'Najlepsza seria'], ['spotsCreated', 'Spoty'], ['citiesDiscovered', 'Miasta'], ['meetsJoined', 'Spotkania'], ['achievementsUnlocked', 'Osiągnięcia']];
 const statuses: Record<string, string> = { available: 'Do odbioru', granted: 'Odebrano', expired: 'Termin minął', revoked: 'Cofnięto', processing: 'Przetwarzanie', address_submitted: 'Dane wysłane', awaiting_claim: 'W realizacji', preparing: 'Przygotowanie', shipped: 'Wysłano', delivered: 'Dostarczono', problem: 'Ponów odbiór' };
+const ARCHIVE_CACHE_KEY = 'vroom_season_archive_v1';
 const seasonOrder = (a: Season, b: Season) => (a.kind === 'beta' ? -1 : b.kind === 'beta' ? 1 : (a.calendarYear || 0) - (b.calendarYear || 0) || +new Date(a.startsAt) - +new Date(b.startsAt));
 const isCurrent = (season: Season) => season.current ?? (+new Date(season.startsAt) <= Date.now() && +new Date(season.endsAt) > Date.now());
 
@@ -49,8 +50,14 @@ export default function SeasonArchive() {
       } else {
         if (!Array.isArray(payload)) throw new Error('Nie udało się wczytać listy sezonów.');
         setSeasons(payload); setDetails(null);
+        await AsyncStorage.setItem(ARCHIVE_CACHE_KEY, JSON.stringify(payload.map(({ myStats: _myStats, ...season }: Season & { myStats?: unknown }) => season)));
       }
-    } catch (error) { setLoadFailed(true); setMessage(error instanceof Error ? error.message : 'Nie udało się pobrać sezonów'); }
+    } catch (error) {
+      if (!selectedId) {
+        try { const cached = JSON.parse(await AsyncStorage.getItem(ARCHIVE_CACHE_KEY) || '[]'); if (Array.isArray(cached) && cached.length) setSeasons(cached); } catch { /* Uszkodzony cache nie blokuje ponowienia. */ }
+      }
+      setLoadFailed(true); setMessage(error instanceof Error ? error.message : 'Nie udało się pobrać sezonów');
+    }
     finally { setLoading(false); }
   }, [api, selectedId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));

@@ -24,11 +24,16 @@ async function requestOnce(url: string, options: RequestInit) {
 
 export async function seasonRequest(url: string, options: RequestInit = {}) {
   const mayRetry = String(options.method || 'GET').toUpperCase() === 'GET';
-  try { return await requestOnce(url, options); }
-  catch (error) {
-    if (mayRetry && error instanceof Error && error.message === unavailable) return requestOnce(url, options);
-    throw error;
+  const attempts = mayRetry ? 5 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await requestOnce(url, options); }
+    catch (error) {
+      lastError = error;
+      if (!(error instanceof Error) || error.message !== unavailable) throw error;
+    }
   }
+  throw lastError;
 }
 
 export function hasTimedPassOffer(pass: unknown): boolean {
