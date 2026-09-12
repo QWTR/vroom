@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ScrollView, View, TouchableOpacity, RefreshControl, Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert, Platform } from 'react-native';
+import { ScrollView, View, TouchableOpacity, RefreshControl, Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, FlatList, Alert, Platform } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -11,6 +11,7 @@ import { formatExplorationPercent } from '../../lib/explorationPercent';
 
 import { UserBadges }               from '../user/UserBadges';
 import { ProvinceBadge }            from '../user/ProvinceBadge';
+import { ProfileNavigation, ProfileMetrics, ProfileChapter, type ProfileTab } from './ProfileNavigation';
 import CarCard                      from './CarCard';
 import { GLASS_SHADOW, GLASS_BORDER, glassSurface } from './profileCardTheme';
 import AchievementsPreviewSection     from './AchievementsPreviewSection';
@@ -35,8 +36,9 @@ import { useSettings } from '../../hooks/useSettings';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import type { ProfileGradientSpec, ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import ProfileBackgroundAnimation from './ProfileBackgroundAnimation';
 import VisitEntranceFx from './VisitEntranceFx';
-import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
+import { ProfileIdentityAvatar } from './ProfileIdentityAvatar';
 import ShopEntranceOverlay from '../shop/ShopEntranceOverlay';
 import { NitroShopPromoCard } from '../shop/NitroShopPromoCard';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
@@ -88,10 +90,10 @@ function profileLabel(t: ProfileSurface) {
 
 function widgetGlass(t: ProfileSurface, extra?: Record<string, unknown>) {
   return {
-    backgroundColor: glassSurface(t.surface, '80'),
-    borderRadius: 20,
+    backgroundColor: glassSurface(t.surface, 'F2'),
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: GLASS_BORDER,
+    borderColor: t.border,
     ...GLASS_SHADOW,
     ...extra,
   };
@@ -265,7 +267,7 @@ function toSpot(s: SpotPreview): Spot {
 
 export default function ProfileView({
   profile, cars, achievements, spots, loading,
-  isOwner, initials, joinedLabel, avatarUploading = false,
+  isOwner, joinedLabel, avatarUploading = false,
   routes, routesLoading, participatedRoutes, participatedRoutesLoading,
   onNavigateParticipated, onDeleteRoute, onRefresh, onSettings, onEdit,
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
@@ -279,11 +281,22 @@ export default function ProfileView({
   const { settings } = useSettings();
   const { wallet: nitroWallet } = useNitroWallet();
   const premiumActive = !!isPremium;
+  const [activeTab, setActiveTab] = useState<ProfileTab>('garage');
+  const selectProfileTab = (tab: ProfileTab) => {
+    setActiveTab(tab);
+    if (tab !== 'garage') {
+      viewportStageRef.current = 2;
+      setViewportStage(2);
+      onViewportStage?.('middle');
+      onViewportStage?.('deep');
+    }
+  };
   const viewportStageRef = React.useRef(0);
   const [viewportStage, setViewportStage] = React.useState(0);
   React.useEffect(() => {
     viewportStageRef.current = 0;
     setViewportStage(0);
+    setActiveTab('garage');
   }, [profile?.id]);
   const handleViewportScroll = React.useCallback((event: any) => {
     const offsetY = Number(event?.nativeEvent?.contentOffset?.y || 0);
@@ -404,12 +417,6 @@ export default function ProfileView({
     forest: ['#052e1288', '#071a0c55'],
     custom: ['#12121c99', '#08080c55'],
   };
-  const frameGradients: Record<string, string[]> = {
-    vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
-    sunrise: ['#ff6b35', '#f5c518', '#ff6b35'],
-    ocean: ['#38a5e3', '#1b6eff', '#38a5e3'],
-    lime: ['#4de926', '#a6ff4d', '#4de926'],
-  };
   const router = useRouter();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat({ realtime: false, autoFetch: false });
 
@@ -428,48 +435,8 @@ export default function ProfileView({
   const [vroomkiLoading,      setVroomkiLoading]      = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
   const statsSlide = useRef(new Animated.Value(0)).current;
-  const ROUTES_PREVIEW = 0;
+  const ROUTES_PREVIEW = 2;
   const SPOTS_PREVIEW  = 4;
-  const avatarRingLin = React.useMemo(() => {
-    const fb = frameGradients[avatarFramePreset] || frameGradients.vroom;
-    return linearGradientFromSpec(premiumUi?.avatarRingGradient ?? null, fb);
-  }, [premiumUi?.avatarRingGradient, avatarFramePreset]);
-
-  const avatarSpin = useRef(new Animated.Value(0)).current;
-  const avatarPulse = useRef(new Animated.Value(1)).current;
-  const avatarBreathe = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (!premiumActive || !premiumUi) return;
-    const mode = premiumUi.avatarRingAnim ?? 'none';
-    avatarSpin.setValue(0);
-    avatarPulse.setValue(1);
-    avatarBreathe.setValue(1);
-    let loop: Animated.CompositeAnimation | undefined;
-    if (mode === 'rotate') {
-      loop = Animated.loop(
-        Animated.timing(avatarSpin, { toValue: 1, duration: 6400, useNativeDriver: true, easing: Easing.linear }),
-      );
-    } else if (mode === 'pulse') {
-      loop = Animated.loop(Animated.sequence([
-        Animated.timing(avatarPulse, { toValue: 0.48, duration: 650, useNativeDriver: true }),
-        Animated.timing(avatarPulse, { toValue: 1, duration: 650, useNativeDriver: true }),
-      ]));
-    } else if (mode === 'breathe') {
-      loop = Animated.loop(Animated.sequence([
-        Animated.timing(avatarBreathe, { toValue: 1.07, duration: 1100, useNativeDriver: true }),
-        Animated.timing(avatarBreathe, { toValue: 1, duration: 1100, useNativeDriver: true }),
-      ]));
-    }
-    loop?.start();
-    return () => {
-      loop?.stop();
-      avatarSpin.setValue(0);
-      avatarPulse.setValue(1);
-      avatarBreathe.setValue(1);
-    };
-  }, [premiumActive, premiumUi?.avatarRingAnim, avatarSpin, avatarPulse, avatarBreathe]);
-
   const heroMotion = hasPremiumProfileUi ? premiumUi?.heroMotion : undefined;
   const heroFloatStyle = useProfileHeroFloat(heroMotion);
 
@@ -617,7 +584,7 @@ export default function ProfileView({
     myRank?: { name: string; color: string } | null;
   } | null | undefined;
 
-  const HERO_BANNER_HEIGHT = getHeroBannerHeight();
+  const HERO_BANNER_HEIGHT = heroBannerUri ? getHeroBannerHeight() : Math.min(getHeroBannerHeight(), 280);
 
   return (
     <>
@@ -645,6 +612,7 @@ export default function ProfileView({
             overlayColors={heroBannerUri ? (heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) : null}
           />
         </ProfileHeroKenBurnsWrapper>
+        {premiumActive && (shopCosmetics?.backgroundAnimation ?? shopCosmetics?.globalBackgroundAnimation) && <ProfileBackgroundAnimation item={(shopCosmetics?.backgroundAnimation ?? shopCosmetics?.globalBackgroundAnimation)!} />}
         <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} bannerHeight={HERO_BANNER_HEIGHT} />
         <LinearGradient
           colors={['transparent', theme.bg]}
@@ -670,8 +638,8 @@ export default function ProfileView({
               position:              'relative',
               justifyContent:        'flex-end',
               alignItems:            'center',
-              paddingTop:            headerTop,
-              paddingBottom:         28,
+              paddingTop:            headerTop + 100,
+              paddingBottom:         32,
             },
             heroFloatStyle,
           ]}
@@ -740,67 +708,15 @@ export default function ProfileView({
           </View>
 
           {/* Avatar + tożsamość — nad fade, przy dolnej krawędzi banera */}
-          <View style={{ alignItems: 'center', paddingHorizontal: 24, width: '100%' }}>
-            <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14, alignItems: 'center', justifyContent: 'center' }}>
-              {premiumActive && avatarRingLin ? (
-                <Animated.View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    width: 96,
-                    height: 96,
-                    borderRadius: 48,
-                    opacity: premiumUi?.avatarRingAnim === 'pulse' ? avatarPulse : 1,
-                    transform: [
-                      ...(premiumUi?.avatarRingAnim === 'rotate'
-                        ? [{
-                          rotate: avatarSpin.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: ['0deg', '360deg'],
-                          }),
-                        }] as const
-                        : []),
-                      ...(premiumUi?.avatarRingAnim === 'breathe'
-                        ? [{ scale: avatarBreathe }] as const
-                        : []),
-                    ],
-                  }}
-                >
-                  <LinearGradient
-                    colors={avatarRingLin.colors as [string, string, ...string[]]}
-                    start={avatarRingLin.start}
-                    end={avatarRingLin.end}
-                    style={{ width: 96, height: 96, borderRadius: 48 }}
-                  />
-                </Animated.View>
-              ) : null}
-              <View style={{
-                width: 88,
-                height: 88,
-                borderRadius: 44,
-                margin: 4,
-                borderWidth: 1.5,
-                borderColor: premiumActive ? '#0f0f0fcc' : '#e33835',
-                overflow: 'hidden',
-                backgroundColor: theme.surface,
-              }}>
-                {profile?.avatarUrl
-                  ? <Image key={profile.avatarUrl} source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
-                  : (
-                    <View style={{ flex: 1, backgroundColor: '#e3383515', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: '#e33835', fontWeight: '900' }}>{initials}</Text>
-                    </View>
-                  )
-                }
-              </View>
-              <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={96} />
-            </View>
-
+          <View style={{ alignItems: 'flex-start', paddingHorizontal: 24, width: '100%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, width: '100%' }}>
+            <ProfileIdentityAvatar uri={profile?.avatarUrl} username={profile?.username ?? ''} premium={premiumActive} preset={avatarFramePreset} extras={premiumUi} decoration={shopCosmetics?.avatarFrame} theme={theme} />
+            <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], letterSpacing: 1, marginBottom: 6 }}>
-              {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
+              {isOwner ? 'TWÓJ PROFIL' : 'KIEROWCA VROOM'}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }} numberOfLines={1}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: -0.8, flexShrink: 1, textAlign: 'left' }} numberOfLines={1}>
                 {profile?.username ?? '—'}
               </Text>
               <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={premiumActive} compact />
@@ -808,7 +724,7 @@ export default function ProfileView({
             {!!profile?.location && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
                 <MaterialIcons name="location-on" size={12} color={theme.textDim} />
-                <Text style={{ ...profileLabel(theme), textAlign: 'center' }}>{profile.location}</Text>
+                <Text style={{ ...profileLabel(theme), textAlign: 'left' }}>{profile.location}</Text>
               </View>
             )}
             {!!profile?.province && (
@@ -816,302 +732,33 @@ export default function ProfileView({
                 <ProvinceBadge province={profile.province} compact theme={theme} />
               </View>
             )}
-            {!!profile?.position && (
-              <View style={{ marginTop: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, borderWidth: 1, borderColor: GLASS_BORDER, paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialCommunityIcons name="podium" size={14} color={pillAccentColors[2]} />
-                <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[2], fontWeight: '900' }}>#{profile.position}</Text>
-                <Text style={{ ...profileLabel(theme) }}>RANKING</Text>
-              </View>
-            )}
+
+            </View>
+            </View>
           </View>
         </Reanimated.View>
 
-        <View style={{ paddingHorizontal: 20, marginTop: -28 }}>
+        <View style={{ paddingHorizontal: 20, marginTop: 0 }}>
 
-          {/* ══ O MNIE + SPOTIFY + QUICK ACTIONS ══ */}
-          <View style={{ ...widgetGlass(theme), padding: 16, marginBottom: 16 }}>
-            {(!!profile?.bio || !!profile?.spotifyProfileTrack) && (
-              <Text style={{ ...profileLabel(theme), marginBottom: 10 }}>O MNIE</Text>
-            )}
-            {!!profile?.bio && (
-              <Text style={{ color: theme.text, fontSize: 13, lineHeight: 20, marginBottom: profile?.spotifyProfileTrack ? 4 : 12 }}>{profile.bio}</Text>
-            )}
-            {!!profile?.spotifyProfileTrack && (
-              <SpotifyProfileTrackRow
-                track={profile.spotifyProfileTrack}
-                theme={{ text: theme.text, textDim: theme.textDim, surface: theme.surface, border: theme.border }}
-                embedded
-              />
-            )}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
-              <MaterialIcons name="calendar-today" size={14} color={theme.textDim} />
-              <Text style={{ ...profileLabel(theme) }}>Dołączył {joinedLabel}</Text>
-            </View>
-            {isOwner && (
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginTop: 14,
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                borderRadius: 30,
-                borderWidth: 1,
-                borderColor: theme.border,
-                overflow: 'hidden',
-              }}>
-                {([
-                  { icon: 'edit' as const, label: 'Edytuj', onPress: onEdit, lib: 'material' as const },
-                  { icon: 'settings-outline' as const, label: 'Ustawienia', onPress: onSettings, lib: 'ion' as const },
-                  { icon: 'car-plus' as const, label: 'Auto', onPress: onAddCar, lib: 'mci' as const },
-                ]).map((action, idx, arr) => (
-                  <React.Fragment key={action.label}>
-                    <TouchableOpacity
-                      onPress={action.onPress}
-                      activeOpacity={0.8}
-                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11 }}
-                    >
-                      {action.lib === 'material' && <MaterialIcons name={action.icon as any} size={16} color={theme.textDim} />}
-                      {action.lib === 'ion' && <Ionicons name={action.icon as any} size={16} color={theme.textDim} />}
-                      {action.lib === 'mci' && <MaterialCommunityIcons name={action.icon as any} size={16} color={pillAccentColors[2]} />}
-                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: action.lib === 'mci' ? pillAccentColors[2] : theme.textDim, letterSpacing: 1 }}>{action.label}</Text>
-                    </TouchableOpacity>
-                    {idx < arr.length - 1 && (
-                      <View style={{ width: 1, height: 22, backgroundColor: GLASS_BORDER }} />
-                    )}
-                  </React.Fragment>
-                ))}
-              </View>
-            )}
-          </View>
-
-          {/* ══ BENTO STATS GRID ══ */}
-          {!!profile?.discord && (
-            <DiscordProfileCard discord={profile.discord} theme={theme} />
-          )}
-
-          <View style={{ marginBottom: 16, gap: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              {([
-                { icon: 'trophy' as const, value: String(unlocked.length), label: 'Osiągnięcia', color: pillAccentColors[0], tall: true },
-                { icon: 'map-marker-distance' as const, value: String(Math.round(profile?.totalDistance ?? 0)), label: 'Kilometry', color: pillAccentColors[1], tall: true },
-              ]).map(w => (
-                <TouchableOpacity
-                  key={w.label}
-                  onPress={() => {
-                    if (w.label === 'Osiągnięcia') {
-                      router.push({
-                        pathname: '/profile/achievements',
-                        params: isOwner ? {} : { userId: String(profile?.id || '') },
-                      } as any);
-                    } else {
-                      openStats('distance');
-                    }
-                  }}
-                  activeOpacity={0.82}
-                  style={{
-                    flex: 1,
-                    height: 118,
-                    ...widgetGlass(theme),
-                    padding: 14,
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <MaterialCommunityIcons name={w.icon} size={22} color={w.color} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 24, color: w.color, fontWeight: '900', letterSpacing: -0.2 }}>{w.value}</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              {([
-                { icon: 'podium' as const, value: profile?.position ? `#${profile.position}` : '—', label: 'Ranking', color: pillAccentColors[2] },
-                { icon: 'chart-bar' as const, value: '→', label: 'Statystyki', color: pillAccentColors[3] },
-              ]).map(w => (
-                <TouchableOpacity
-                  key={w.label}
-                  onPress={() => {
-                    if (w.label === 'Ranking') {
-                      router.push({
-                        pathname: '/Community/Ranks/stats',
-                        params: { rankCategory: 'points', rankPeriod: 'all' },
-                      } as any);
-                    } else {
-                      openStats('all');
-                    }
-                  }}
-                  activeOpacity={0.82}
-                  style={{
-                    flex: 1,
-                    height: 88,
-                    ...widgetGlass(theme),
-                    padding: 14,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: w.color, fontWeight: '900' }}>{w.value}</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
-                  </View>
-                  <MaterialCommunityIcons name={w.icon} size={20} color={w.color} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {isOwner && (
-            <NitroShopPromoCard
-              nitroBalance={nitroWallet?.nitroBalance ?? profile?.nitroBalance ?? 0}
-              onPress={() => router.push('/shop' as any)}
-            />
-          )}
-
-          <TouchableOpacity
-            activeOpacity={0.84}
-            onPress={() => isOwner
-              ? router.push('/profile/inventory' as any)
-              : router.push({ pathname: '/profile/inventory', params: { userId: String(profile?.id) } } as any)}
-            style={{ ...widgetGlass(theme), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
-          >
-            <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
-            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' }}>{isOwner ? 'Mój ekwipunek' : `Ekwipunek @${profile?.username}`}</Text><Text style={{ color: theme.textDim, fontSize: 12, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
-            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
-          </TouchableOpacity>
-
-          {isOwner && <TouchableOpacity testID="profile-seasons" onPress={() => router.push('/profile/seasons')} style={{ ...widgetGlass(theme), padding: 18, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            <MaterialCommunityIcons name="calendar-star" size={28} color={theme.text} />
-            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Sezony</Text><Text style={{ color: theme.textDim, marginTop: 4 }}>Beta, splity i historia Twoich wyników</Text></View>
-            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
-          </TouchableOpacity>}
-          {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
-          <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
-            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
-              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>SPOŁECZNOŚĆ</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(false) }}>
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'followers' } } as any)}
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <MaterialIcons name="visibility" size={18} color={pillAccentColors[2]} />
-                <View>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
-                  <Text style={{ ...profileLabel(theme) }}>Obserwujący</Text>
-                </View>
-              </TouchableOpacity>
-              <View style={{ width: 1, backgroundColor: GLASS_BORDER, marginHorizontal: 8 }} />
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'following' } } as any)}
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <MaterialIcons name="person-add" size={18} color={pillAccentColors[1]} />
-                <View>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
-                  <Text style={{ ...profileLabel(theme) }}>Obserwacje</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            {!club ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                  <MaterialCommunityIcons name="shield-off-outline" size={20} color={theme.textDim} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Klub</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{isOwner ? 'Nie należysz do klubu' : 'Brak klubu'}</Text>
-                  </View>
-                </View>
-                {isOwner && (
-                  <TouchableOpacity
-                    onPress={() => router.push('/Community/clubs/clubs' as any)}
-                    style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}
-                  >
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>Szukaj</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}
-                onPress={() => router.push('/Community/clubs/clubs' as any)}
-                activeOpacity={0.85}
-              >
-                <View style={{ width: 40, height: 40, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: GLASS_BORDER, alignItems: 'center', justifyContent: 'center' }}>
-                  {club.avatarUrl
-                    ? <Image source={{ uri: club.avatarUrl }} style={{ width: 40, height: 40 }} />
-                    : <MaterialCommunityIcons name="shield-crown-outline" size={20} color={pillAccentColors[0]} />
-                  }
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{club.name}</Text>
-                  <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{club.memberCount} członków · {club.myRole === 'owner' ? 'Założyciel' : (club.myRank?.name ?? 'Członek')}</Text>
-                </View>
-                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
-              </TouchableOpacity>
-            )}
-
-            {isOwner && (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(true) }}
-                onPress={openInvites}
-                activeOpacity={0.8}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <MaterialIcons name="person-add" size={20} color={pillAccentColors[0]} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{requests.length} oczekujących</Text>
-                  </View>
-                </View>
-                {requests.length > 0 && (
-                  <View style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            )}
-
-            {isOwner && (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(!!(premiumActive && onLocationFriendsOnlyChange)) }}
-                onPress={openFriends}
-                activeOpacity={0.8}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <MaterialIcons name="people" size={20} color={pillAccentColors[1]} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{friends.length} osób</Text>
-                  </View>
-                </View>
-                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
-              </TouchableOpacity>
-            )}
-
-            {isOwner && premiumActive && onLocationFriendsOnlyChange && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                  <MaterialIcons name="location-on" size={20} color="#FFD700" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Lok. tylko dla znajomych</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>Pozycja widoczna tylko dla znajomych</Text>
-                  </View>
-                </View>
-                <Switch
-                  value={!!locationFriendsOnly}
-                  onValueChange={onLocationFriendsOnlyChange}
-                  trackColor={{ false: theme.border2, true: '#FFD70060' }}
-                  thumbColor={locationFriendsOnly ? '#FFD700' : theme.textDim}
-                />
-              </View>
-            )}
-          </View>
-
+          {isOwner && <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+            <TouchableOpacity accessibilityRole="button" onPress={onEdit} activeOpacity={0.8} style={{ flex: 1, minHeight: 48, borderRadius: 16, backgroundColor: theme.text, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}>
+              <MaterialIcons name="edit" size={18} color={theme.bg} /><Text contrastBackground={theme.text} style={{ color: theme.bg, fontSize: 14, fontWeight: '800' }}>Edytuj profil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" onPress={() => router.push({ pathname: '/profile/settings', params: { section: 'profile' } } as any)} activeOpacity={0.8} style={{ flex: 1, minHeight: 48, borderRadius: 16, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}>
+              <MaterialIcons name="palette" size={18} color={theme.text} /><Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>Personalizuj</Text>
+            </TouchableOpacity>
+          </View>}
+          {!!profile?.spotifyProfileTrack && <View style={{ marginBottom: 16 }}>
+            <SpotifyProfileTrackRow track={profile?.spotifyProfileTrack} theme={theme} embedded />
+          </View>}
+          <ProfileMetrics theme={theme} items={[
+            { label: 'Kilometry', value: Math.round(profile?.totalDistance ?? 0).toLocaleString('pl-PL'), onPress: () => openStats('distance') },
+            { label: 'Osiągnięcia', value: String(unlocked.length), onPress: () => router.push('/profile/achievements' as any) },
+            { label: 'Ranking', value: profile?.position ? '#' + profile.position : '—', onPress: () => router.push({ pathname: '/Community/Ranks/stats', params: { rankCategory: 'points', rankPeriod: 'all' } } as any) },
+          ]} />
+          <ProfileNavigation value={activeTab} onChange={selectProfileTab} theme={theme} colors={pillAccentColors} />
+          {activeTab === 'garage' && <View testID="profile-panel-garage">
+            <ProfileChapter title="Pasja na kołach" description="Samochody, które tworzą Twój świat." theme={theme} />
           {/* ══ AUTA ══ */}
           <Section
             surfaceTheme={theme}
@@ -1123,7 +770,7 @@ export default function ProfileView({
                 <TouchableOpacity onPress={openVroomkiModal} style={{ backgroundColor: theme.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: theme.primaryBorder }}>
                   <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>VROOMKI</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12 }}>
                   <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
                 </TouchableOpacity>
               </View>
@@ -1146,6 +793,39 @@ export default function ProfileView({
           </Section>
           {isOwner && carLimitBanner}
 
+          <TouchableOpacity
+            activeOpacity={0.84}
+            onPress={() => isOwner
+              ? router.push('/profile/inventory' as any)
+              : router.push({ pathname: '/profile/inventory', params: { userId: String(profile?.id) } } as any)}
+            style={{ ...widgetGlass(theme), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+          >
+            <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' }}>{isOwner ? 'Mój ekwipunek' : `Ekwipunek @${profile?.username}`}</Text><Text style={{ color: theme.textDim, fontSize: 12, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
+            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
+          </TouchableOpacity>
+
+          {isOwner && (
+            <NitroShopPromoCard
+              nitroBalance={nitroWallet?.nitroBalance ?? profile?.nitroBalance ?? 0}
+              onPress={() => router.push('/shop' as any)}
+            />
+          )}
+
+
+          </View>}
+          {activeTab === 'activity' && <View testID="profile-panel-activity">
+            <ProfileChapter title="Każdy kilometr się liczy" description="Twoje wyniki, odkrycia i przejechane trasy." theme={theme} />
+          <TouchableOpacity accessibilityRole="button" onPress={() => openStats('all')} style={{ ...widgetGlass(theme), padding: 18, marginBottom: 22, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <MaterialCommunityIcons name="chart-box-outline" size={26} color={theme.primary} />
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Wszystkie statystyki</Text><Text style={{ color: theme.textDim, fontSize: 13, marginTop: 4 }}>Dystans, prędkość i Twoje wyniki</Text></View>
+            <MaterialIcons name="arrow-forward" size={20} color={theme.text} />
+          </TouchableOpacity>
+          {isOwner && <TouchableOpacity testID="profile-seasons" onPress={() => router.push('/profile/seasons')} style={{ ...widgetGlass(theme), padding: 18, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <MaterialCommunityIcons name="calendar-star" size={28} color={theme.text} />
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Sezony</Text><Text style={{ color: theme.textDim, marginTop: 4 }}>Beta, splity i historia Twoich wyników</Text></View>
+            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
+          </TouchableOpacity>}
           <Section
             surfaceTheme={theme}
             accentStrip={sectionAccentStrip}
@@ -1321,6 +1001,10 @@ export default function ProfileView({
             )}
           </Section>
 
+
+          </View>}
+          {activeTab === 'spots' && <View testID="profile-panel-spots">
+            <ProfileChapter title="Miejsca z charakterem" description="Twoje miejscówki i motoryzacyjne odkrycia." theme={theme} />
           {/* ══ SPOTY ══ */}
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE SPOTY' : 'SPOTY'} count={localSpots.length}>
             {localSpots.length === 0
@@ -1354,6 +1038,151 @@ export default function ProfileView({
             }
           </Section>
 
+
+          </View>}
+          {activeTab === 'about' && <View testID="profile-panel-about">
+            <ProfileChapter title="Ludzie i połączenia" description="Twoja społeczność, klub i znajomi." theme={theme} />
+          <View style={{ ...widgetGlass(theme), padding: 20, marginBottom: 20, gap: 12 }}>
+            <Text style={{ color: theme.text, fontSize: 19, fontWeight: '800' }}>O mnie</Text>
+            <Text style={{ color: theme.textDim, fontSize: 15, lineHeight: 23 }}>{profile?.bio || 'Dodaj kilka słów o sobie, żeby inni mogli Cię poznać.'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border }}>
+              <MaterialIcons name="calendar-today" size={15} color={theme.textDim} /><Text style={{ color: theme.textDim, fontSize: 13 }}>W VROOM od {joinedLabel}</Text>
+            </View>
+          </View>
+
+          {!!profile?.discord && (
+            <DiscordProfileCard discord={profile.discord} theme={theme} />
+          )}
+
+          {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
+          <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
+              <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>SPOŁECZNOŚĆ</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(false) }}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'followers' } } as any)}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+              >
+                <MaterialIcons name="visibility" size={18} color={pillAccentColors[2]} />
+                <View>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
+                  <Text style={{ ...profileLabel(theme) }}>Obserwujący</Text>
+                </View>
+              </TouchableOpacity>
+              <View style={{ width: 1, backgroundColor: GLASS_BORDER, marginHorizontal: 8 }} />
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'following' } } as any)}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+              >
+                <MaterialIcons name="person-add" size={18} color={pillAccentColors[1]} />
+                <View>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
+                  <Text style={{ ...profileLabel(theme) }}>Obserwacje</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {!club ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <MaterialCommunityIcons name="shield-off-outline" size={20} color={theme.textDim} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Klub</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{isOwner ? 'Nie należysz do klubu' : 'Brak klubu'}</Text>
+                  </View>
+                </View>
+                {isOwner && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/Community/clubs/clubs' as any)}
+                    style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}
+                  >
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>Szukaj</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}
+                onPress={() => router.push('/Community/clubs/clubs' as any)}
+                activeOpacity={0.85}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: GLASS_BORDER, alignItems: 'center', justifyContent: 'center' }}>
+                  {club.avatarUrl
+                    ? <Image source={{ uri: club.avatarUrl }} style={{ width: 40, height: 40 }} />
+                    : <MaterialCommunityIcons name="shield-crown-outline" size={20} color={pillAccentColors[0]} />
+                  }
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{club.name}</Text>
+                  <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{club.memberCount} członków · {club.myRole === 'owner' ? 'Założyciel' : (club.myRank?.name ?? 'Członek')}</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+              </TouchableOpacity>
+            )}
+
+            {isOwner && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(true) }}
+                onPress={openInvites}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <MaterialIcons name="person-add" size={20} color={pillAccentColors[0]} />
+                  <View>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{requests.length} oczekujących</Text>
+                  </View>
+                </View>
+                {requests.length > 0 && (
+                  <View style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {isOwner && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(!!(premiumActive && onLocationFriendsOnlyChange)) }}
+                onPress={openFriends}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <MaterialIcons name="people" size={20} color={pillAccentColors[1]} />
+                  <View>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{friends.length} osób</Text>
+                  </View>
+                </View>
+                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+              </TouchableOpacity>
+            )}
+
+            {isOwner && premiumActive && onLocationFriendsOnlyChange && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <MaterialIcons name="location-on" size={20} color="#FFD700" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Lok. tylko dla znajomych</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>Pozycja widoczna tylko dla znajomych</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={!!locationFriendsOnly}
+                  onValueChange={onLocationFriendsOnlyChange}
+                  trackColor={{ false: theme.border2, true: '#FFD70060' }}
+                  thumbColor={locationFriendsOnly ? '#FFD700' : theme.textDim}
+                />
+              </View>
+            )}
+          </View>
+
+
+          </View>}
         </View>
 
         <SpotDetailModal visible={selectedSpot !== null} spot={selectedSpot} onClose={() => setSelectedSpot(null)} getDistance={() => 0} onLikeToggle={handleLikeToggle} />

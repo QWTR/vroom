@@ -3,6 +3,7 @@ import { TouchableOpacity, View, Image } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
 import { GLASS_SHADOW, resolveProfileCardTheme, type ProfileCardTheme } from './profileCardTheme';
 
 interface Props {
@@ -19,57 +20,30 @@ export default function CarCard({ brand, specs, isMain, firstPhoto, onPress, the
   const theme = resolveProfileCardTheme(globalTheme, profileTheme);
 
   return (
-    <TouchableOpacity
-      style={{
-        backgroundColor: theme.surface,
-        borderRadius: 20,
-        padding: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: theme.border,
-        ...GLASS_SHADOW,
-      }}
-      onPress={onPress}
-    >
-      <View style={{
-        backgroundColor: theme.surface3,
-        width: 48,
-        height: 48,
-        borderRadius: 12,
-        marginRight: 14,
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: theme.border,
-      }}>
-        {firstPhoto
-          ? <Image source={{ uri: firstPhoto }} style={{ width: 48, height: 48 }} />
-          : <MaterialIcons name="directions-car" size={24} color={isMain ? theme.primary : theme.textDim} />
-        }
+    <TouchableOpacity accessibilityRole="button" accessibilityLabel={brand + ', ' + specs + (isMain ? ', główne auto' : '')}
+      activeOpacity={0.88} onPress={onPress}
+      style={{ backgroundColor: theme.surface, borderRadius: 26, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: theme.border, ...GLASS_SHADOW }}>
+      <View style={{ width: '100%', aspectRatio: 1.6, backgroundColor: theme.surface3 }}>
+        {firstPhoto ? <Image source={{ uri: firstPhoto }} resizeMode="cover" style={{ width: '100%', height: '100%' }} /> : (
+          <LinearGradient colors={[theme.surface3, theme.surface]} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <MaterialIcons name="directions-car" size={66} color={theme.textDim} />
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>Samochód czeka na swoje zdjęcie</Text>
+          </LinearGradient>
+        )}
+        {isMain && <View style={{ position: 'absolute', top: 14, left: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111111E6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
+          <MaterialIcons name="star" size={14} color="#FFD479" />
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Główne auto</Text>
+        </View>}
       </View>
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.text, fontSize: 14 }}>{brand}</Text>
-          {isMain && (
-            <View style={{
-              backgroundColor: theme.primaryBg,
-              paddingHorizontal: 8,
-              paddingVertical: 3,
-              borderRadius: 8,
-              marginLeft: 10,
-              borderWidth: 1,
-              borderColor: theme.primaryBorder,
-            }}>
-              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.primary, fontSize: 12, letterSpacing: 1 }}>GŁÓWNE</Text>
-            </View>
-          )}
+      <View style={{ padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.text, fontSize: 23, fontWeight: '800', letterSpacing: -0.5 }}>{brand}</Text>
+          {!!specs && <Text style={{ color: theme.textDim, fontSize: 14, lineHeight: 21 }}>{specs}</Text>}
         </View>
-        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: theme.textDim, fontSize: 12, marginTop: 4 }}>{specs}</Text>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.surface3, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border }}>
+          <MaterialIcons name="arrow-outward" size={21} color={theme.text} />
+        </View>
       </View>
-      <MaterialIcons name="chevron-right" size={22} color={theme.textDim} />
     </TouchableOpacity>
   );
 }

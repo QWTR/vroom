@@ -141,7 +141,8 @@ const REFERRAL_PROMO_FORMATS = [
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openBug, discordStatus, discordReason } = useLocalSearchParams<{
+  const { openBug, discordStatus, discordReason, section } = useLocalSearchParams<{
+    section?: string;
     openBug?: string;
     discordStatus?: string;
     discordReason?: string;
@@ -282,7 +283,10 @@ export default function SettingsScreen() {
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [backgroundPermissionBlocked, setBackgroundPermissionBlocked] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabKey>('appearance');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabKey>(section === 'profile' ? 'profile' : 'appearance');
+  useEffect(() => {
+    if (section === 'profile') setActiveSettingsTab('profile');
+  }, [section]);
   const [deleteConfirm,      setDeleteConfirm]      = useState('');
   const [deleteLoading,      setDeleteLoading]      = useState(false);
   const [bugLoading,         setBugLoading]         = useState(false);

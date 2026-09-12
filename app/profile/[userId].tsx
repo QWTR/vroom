@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { View, ScrollView, TouchableOpacity, Image, ActivityIndicator, Animated, StyleSheet, Modal, Alert } from 'react-native';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Animated, StyleSheet, Modal, Alert } from 'react-native';
 import { AppText as Text } from '../../components/ui/AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -25,7 +25,7 @@ import { getHeroBannerHeight } from '../../lib/profileBanner';
 import { formatExplorationPercent } from '../../lib/explorationPercent';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
-import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
+import { ProfileIdentityAvatar } from '../../components/profile/ProfileIdentityAvatar';
 import ShopEntranceOverlay from '../../components/shop/ShopEntranceOverlay';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import ProfileBackgroundAnimation from '../../components/profile/ProfileBackgroundAnimation';
@@ -38,6 +38,10 @@ import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/scre
 import { apiRequest } from '../../lib/api/client';
 import { queryClient } from '../../lib/query/client';
 import { enqueueSocialOperation, subscribeSocialQueue } from '../../lib/socialQueue';
+
+import { ProfileNavigation, ProfileMetrics, ProfileChapter, type ProfileTab } from '../../components/profile/ProfileNavigation';
+import CarCard from '../../components/profile/CarCard';
+import { ProvinceBadge } from '../../components/user/ProvinceBadge';
 
 const RED = '#e33835';
 
@@ -59,6 +63,7 @@ const getToken = async () =>
 
 interface PublicProfile {
   id: number; username: string; location: string | null;
+  province?: string | null;
   bio: string | null; avatarUrl: string | null; createdAt: string;
   totalDistance: number; points: number; meetCount: number;
   cityCount: number; position: number | null;
@@ -98,7 +103,7 @@ interface PublicSpot {
 type FriendStatus = 'none' | 'pending_sent' | 'pending_received' | 'accepted';
 type CursorPage<T> = { items: T[]; nextCursor: string | null; hasMore: boolean };
 type ProfileSummaryResponse = {
-  profile: PublicProfile & { counts: { followers: number; following: number } };
+  profile: PublicProfile & { counts: { followers: number; following: number; cars: number; spots: number; achievements: number } };
   viewer: {
     isFollowing: boolean;
     friendshipId: number | null;
@@ -133,6 +138,13 @@ export default function PublicProfileScreen() {
   const headerTop = useScreenHeaderTop(8);
   const scrollBottomPad = useScreenScrollBottomPadding();
 
+  const [activeTab, setActiveTab] = useState<ProfileTab>('garage');
+  const [profileCounts, setProfileCounts] = useState({ cars: 0, spots: 0, achievements: 0 });
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  const selectProfileTab = (tab: ProfileTab) => {
+    setActiveTab(tab);
+    if (tab === 'activity' || tab === 'spots') setLoadHeavySections(true);
+  };
   const [profile,       setProfile]       = useState<PublicProfile | null>(null);
   const [cars,          setCars]          = useState<PublicCar[]>([]);
   const [localSpots,    setLocalSpots]    = useState<PublicSpot[]>([]);
@@ -201,6 +213,10 @@ export default function PublicProfileScreen() {
         setMyUserId(localUserId);
       }
       setLoadHeavySections(false);
+      setActiveTab('garage');
+      setCars([]);
+      setLocalSpots([]);
+      setAchievements([]);
       await loadAll(localUserId);
     })();
   }, [userId]);
@@ -216,6 +232,7 @@ export default function PublicProfileScreen() {
       });
       const { profile: nextProfile, viewer } = summary;
       setProfile(nextProfile);
+      setProfileCounts(nextProfile.counts);
       setFollowersCount(nextProfile.counts.followers);
       setFollowingCount(nextProfile.counts.following);
       setIsFollowing(viewer.isFollowing);
@@ -241,6 +258,7 @@ export default function PublicProfileScreen() {
 
   useEffect(() => {
     if (!loadHeavySections || !userId) return;
+    setSectionsLoading(true);
     void Promise.allSettled([
       queryClient.fetchQuery({
         queryKey: ['profile', Number(userId), 'spots', 'first'],
@@ -262,7 +280,7 @@ export default function PublicProfileScreen() {
         conditionValue: row.definition?.conditionValue ?? 0,
         conditionField: row.definition?.conditionField ?? '',
       })))),
-    ]);
+    ]).finally(() => setSectionsLoading(false));
   }, [loadHeavySections, userId]);
 
   useEffect(() => {
@@ -468,6 +486,11 @@ export default function PublicProfileScreen() {
   const resolvedPremiumUi = premiumActive
     ? mergeProfilePremiumExtras(profile?.profilePremiumExtras)
     : null;
+  const pillAccentColors = resolvedPremiumUi?.sectionAccentMode === 'solid' && resolvedPremiumUi.sectionAccentSolid
+    ? [resolvedPremiumUi.sectionAccentSolid, resolvedPremiumUi.sectionAccentSolid]
+    : resolvedPremiumUi?.sectionAccentMode === 'gradient' && (resolvedPremiumUi.sectionAccentGradient?.colors.length ?? 0) >= 2
+      ? resolvedPremiumUi.sectionAccentGradient!.colors
+      : ['#e33835', '#ff7959'];
   const heroBannerFocus: ProfileBannerFocusPoint = shopBannerUri
     ? 'center'
     : (resolvedPremiumUi?.bannerFocusPoint ?? 'center');
@@ -527,7 +550,6 @@ export default function PublicProfileScreen() {
     );
   }
 
-  const initials    = profile.username.slice(0, 2).toUpperCase();
   const joinedLabel = new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
   const isFriend    = friendStatus === 'accepted';
   const heroBannerOverlays: Record<string, string[]> = {
@@ -541,14 +563,8 @@ export default function PublicProfileScreen() {
     forest: ['#052e1288', '#071a0c55'],
     custom: ['#12121c99', '#08080c55'],
   };
-  const frameGradients: Record<string, string[]> = {
-    vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
-    sunrise: ['#ff6b35', '#f5c518', '#ff6b35'],
-    ocean: ['#38a5e3', '#1b6eff', '#38a5e3'],
-    lime: ['#4de926', '#a6ff4d', '#4de926'],
-  };
 
-  const HERO_BANNER_HEIGHT = getHeroBannerHeight();
+  const HERO_BANNER_HEIGHT = heroBannerUri ? getHeroBannerHeight() : Math.min(getHeroBannerHeight(), 280);
   const cardTheme = {
     text: palette.text,
     textDim: palette.textDim,
@@ -558,7 +574,7 @@ export default function PublicProfileScreen() {
   };
   const profileLabel = { fontFamily: 'Manrope_600SemiBold' as const, fontSize: 12, color: palette.textDim, letterSpacing: 1 };
   const widgetGlass = (extra?: Record<string, unknown>) => ({
-    backgroundColor: glassSurface(palette.surface, 'cc'),
+    backgroundColor: glassSurface(palette.surface, 'F2'),
     borderRadius: 20,
     borderWidth: 1,
     borderColor: palette.border,
@@ -575,7 +591,7 @@ export default function PublicProfileScreen() {
     ...GLASS_SHADOW,
     ...extra,
   });
-  const pillDivider = { width: 1, height: 22, backgroundColor: GLASS_BORDER, marginHorizontal: 2 };
+  const pillDivider = { width: 0, height: 0 };
   const pillBtn = (
     onPress: () => void,
     icon: React.ComponentProps<typeof MaterialIcons>['name'],
@@ -592,7 +608,7 @@ export default function PublicProfileScreen() {
         onPress={onPress}
         disabled={opts?.disabled || opts?.loading}
         activeOpacity={0.75}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 22 }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 12, minHeight: 46, borderRadius: 14, backgroundColor: opts?.active ? palette.surfaceAlt : palette.surface, borderWidth: 1, borderColor: palette.border }}
       >
         {opts?.loading
           ? <ActivityIndicator size="small" color={accent} />
@@ -696,8 +712,8 @@ export default function PublicProfileScreen() {
               position: 'relative',
               justifyContent: 'flex-end',
               alignItems: 'center',
-              paddingTop: headerTop,
-              paddingBottom: 28,
+              paddingTop: headerTop + 100,
+              paddingBottom: 32,
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }],
             }}
@@ -721,75 +737,29 @@ export default function PublicProfileScreen() {
               >
                 <MaterialIcons name="arrow-back" size={20} color={palette.text} />
               </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Więcej opcji profilu" disabled={blockBusy}
+                onPress={() => Alert.alert('Opcje profilu', '@' + profile.username, [
+                  { text: isBlocked ? 'Odblokuj użytkownika' : 'Zablokuj użytkownika', style: isBlocked ? 'default' : 'destructive', onPress: isBlocked ? handleUnblockUser : handleBlockUser },
+                  { text: 'Anuluj', style: 'cancel' },
+                ])}
+                style={{ marginLeft: 'auto', width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: palette.surface }}>
+                <MaterialIcons name="more-horiz" size={23} color={palette.text} />
+              </TouchableOpacity>
             </View>
 
             {/* Avatar + nick */}
-            <View style={{ alignItems: 'center', paddingHorizontal: 24, width: '100%' }}>
-              <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14, alignItems: 'center', justifyContent: 'center' }}>
-                {premiumActive ? (
-                  <LinearGradient
-                    colors={(frameGradients[resolvedFramePreset] || frameGradients.vroom) as [string, string, ...string[]]}
-                    style={{ width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', padding: 2 }}
-                  >
-                    <View style={{
-                      width: 88,
-                      height: 88,
-                      borderRadius: 44,
-                      backgroundColor: palette.surface,
-                      overflow: 'hidden',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {profile.avatarUrl
-                        ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
-                        : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
-                      }
-                    </View>
-                  </LinearGradient>
-                ) : (
-                  <View style={{
-                    width: 88,
-                    height: 88,
-                    borderRadius: 44,
-                    borderWidth: 1.5,
-                    borderColor: palette.border,
-                    backgroundColor: palette.surface,
-                    overflow: 'hidden',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    {profile.avatarUrl
-                      ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
-                      : <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: palette.text, fontWeight: '900' }}>{initials}</Text>
-                    }
-                  </View>
-                )}
-                <ShopAvatarDecoration item={profile.shopCosmetics?.avatarFrame} size={96} />
-                {isFriend && (
-                  <View style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    right: 0,
-                    width: 22,
-                    height: 22,
-                    borderRadius: 11,
-                    backgroundColor: palette.textDim,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderWidth: 2,
-                    borderColor: palette.bg,
-                  }}>
-                    <MaterialIcons name="favorite" size={10} color={palette.bg} />
-                  </View>
-                )}
+            <View style={{ alignItems: 'flex-start', paddingHorizontal: 24, width: '100%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, width: '100%' }}>
+              <View style={{ position: 'relative' }}><ProfileIdentityAvatar uri={profile.avatarUrl} username={profile.username} premium={premiumActive} preset={resolvedFramePreset} extras={resolvedPremiumUi} decoration={profile.shopCosmetics?.avatarFrame} theme={palette} />
+                {isFriend && <View style={{ position: 'absolute', right: 0, bottom: 0, backgroundColor: palette.surface, borderRadius: 12, padding: 5 }}><MaterialIcons name="favorite" size={14} color={palette.text} /></View>}
               </View>
-
+              <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.textDim, letterSpacing: 1, marginBottom: 6 }}>
-                PROFIL GRACZA
+                KIEROWCA VROOM
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
                 <Text
-                  style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: resolvedNickColor || palette.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }}
+                  style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 28, color: resolvedNickColor || palette.text, fontWeight: '900', letterSpacing: -0.8, flexShrink: 1, textAlign: 'left' }}
                   numberOfLines={1}
                 >
                   {profile.username}
@@ -799,28 +769,14 @@ export default function PublicProfileScreen() {
               {!!profile.location && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
                   <MaterialIcons name="location-on" size={12} color={palette.textDim} />
-                  <Text style={{ ...profileLabel, textAlign: 'center' }}>{profile.location}</Text>
-                </View>
-              )}
-              {!!profile.position && (
-                <View style={{
-                  marginTop: 10,
-                  backgroundColor: 'rgba(255,255,255,0.06)',
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: GLASS_BORDER,
-                  paddingHorizontal: 14,
-                  paddingVertical: 6,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                  <MaterialCommunityIcons name="podium" size={14} color={palette.text} />
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: palette.text, fontWeight: '900' }}>#{profile.position}</Text>
-                  <Text style={profileLabel}>RANKING</Text>
+                  <Text style={{ ...profileLabel, textAlign: 'left' }}>{profile.location}</Text>
                 </View>
               )}
 
+
+              {!!profile.province && <View style={{ marginTop: 8 }}><ProvinceBadge province={profile.province} compact theme={palette} /></View>}
+              </View>
+              </View>
               {/* ══ Pływająca pigułka akcji społecznościowych ══ */}
               <View style={{
                 flexDirection: 'row',
@@ -828,11 +784,12 @@ export default function PublicProfileScreen() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: 'rgba(255,255,255,0.05)',
-                borderWidth: 1,
                 borderColor: palette.border,
-                borderRadius: 30,
-                padding: 4,
-                marginTop: 16,
+                borderRadius: 16,
+                padding: 0,
+                gap: 8,
+                borderWidth: 0,
+                marginTop: 20,
                 maxWidth: '100%',
               }}>
                 {renderFriendPillAction()}
@@ -845,147 +802,34 @@ export default function PublicProfileScreen() {
                 )}
                 <View style={pillDivider} />
                 {pillBtn(handleStartChat, 'chat', 'Napisz', { loading: chatLoading, disabled: chatLoading })}
-                {myUserId != null && profile.id !== myUserId && (
-                  <>
-                    <View style={pillDivider} />
-                    {pillBtn(
-                      isBlocked ? handleUnblockUser : handleBlockUser,
-                      isBlocked ? 'lock-open' : 'block',
-                      isBlocked ? 'Odblokuj' : 'Zablokuj',
-                      { loading: blockBusy, disabled: blockBusy, danger: !isBlocked },
-                    )}
-                  </>
-                )}
               </View>
             </View>
           </Animated.View>
 
           {/* ══ CONTENT ══ */}
-          <Animated.View style={{ paddingHorizontal: 20, marginTop: -28, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          <Animated.View style={{ paddingHorizontal: 20, marginTop: 0, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
 
-            {/* O MNIE + Spotify + społeczność */}
-            <View style={{ ...widgetGlass(), padding: 16, marginBottom: 16 }}>
-              {(!!profile.bio || !!profile.spotifyProfileTrack) && (
-                <Text style={{ ...profileLabel, marginBottom: 10 }}>O MNIE</Text>
-              )}
-              {!!profile.bio && (
-                <Text style={{ color: palette.text, fontSize: 13, lineHeight: 20, marginBottom: profile.spotifyProfileTrack ? 4 : 12 }}>
-                  {profile.bio}
-                </Text>
-              )}
-              {!!profile.spotifyProfileTrack && (
-                <SpotifyProfileTrackRow
-                  track={profile.spotifyProfileTrack}
-                  theme={{ text: palette.text, textDim: palette.textDim, surface: palette.surface, border: palette.border }}
-                  embedded
-                  autoplayOnVisit={
-                    !!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl
-                  }
-                  showVisitorMuteBar={
-                    !!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl
-                  }
-                  visitorMuted={profileMusicMuted}
-                  onVisitorMute={() => setProfileMusicMuted(true)}
-                />
-              )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
-                <MaterialIcons name="calendar-today" size={14} color={palette.textDim} />
-                <Text style={profileLabel}>Dołączył {joinedLabel}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
-                {[
-                  { label: 'Obserwujący', value: followersCount, icon: 'visibility' as const },
-                  { label: 'Obserwacje', value: followingCount, icon: 'person-add' as const },
-                ].map((item, idx) => (
-                  <TouchableOpacity
-                    key={item.label}
-                    activeOpacity={0.75}
-                    onPress={() => router.push({
-                      pathname: '/profile/connections',
-                      params: { userId: String(profile.id), tab: idx === 0 ? 'followers' : 'following' },
-                    } as any)}
-                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: idx === 0 ? 0 : 12 }}
-                  >
-                    {idx === 1 && <View style={{ width: 1, height: 32, backgroundColor: GLASS_BORDER, marginRight: 12 }} />}
-                    <MaterialIcons name={item.icon} size={18} color={palette.textDim} />
-                    <View>
-                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: palette.text, fontWeight: '900' }}>{item.value}</Text>
-                      <Text style={profileLabel}>{item.label}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
+          {!!profile.spotifyProfileTrack && <View style={{ marginBottom: 16 }}>
+            <SpotifyProfileTrackRow track={profile.spotifyProfileTrack} theme={palette} embedded
+              autoplayOnVisit={!!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl}
+              showVisitorMuteBar={!!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl}
+              visitorMuted={profileMusicMuted} onVisitorMute={() => setProfileMusicMuted(true)} />
+          </View>}
+          <ProfileMetrics theme={palette} items={[
+              { label: 'Kilometry', value: Math.round(profile.totalDistance).toLocaleString('pl-PL'), onPress: () => { setStatsMode('distance'); setStatsModalVisible(true); } },
+              { label: 'Osiągnięcia', value: String(profileCounts.achievements), onPress: () => router.push({ pathname: '/profile/achievements', params: { userId: String(profile.id) } } as any) },
+              { label: 'Ranking', value: profile.position ? '#' + profile.position : '—', onPress: () => router.push({ pathname: '/Community/Ranks/stats', params: { rankCategory: 'points', rankPeriod: 'all' } } as any) },
+            ]} />
+            <ProfileNavigation value={activeTab} onChange={selectProfileTab} theme={palette} colors={pillAccentColors} />
+            {activeTab === 'garage' && <View testID="profile-panel-garage">
+              <ProfileChapter title="Pasja na kołach" description="Poznaj samochody tego kierowcy." theme={palette} />
+            <View style={glassSection()}>
+              <SectionHeader title="GARAŻ" count={profileCounts.cars} icon="directions-car" palette={palette} />
+              {cars.length === 0 ? <EmptyState text="Ten garaż czeka na pierwsze auto" palette={palette} /> : cars.map(car => (
+                <CarCard key={car.id} brand={car.brand} specs={car.specs} isMain={car.isMain} firstPhoto={car.photos?.[0]} theme={palette}
+                  onPress={() => router.push({ pathname: '/profile/car-detail', params: { id: String(car.id) } })} />
+              ))}
             </View>
-
-            {/* ══ BENTO STATS GRID 2×2 ══ */}
-            {!!profile.discord && (
-              <DiscordProfileCard
-                discord={profile.discord}
-                theme={{ text: palette.text, textDim: palette.textDim, surface: palette.surface, border: palette.border }}
-              />
-            )}
-
-            <View style={{ marginBottom: 16, gap: 10 }}>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <TouchableOpacity
-                  onPress={() => { setStatsMode('distance'); setStatsModalVisible(true); }}
-                  activeOpacity={0.82}
-                  style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}
-                >
-                  <MaterialIcons name="straighten" size={22} color={palette.textDim} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
-                      {Math.round(profile.totalDistance).toLocaleString('pl-PL')}
-                    </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Kilometry</Text>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push({ pathname: '/profile/achievements', params: { userId: String(profile.id) } } as any)}
-                  activeOpacity={0.82}
-                  style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}
-                >
-                  <MaterialCommunityIcons name="trophy" size={22} color={palette.textDim} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
-                      {achievements.length}
-                    </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Osiągnięcia</Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <TouchableOpacity onPress={() => router.push({ pathname: '/Community/Ranks/stats', params: { rankCategory: 'points', rankPeriod: 'all' } } as any)} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
-                  <MaterialIcons name="leaderboard" size={22} color={palette.textDim} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
-                      {profile.position ? `#${profile.position}` : '—'}
-                    </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Ranking</Text>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => { setStatsMode('all'); setStatsModalVisible(true); }} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
-                  <MaterialIcons name="bar-chart" size={22} color={palette.textDim} />
-                  <View>
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.2 }}>
-                      →
-                    </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Statystyki</Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {!!profile.streak && (
-              <View style={{ ...widgetGlass(), padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <Text style={{ fontSize: 22 }}>🔥</Text>
-                <View>
-                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: palette.text, fontWeight: '900' }}>{profile.streak}</Text>
-                  <Text style={profileLabel}>Streak dni</Text>
-                </View>
-              </View>
-            )}
-
             <TouchableOpacity
               activeOpacity={0.84}
               onPress={() => router.push({ pathname: '/profile/inventory', params: { userId: String(profile.id) } } as any)}
@@ -996,60 +840,24 @@ export default function PublicProfileScreen() {
               <MaterialIcons name="arrow-forward-ios" size={14} color={palette.textDim} />
             </TouchableOpacity>
 
-            {/* ══ AUTA ══ */}
-            <View style={glassSection()}>
-              <SectionHeader title="AUTA" count={cars.length} icon="directions-car" palette={palette} />
-              {cars.length === 0
-                ? <EmptyState text="Brak dodanych aut" palette={palette} />
-                : cars.map(car => (
-                    <TouchableOpacity
-                      key={car.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 14,
-                        backgroundColor: glassSurface(palette.surface, '80'),
-                        borderRadius: 16,
-                        padding: 12,
-                        marginBottom: 10,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                      }}
-                      onPress={() => router.push({ pathname: '/profile/car-detail', params: { id: String(car.id) } })}
-                      activeOpacity={0.8}
-                    >
-                      <View style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: 12,
-                        backgroundColor: palette.bg,
-                        overflow: 'hidden',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                      }}>
-                        {car.photos[0]
-                          ? <Image source={{ uri: car.photos[0] }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                          : <MaterialIcons name="directions-car" size={22} color={palette.textDim} />
-                        }
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.text, fontSize: 13, fontWeight: '700' }}>{car.brand}</Text>
-                          {car.isMain && (
-                            <View style={{ backgroundColor: glassSurface(palette.surface, '80'), paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1, borderColor: palette.border }}>
-                              <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.textDim, fontSize: 12 }}>GŁÓWNE</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={{ fontFamily: 'Manrope_600SemiBold', color: palette.textDim, fontSize: 12 }}>{car.specs}</Text>
-                      </View>
-                      <MaterialIcons name="arrow-forward-ios" size={13} color={palette.textDim} />
-                    </TouchableOpacity>
-                  ))
-              }
-            </View>
+
+            </View>}
+            {activeTab === 'activity' && <View testID="profile-panel-activity">
+              <ProfileChapter title="Każdy kilometr się liczy" description="Wyniki, osiągnięcia i odkryte miejsca." theme={palette} />
+            <TouchableOpacity accessibilityRole="button" onPress={() => { setStatsMode('all'); setStatsModalVisible(true); }} style={{ ...widgetGlass(), padding: 18, marginBottom: 22, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <MaterialCommunityIcons name="chart-box-outline" size={26} color={palette.text} />
+              <View style={{ flex: 1 }}><Text style={{ color: palette.text, fontSize: 16, fontWeight: '800' }}>Wszystkie statystyki</Text><Text style={{ color: palette.textDim, fontSize: 13, marginTop: 4 }}>Dystans, prędkość i wyniki kierowcy</Text></View>
+              <MaterialIcons name="arrow-forward" size={20} color={palette.text} />
+            </TouchableOpacity>
+            {!!profile.streak && (
+              <View style={{ ...widgetGlass(), padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Text style={{ fontSize: 22 }}>🔥</Text>
+                <View>
+                  <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 20, color: palette.text, fontWeight: '900' }}>{profile.streak}</Text>
+                  <Text style={profileLabel}>Streak dni</Text>
+                </View>
+              </View>
+            )}
 
             {/* ══ OSIĄGNIĘCIA ══ */}
             <View style={glassSection()}>
@@ -1124,26 +932,32 @@ export default function PublicProfileScreen() {
             </View>
 
             <View style={glassSection()}>
-              <SectionHeader title="OSIĄGNIĘCIA" count={achievements.length} icon="emoji-events" palette={palette} />
+              <SectionHeader title="OSIĄGNIĘCIA" count={profileCounts.achievements} icon="emoji-events" palette={palette} />
               <AchievementsPreviewSection
                 achievements={achievements}
                 theme={cardTheme}
-                loading={loading && achievements.length === 0}
+                loading={sectionsLoading}
+                isOwner={false}
                 onSeeAll={() => router.push({ pathname: '/profile/achievements', params: { userId: String(profile.id) } } as any)}
               />
             </View>
 
+
+            </View>}
+            {activeTab === 'spots' && <View testID="profile-panel-spots">
+              <ProfileChapter title="Miejsca z charakterem" description="Miejscówki polecane przez tego kierowcę." theme={palette} />
             {/* ══ SPOTY ══ */}
             <View style={glassSection({ marginBottom: 0 })}>
-              <SectionHeader title="SPOTY" count={localSpots.length} icon="place" palette={palette} />
+              <SectionHeader title="SPOTY" count={profileCounts.spots} icon="place" palette={palette} />
               {localSpots.length === 0
-                ? <EmptyState text="Brak dodanych spotów" palette={palette} />
+                ? <EmptyState text={sectionsLoading ? 'Ładowanie spotów…' : 'Brak dodanych spotów'} palette={palette} />
                 : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
                     {localSpots.map(spot => (
                       <SpotPreviewCard
                         key={spot.id}
                         spot={spot as unknown as SpotPreview}
+                        theme={palette}
                         isOwner={false}
                         onPress={() => setSelectedSpot(toSpot(spot))}
                       />
@@ -1153,6 +967,50 @@ export default function PublicProfileScreen() {
               }
             </View>
 
+
+            </View>}
+            {activeTab === 'about' && <View testID="profile-panel-about">
+              <ProfileChapter title="Ludzie i połączenia" description="Poznaj społeczność tego kierowcy." theme={palette} />
+          <View style={{ ...widgetGlass(), padding: 20, marginBottom: 20, gap: 12 }}>
+            <Text style={{ color: palette.text, fontSize: 19, fontWeight: '800' }}>O mnie</Text>
+            <Text style={{ color: palette.textDim, fontSize: 15, lineHeight: 23 }}>{profile.bio || 'Ten kierowca jeszcze nie dodał opisu.'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.border }}>
+              <MaterialIcons name="calendar-today" size={15} color={palette.textDim} /><Text style={{ color: palette.textDim, fontSize: 13 }}>W VROOM od {joinedLabel}</Text>
+            </View>
+          </View>
+
+            {!!profile.discord && (
+              <DiscordProfileCard
+                discord={profile.discord}
+                theme={{ text: palette.text, textDim: palette.textDim, surface: palette.surface, border: palette.border }}
+              />
+            )}
+
+              <View style={{ flexDirection: 'row', marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
+                {[
+                  { label: 'Obserwujący', value: followersCount, icon: 'visibility' as const },
+                  { label: 'Obserwacje', value: followingCount, icon: 'person-add' as const },
+                ].map((item, idx) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    activeOpacity={0.75}
+                    onPress={() => router.push({
+                      pathname: '/profile/connections',
+                      params: { userId: String(profile.id), tab: idx === 0 ? 'followers' : 'following' },
+                    } as any)}
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: idx === 0 ? 0 : 12 }}
+                  >
+                    {idx === 1 && <View style={{ width: 1, height: 32, backgroundColor: GLASS_BORDER, marginRight: 12 }} />}
+                    <MaterialIcons name={item.icon} size={18} color={palette.textDim} />
+                    <View>
+                      <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 18, color: palette.text, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={profileLabel}>{item.label}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+            </View>}
           </Animated.View>
         </ScrollView>
 
@@ -1253,7 +1111,7 @@ export default function PublicProfileScreen() {
 
 // ── SectionHeader ─────────────────────────────────────────
 function SectionHeader({ title, count, icon, palette }: {
-  title: string; count: number; icon: string;
+  title: string; count: number | string; icon: string;
   palette: { text: string; textDim: string; surface: string; border: string };
 }) {
   return (

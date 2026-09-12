@@ -5,8 +5,8 @@ import type { ImageContentPosition } from 'expo-image';
 import { API_URL } from '../constants/config';
 import type { ProfileBannerFocusPoint } from '../constants/profilePremiumExtras';
 
-/** Ułamek wysokości ekranu zajmowany przez hero baner w ProfileView. */
-export const HERO_BANNER_HEIGHT_RATIO = 0.7;
+/** Proporcja kompaktowego banera; ten sam kadr w profilu i edytorze. */
+export const HERO_BANNER_HEIGHT_RATIO = 0.46;
 
 function gcd(a: number, b: number): number {
   return b === 0 ? a : gcd(b, a % b);
@@ -16,7 +16,7 @@ function gcd(a: number, b: number): number {
 export function getHeroBannerHeight(
   screenHeight = Dimensions.get('window').height,
 ): number {
-  return screenHeight * HERO_BANNER_HEIGHT_RATIO;
+  return Math.max(280, Math.min(390, screenHeight * HERO_BANNER_HEIGHT_RATIO));
 }
 
 /** width / height — proporcja kontenera hero (cover). */
@@ -27,7 +27,7 @@ export function getHeroBannerAspectRatio(): number {
 
 /**
  * Proporcje dla expo-image-picker `aspect` — dopasowane do hero (nie 21:9).
- * Np. telefon ~9:19 → ok. [10, 15].
+ * Wspólne proporcje podglądu kadrowania i obu ekranów profilu.
  */
 export function getHeroBannerCropAspect(): [number, number] {
   const { width, height } = Dimensions.get('window');
