@@ -5,7 +5,7 @@ import Svg, { Polyline, Circle, Defs, LinearGradient, Stop } from 'react-native-
 interface Point { latitude: number; longitude: number; }
 
 interface Props {
-  points:  Point[];
+  points?: Point[] | null;
   width?:  number;
   height?: number;
   color?:  string;
@@ -13,7 +13,7 @@ interface Props {
 
 export function RouteMiniMap({ points, width = 120, height = 60, color = '#e33835' }: Props) {
   const svgPoints = useMemo(() => {
-    if (points.length < 2) return null;
+    if (!points || points.length < 2) return null;
 
     const lats = points.map(p => p.latitude);
     const lngs = points.map(p => p.longitude);

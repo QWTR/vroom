@@ -56,7 +56,7 @@ export default function RouteCard({ route, isOwner, onDelete, onNavigate, onShar
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
             {[
               { icon: 'straighten', color: theme.primary, val: `${route.distance.toFixed(1)} km` },
-              { icon: 'place',      color: theme.textDim,  val: `${route.points.length} pkt` },
+              { icon: 'place',      color: theme.textDim,  val: route.points ? `${route.points.length} pkt` : '— pkt' },
               { icon: 'favorite',   color: theme.textDim,  val: String(route._count?.likes ?? 0) },
             ].map(s => (
               <View key={s.icon} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>

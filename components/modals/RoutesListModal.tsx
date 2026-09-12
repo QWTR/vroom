@@ -120,7 +120,7 @@ export function RoutesListModal({
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <MaterialIcons name="place" size={12} color={theme.textDim} />
-                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>{route.points.length} pkt</Text>
+                    <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.textMuted }}>{route.points ? `${route.points.length} pkt` : '— pkt'}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <MaterialIcons name="favorite" size={12} color={theme.textDim} />
