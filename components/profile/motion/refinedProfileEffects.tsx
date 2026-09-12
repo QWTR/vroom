@@ -38,6 +38,7 @@ export const REFINED_HERO_KINDS = new Set<ProfileHeroMotion>([
   'vortex',
   'embers',
   'glitch',
+  'kenburns',
 ]);
 
 export function isRefinedVisitKind(kind: string): kind is ProfileVisitEntranceAnim {
@@ -72,7 +73,7 @@ function useEntranceProgress(duration: number, onDone: () => void) {
 
 function useAmbientProgress(duration: number) {
   const reduceMotion = useReducedMotion();
-  const progress = useRef(new Animated.Value(reduceMotion ? 0.45 : 0)).current;
+  const progress = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
     if (reduceMotion) {
@@ -341,9 +342,9 @@ function GuideGrid({ opacity = 0.14 }: { opacity?: number }) {
 function GlassDrift({ progress }: { progress: Animated.Value }) {
   return (
     <>
-      <GuideGrid opacity={0.12} />
-      <Animated.View style={[styles.slowSweep, { opacity: 0.16, transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-240, 460] }) }, { rotate: '-12deg' }] }]}>
-        <LinearGradient colors={['transparent', `${PEARL}77`, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+      <GuideGrid opacity={0.3} />
+      <Animated.View style={[styles.slowSweep, { opacity: 0.58, transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-240, 460] }) }, { rotate: '-12deg' }] }]}>
+        <LinearGradient colors={['transparent', `${PEARL}cc`, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
       </Animated.View>
     </>
   );
@@ -352,8 +353,12 @@ function GlassDrift({ progress }: { progress: Animated.Value }) {
 function Afterglow({ progress }: { progress: Animated.Value }) {
   return (
     <>
-      <Animated.View style={[styles.ambientOrb, { left: '-18%', bottom: '-62%', backgroundColor: `${BRAND}33`, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.36] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.16] }) }] }]} />
-      <Animated.View style={[styles.ambientOrb, { right: '-30%', top: '-70%', backgroundColor: `${CHAMPAGNE}26`, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.1] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1.12, 0.94] }) }] }]} />
+      <Animated.View style={[styles.ambientOrb, { left: '-18%', top: '26%', opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.6] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.16] }) }] }]}>
+        <LinearGradient colors={['#d9484800', BRAND, '#d9484800']} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+      <Animated.View style={[styles.ambientOrb, { right: '-22%', top: '-18%', opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0.28] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1.12, 0.94] }) }] }]}>
+        <LinearGradient colors={['#c8aa7800', CHAMPAGNE, '#c8aa7800']} style={StyleSheet.absoluteFill} />
+      </Animated.View>
     </>
   );
 }
@@ -362,8 +367,8 @@ function SatinDrift({ progress }: { progress: Animated.Value }) {
   return (
     <>
       {[0, 1, 2].map(index => (
-        <Animated.View key={index} style={[styles.satinBand, { left: `${-45 + index * 37}%`, opacity: 0.08 + index * 0.025, transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-45 + index * 12, 95 + index * 10] }) }, { rotate: '16deg' }] }]}>
-          <LinearGradient colors={['transparent', index === 1 ? `${CHAMPAGNE}88` : `${STEEL}77`, 'transparent']} style={StyleSheet.absoluteFill} />
+        <Animated.View key={index} style={[styles.satinBand, { left: `${-45 + index * 37}%`, opacity: 0.32 + index * 0.08, transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-45 + index * 12, 95 + index * 10] }) }, { rotate: '16deg' }] }]}>
+          <LinearGradient colors={['transparent', index === 1 ? `${CHAMPAGNE}dd` : `${STEEL}c0`, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
         </Animated.View>
       ))}
     </>
@@ -374,7 +379,7 @@ function QuietOrbit({ progress }: { progress: Animated.Value }) {
   return (
     <View style={styles.orbitCenter}>
       {[150, 220, 300].map((size, index) => (
-        <Animated.View key={size} style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 1, borderColor: index === 1 ? `${CHAMPAGNE}42` : `${PEARL}2e`, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.18 + index * 0.03, 0.34 - index * 0.03] }), transform: [{ rotate: progress.interpolate({ inputRange: [0, 1], outputRange: [`${index * 24}deg`, `${50 + index * 24}deg`] }) }, { scaleY: 0.46 }] }}>
+        <Animated.View key={size} style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: index === 1 ? 2 : 1.5, borderColor: index === 1 ? CHAMPAGNE : PEARL, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.38 + index * 0.07, 0.7 - index * 0.06] }), transform: [{ rotate: progress.interpolate({ inputRange: [0, 1], outputRange: [`${index * 24}deg`, `${80 + index * 24}deg`] }) }, { scaleY: 0.46 }] }}>
           <View style={[styles.orbitDot, { left: size * 0.16, top: size * 0.06, backgroundColor: index === 1 ? CHAMPAGNE : PEARL }]} />
         </Animated.View>
       ))}
@@ -386,7 +391,7 @@ function AuroraMist({ progress }: { progress: Animated.Value }) {
   return (
     <>
       {[STEEL, CHAMPAGNE, BRAND].map((color, index) => (
-        <Animated.View key={color} style={[styles.mist, { left: `${-28 + index * 34}%`, backgroundColor: `${color}${index === 2 ? '18' : '24'}`, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: index % 2 ? [0.12, 0.26] : [0.24, 0.11] }), transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-18 + index * 7, 35 - index * 5] }) }, { rotate: `${-9 + index * 8}deg` }] }]} />
+        <Animated.View key={color} style={[styles.mist, { left: `${-28 + index * 34}%`, backgroundColor: color, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: index % 2 ? [0.16, 0.34] : [0.3, 0.14] }), transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-18 + index * 7, 35 - index * 5] }) }, { rotate: `${-9 + index * 8}deg` }] }]} />
       ))}
     </>
   );
@@ -396,18 +401,18 @@ function Contour({ progress }: { progress: Animated.Value }) {
   return (
     <View style={styles.orbitCenter}>
       {[120, 172, 232, 300].map((size, index) => (
-        <Animated.View key={size} style={{ position: 'absolute', width: size, height: size * 0.58, borderRadius: size / 2, borderWidth: 1, borderColor: index % 2 ? `${STEEL}32` : `${PEARL}28`, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.12 + index * 0.02, 0.25 - index * 0.02] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.06] }) }, { rotate: `${index * 7 - 10}deg` }] }} />
+        <Animated.View key={size} style={{ position: 'absolute', width: size, height: size * 0.58, borderRadius: size / 2, borderWidth: index === 1 ? 2 : 1.25, borderColor: index % 2 ? STEEL : PEARL, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.3 + index * 0.035, 0.58 - index * 0.035] }), transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1.1] }) }, { rotate: `${index * 7 - 10}deg` }] }} />
       ))}
     </View>
   );
 }
 
 function FloatingDust({ progress }: { progress: Animated.Value }) {
-  const particles = useMemo(() => Array.from({ length: 14 }, (_, index) => ({ left: `${5 + ((index * 29) % 91)}%`, top: `${10 + ((index * 17) % 78)}%`, size: index % 4 === 0 ? 2 : 1 })), []);
+  const particles = useMemo(() => Array.from({ length: 18 }, (_, index) => ({ left: `${5 + ((index * 29) % 91)}%`, top: `${8 + ((index * 17) % 82)}%`, size: index % 4 === 0 ? 4 : 2 })), []);
   return (
     <>
       {particles.map((particle, index) => (
-        <Animated.View key={index} style={{ position: 'absolute', left: particle.left as any, top: particle.top as any, width: particle.size, height: particle.size, borderRadius: 2, backgroundColor: index % 5 === 0 ? CHAMPAGNE : PEARL, opacity: progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: index % 2 ? [0.08, 0.3, 0.12] : [0.26, 0.08, 0.2] }), transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [10 + index, -16 - index] }) }] }} />
+        <Animated.View key={index} style={{ position: 'absolute', left: particle.left as any, top: particle.top as any, width: particle.size, height: particle.size, borderRadius: 3, backgroundColor: index % 5 === 0 ? CHAMPAGNE : PEARL, opacity: progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: index % 2 ? [0.18, 0.68, 0.24] : [0.6, 0.16, 0.46] }), transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [14 + index, -22 - index] }) }] }} />
       ))}
     </>
   );
@@ -416,18 +421,29 @@ function FloatingDust({ progress }: { progress: Animated.Value }) {
 function FilmScan({ progress }: { progress: Animated.Value }) {
   return (
     <>
-      <View style={[StyleSheet.absoluteFill, { opacity: 0.06 }]}>
+      <View style={[StyleSheet.absoluteFill, { opacity: 0.22 }]}>
         {Array.from({ length: 12 }, (_, index) => <View key={index} style={[styles.scanHairline, { top: `${index * 9}%` }]} />)}
       </View>
-      <Animated.View style={[styles.scanHighlight, { opacity: 0.12, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-80, 230] }) }] }]}>
-        <LinearGradient colors={['transparent', `${PEARL}66`, 'transparent']} style={StyleSheet.absoluteFill} />
+      <Animated.View style={[styles.scanHighlight, { opacity: 0.48, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-80, 230] }) }] }]}>
+        <LinearGradient colors={['transparent', `${PEARL}aa`, 'transparent']} style={StyleSheet.absoluteFill} />
       </Animated.View>
     </>
   );
 }
 
+function CinemaLight({ progress }: { progress: Animated.Value }) {
+  return (
+    <>
+      <Animated.View style={[styles.cinemaBeam, { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.46] }), transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-90, 210] }) }, { rotate: '-18deg' }] }]}>
+        <LinearGradient colors={['transparent', `${CHAMPAGNE}bb`, `${PEARL}dd`, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+      <View style={styles.cinemaFrame} />
+    </>
+  );
+}
+
 export function RefinedHeroMotion({ motion }: { motion: ProfileHeroMotion }) {
-  const duration = motion === 'turbo-pulse' ? 9000 : 13000;
+  const duration = motion === 'turbo-pulse' ? 6000 : 8000;
   const progress = useAmbientProgress(duration);
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -439,6 +455,7 @@ export function RefinedHeroMotion({ motion }: { motion: ProfileHeroMotion }) {
       {motion === 'vortex' && <Contour progress={progress} />}
       {motion === 'embers' && <FloatingDust progress={progress} />}
       {motion === 'glitch' && <FilmScan progress={progress} />}
+      {motion === 'kenburns' && <CinemaLight progress={progress} />}
     </View>
   );
 }
@@ -456,14 +473,16 @@ const styles = StyleSheet.create({
   traceNode: { position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: PEARL },
   focusCornerTop: { position: 'absolute', left: -1, top: -1, width: 34, height: 34, borderLeftWidth: 2, borderTopWidth: 2, borderColor: CHAMPAGNE, borderTopLeftRadius: 26 },
   focusCornerBottom: { position: 'absolute', right: -1, bottom: -1, width: 34, height: 34, borderRightWidth: 2, borderBottomWidth: 2, borderColor: CHAMPAGNE, borderBottomRightRadius: 26 },
-  guideVertical: { position: 'absolute', top: 0, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: PEARL },
-  guideHorizontal: { position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: PEARL },
-  slowSweep: { position: 'absolute', left: -120, top: '-30%', width: 140, height: '170%' },
-  ambientOrb: { position: 'absolute', width: '78%', aspectRatio: 1, borderRadius: 999 },
+  guideVertical: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: PEARL },
+  guideHorizontal: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: PEARL },
+  slowSweep: { position: 'absolute', left: -120, top: '-30%', width: 180, height: '170%' },
+  ambientOrb: { position: 'absolute', width: '88%', height: '78%', borderRadius: 999, overflow: 'hidden' },
   satinBand: { position: 'absolute', top: '-65%', width: '30%', height: '230%', borderRadius: 999 },
   orbitCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  orbitDot: { position: 'absolute', width: 4, height: 4, borderRadius: 2 },
+  orbitDot: { position: 'absolute', width: 7, height: 7, borderRadius: 4 },
   mist: { position: 'absolute', top: '-80%', width: '54%', height: '260%', borderRadius: 999 },
-  scanHairline: { position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: PEARL },
+  scanHairline: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: PEARL },
   scanHighlight: { position: 'absolute', top: -50, left: 0, right: 0, height: 62 },
+  cinemaBeam: { position: 'absolute', left: -120, top: '-55%', width: 150, height: '220%' },
+  cinemaFrame: { position: 'absolute', left: '7%', right: '7%', top: '12%', bottom: '16%', borderWidth: 1, borderColor: `${PEARL}66`, borderRadius: 18 },
 });

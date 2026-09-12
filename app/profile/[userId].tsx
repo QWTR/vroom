@@ -691,6 +691,7 @@ export default function PublicProfileScreen() {
           ) : null}
           <LinearGradient
             colors={['transparent', palette.bg]}
+            locations={premiumActive && resolvedPremiumUi?.heroMotion && resolvedPremiumUi.heroMotion !== 'none' ? [0.4, 1] : [0, 1]}
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />

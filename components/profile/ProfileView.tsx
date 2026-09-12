@@ -616,6 +616,7 @@ export default function ProfileView({
         <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} bannerHeight={HERO_BANNER_HEIGHT} />
         <LinearGradient
           colors={['transparent', theme.bg]}
+          locations={heroMotion && heroMotion !== 'none' ? [0.4, 1] : [0, 1]}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />

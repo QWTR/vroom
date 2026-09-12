@@ -73,7 +73,8 @@ export default function ProfileAnimationSettingsPreview({
         </ProfileHeroKenBurnsWrapper>
         <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} screenWidth={previewWidth} bannerHeight={PREVIEW_H} />
         <LinearGradient
-          colors={['transparent', '#090909ee']}
+          colors={['transparent', '#090909b8']}
+          locations={[0.45, 1]}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
