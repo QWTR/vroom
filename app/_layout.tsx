@@ -931,7 +931,7 @@ function RootLayoutInner() {
       <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
       {!suppressMapToasts && (
-        <Toast config={toastConfig} topOffset={insets.top + 8} visibilityTime={4000} />
+        <Toast config={toastConfig} topOffset={insets.top + 8} bottomOffset={insets.bottom + 16} visibilityTime={8000} swipeable={false} />
       )}
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}

@@ -34,6 +34,7 @@ export default function ProfileAnimationSettingsPreview({
 }: Props) {
   const [replayTick, setReplayTick] = useState(0);
   const [visitPlaying, setVisitPlaying] = useState(false);
+  const [previewWidth, setPreviewWidth] = useState(320);
 
   const gradient = linearGradientFromSpec(customHeroGradient, ['#080808', '#1A0404', '#0D0808']);
   const canReplayVisit = visitEntranceAnim !== 'none';
@@ -50,6 +51,7 @@ export default function ProfileAnimationSettingsPreview({
         PODGLĄD ANIMACJI
       </Text>
       <View
+        onLayout={({ nativeEvent }) => setPreviewWidth(Math.max(1, nativeEvent.layout.width))}
         style={{
           height: PREVIEW_H,
           borderRadius: 14,
@@ -69,7 +71,7 @@ export default function ProfileAnimationSettingsPreview({
             />
           ) : null}
         </ProfileHeroKenBurnsWrapper>
-        <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} screenWidth={320} bannerHeight={PREVIEW_H} />
+        <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} screenWidth={previewWidth} bannerHeight={PREVIEW_H} />
         <LinearGradient
           colors={['transparent', '#090909ee']}
           style={StyleSheet.absoluteFill}
@@ -98,6 +100,8 @@ export default function ProfileAnimationSettingsPreview({
           <VisitEntranceFx
             key={replayTick}
             kind={visitEntranceAnim}
+            width={previewWidth}
+            height={PREVIEW_H}
             onDone={() => setVisitPlaying(false)}
           />
         )}

@@ -18,12 +18,7 @@ import {
   VortexSkiaEffect,
 } from './motion/heroSkiaEffects';
 import HeroLegacyEffects, { isLegacyHeroMotion } from './motion/heroLegacyEffects';
-import {
-  ApexGridHeroMotion,
-  IgnitionHeroMotion,
-  NeonRainHeroMotion,
-  TurboPulseHeroMotion,
-} from './motion/premiumProfileEffects';
+import { RefinedHeroMotion, REFINED_HERO_KINDS } from './motion/refinedProfileEffects';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -48,13 +43,7 @@ function renderSkiaHero(motion: ProfileHeroMotion, size: { width: number; height
 }
 
 function renderPremiumHero(motion: ProfileHeroMotion) {
-  switch (motion) {
-    case 'apex-grid':   return <ApexGridHeroMotion />;
-    case 'ignition':    return <IgnitionHeroMotion />;
-    case 'neon-rain':   return <NeonRainHeroMotion />;
-    case 'turbo-pulse': return <TurboPulseHeroMotion />;
-    default:            return null;
-  }
+  return REFINED_HERO_KINDS.has(motion) ? <RefinedHeroMotion motion={motion} /> : null;
 }
 
 /** Float transform for hero container when motion === 'float'. */
@@ -90,7 +79,7 @@ export function ProfileHeroKenBurnsWrapper({
   useEffect(() => {
     if (motion !== 'kenburns') return;
     progress.value = withRepeat(
-      withTiming(1, { duration: 14000, easing: Easing.inOut(Easing.quad) }),
+      withTiming(1, { duration: 18000, easing: Easing.inOut(Easing.sin) }),
       -1,
       true,
     );
@@ -101,9 +90,9 @@ export function ProfileHeroKenBurnsWrapper({
     return {
       flex: 1,
       transform: [
-        { scale: 1 + progress.value * 0.06 },
-        { translateX: progress.value * -12 },
-        { translateY: progress.value * -8 },
+        { scale: 1 + progress.value * 0.035 },
+        { translateX: progress.value * -7 },
+        { translateY: progress.value * -4 },
       ],
     };
   });

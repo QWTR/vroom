@@ -1,95 +1,116 @@
 import React from 'react';
-import { View, type TextStyle, type ViewStyle } from 'react-native';
-import { BaseToast, ErrorToast, type ToastConfig } from 'react-native-toast-message';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { type ToastConfig, type ToastConfigParams } from 'react-native-toast-message';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppText } from './AppText';
 
-const R = '#e33835';
+const variants = {
+  success: { icon: 'check-circle-outline', light: '#17804f', dark: '#66d6a0' },
+  info: { icon: 'info-outline', light: '#2469ca', dark: '#80b5ff' },
+  error: { icon: 'error-outline', light: '#cf3439', dark: '#ff8589' },
+} as const;
 
-const toastShellStyle = (accent: string, bg: string): ViewStyle => ({
-  width: '92%',
-  alignSelf: 'center',
-  minHeight: 56,
-  paddingVertical: 12,
-  borderBottomColor: accent,
-  borderBottomWidth: 5,
-  borderLeftWidth: 0,
-  backgroundColor: bg,
-  zIndex: 999990,
-  borderRadius: 12,
-});
-
-const contentStyle: ViewStyle = {
-  paddingHorizontal: 12,
-  flexShrink: 1,
+type VroomToastProps = ToastConfigParams<unknown> & {
+  isDark: boolean;
+  variant: keyof typeof variants;
 };
 
-function makeTextStyles(textMain: string, textSecondary: string) {
-  const text1Style: TextStyle = {
-    color: textMain,
-    fontSize: 13,
-    fontFamily: 'Manrope_700Bold',
-    flexShrink: 1,
-  };
-  const text2Style: TextStyle = {
-    color: textSecondary,
-    fontSize: 12,
-    fontFamily: 'Manrope_600SemiBold',
-    flexShrink: 1,
-    marginTop: 2,
-  };
-  return { text1Style, text2Style };
+function VroomToast({ isDark, variant, text1, text2, hide, onPress }: VroomToastProps) {
+  const { height, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const palette = variants[variant];
+  const accent = isDark ? palette.dark : palette.light;
+  const background = isDark ? '#1c1c20' : '#ffffff';
+
+  return (
+    <View
+      testID={`vroom-toast-${variant}`}
+      style={[
+        styles.card,
+        {
+          width: Math.min(width - insets.left - insets.right - 24, 520),
+          backgroundColor: background,
+          borderColor: isDark ? '#36363c' : '#e7e7ec',
+        },
+      ]}
+    >
+      <View style={[styles.accent, { backgroundColor: accent }]} />
+      <View style={styles.row}>
+        <View style={[styles.icon, { backgroundColor: `${accent}18` }]}>
+          <MaterialIcons name={palette.icon} size={24} color={accent} />
+        </View>
+        <ScrollView
+          key={`${variant}:${text1}:${text2}`}
+          style={[styles.scroll, { maxHeight: Math.max(80, (height - insets.top - insets.bottom) * 0.55) }]}
+          contentContainerStyle={styles.content}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          indicatorStyle={isDark ? 'white' : 'black'}
+        >
+          <Pressable onPress={onPress} accessibilityLiveRegion="polite">
+            {!!text1 && (
+              <AppText contrastBackground={background} style={[styles.title, { color: isDark ? '#fafafa' : '#19191e' }]}>
+                {text1}
+              </AppText>
+            )}
+            {!!text2 && (
+              <AppText
+                contrastBackground={background}
+                style={[styles.message, !!text1 && styles.messageSpacing, { color: isDark ? '#c7c7d0' : '#555560' }]}
+              >
+                {text2}
+              </AppText>
+            )}
+          </Pressable>
+        </ScrollView>
+        <Pressable
+          testID="vroom-toast-close"
+          accessibilityRole="button"
+          accessibilityLabel="Zamknij powiadomienie"
+          onPress={() => hide()}
+          style={({ pressed }) => [styles.close, { backgroundColor: pressed ? `${accent}20` : 'transparent' }]}
+        >
+          <MaterialIcons name="close" size={20} color={isDark ? '#a8a8b3' : '#71717c'} />
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 export function createVroomToastConfig(isDark: boolean): ToastConfig {
-  const bg = isDark ? '#141414' : '#ffffff';
-  const textMain = isDark ? '#ffffff' : '#151515';
-  const textSecondary = isDark ? '#ffffff70' : '#4a4a4a';
-  const { text1Style, text2Style } = makeTextStyles(textMain, textSecondary);
-
-  const commonProps = {
-    text1NumberOfLines: 2 as const,
-    text2NumberOfLines: 3 as const,
-    contentContainerStyle: contentStyle,
-    text1Style,
-    text2Style,
-  };
-
   return {
-    success: (props) => (
-      <BaseToast
-        {...props}
-        {...commonProps}
-        style={toastShellStyle(R, bg)}
-        renderLeadingIcon={() => (
-          <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-            <MaterialIcons name="check-circle" size={26} color={R} />
-          </View>
-        )}
-      />
-    ),
-    info: (props) => (
-      <BaseToast
-        {...props}
-        {...commonProps}
-        style={toastShellStyle('#268bff', bg)}
-        renderLeadingIcon={() => (
-          <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-            <MaterialIcons name="info-outline" size={26} color="#268bff" />
-          </View>
-        )}
-      />
-    ),
-    error: (props) => (
-      <ErrorToast
-        {...props}
-        {...commonProps}
-        style={toastShellStyle('#fa0400', bg)}
-        renderLeadingIcon={() => (
-          <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-            <MaterialIcons name="error-outline" size={28} color="#fa0400" />
-          </View>
-        )}
-      />
-    ),
+    success: (props) => <VroomToast {...props} isDark={isDark} variant="success" />,
+    info: (props) => <VroomToast {...props} isDark={isDark} variant="info" />,
+    error: (props) => <VroomToast {...props} isDark={isDark} variant="error" />,
   };
 }
+
+const styles = StyleSheet.create({
+  card: {
+    alignSelf: 'center',
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  accent: {
+    position: 'absolute',
+    left: 0,
+    top: 22,
+    bottom: 22,
+    width: 3,
+    borderRadius: 3,
+  },
+  row: { flexDirection: 'row', alignItems: 'flex-start', padding: 12, gap: 10 },
+  icon: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  scroll: { flexShrink: 1, flexGrow: 1, minWidth: 0 },
+  content: { paddingVertical: 7 },
+  title: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  message: { fontSize: 14, lineHeight: 21, fontWeight: '500' },
+  messageSpacing: { marginTop: 5 },
+  close: { width: 44, height: 44, margin: -2, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+});
