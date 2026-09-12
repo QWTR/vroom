@@ -17,6 +17,7 @@ import { LinearGradient }   from 'expo-linear-gradient';
 import AsyncStorage         from '@react-native-async-storage/async-storage';
 import * as Notifications   from 'expo-notifications';
 import Toast from 'react-native-toast-message';
+import { claimChatToast } from '../lib/notifications/chatToast';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -515,6 +516,7 @@ function RootLayoutInner() {
         || (['club_chat', 'mention_club'].includes(type) && String(currentChannelId || '') === String(data.channelId || ''))
       );
       if (isExactConversation || isMapScreenVisible()) return;
+      if (type === 'new_message' && !claimChatToast(data.conversationId, data.messageId)) return;
       Toast.show({
         type: 'info',
         text1: notification.request.content.title || 'Nowe powiadomienie',

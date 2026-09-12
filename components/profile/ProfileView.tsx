@@ -419,6 +419,15 @@ export default function ProfileView({
   };
   const router = useRouter();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat({ realtime: false, autoFetch: false });
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOwner || activeTab !== 'about' || !profile?.id) return;
+    setConnectionsLoading(true);
+    void Promise.allSettled([fetchFriends(), fetchRequests()]).finally(() => {
+      setConnectionsLoading(false);
+    });
+  }, [activeTab, fetchFriends, fetchRequests, isOwner, profile?.id]);
 
   const [selectedSpot,        setSelectedSpot]        = useState<Spot | null>(null);
   const [localSpots,          setLocalSpots]          = useState<SpotPreview[]>([]);
@@ -1135,10 +1144,14 @@ export default function ProfileView({
                   <MaterialIcons name="person-add" size={20} color={pillAccentColors[0]} />
                   <View>
                     <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{requests.length} oczekujących</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>
+                      {connectionsLoading ? 'Pobieranie…' : `${requests.length} oczekujących`}
+                    </Text>
                   </View>
                 </View>
-                {requests.length > 0 && (
+                {connectionsLoading ? (
+                  <ActivityIndicator size="small" color={pillAccentColors[0]} />
+                ) : requests.length > 0 && (
                   <View style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}>
                     <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
                   </View>
@@ -1156,10 +1169,15 @@ export default function ProfileView({
                   <MaterialIcons name="people" size={20} color={pillAccentColors[1]} />
                   <View>
                     <Text style={{ fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
-                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{friends.length} osób</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>
+                      {connectionsLoading ? 'Pobieranie…' : `${friends.length} osób`}
+                    </Text>
                   </View>
                 </View>
-                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+                {connectionsLoading
+                  ? <ActivityIndicator size="small" color={pillAccentColors[1]} />
+                  : <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+                }
               </TouchableOpacity>
             )}
 
@@ -1220,7 +1238,7 @@ export default function ProfileView({
         }}
         onDeletePost={deleteVroomkiPost}
       />
-      <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend((f as any).friendshipId ?? f.id); fetchFriends(); }} />
+      <FriendsModal visible={friendsModalVisible} friends={friends} loading={connectionsLoading} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend((f as any).friendshipId ?? f.id); fetchFriends(); }} />
       <FriendRequestsModal
         visible={invitesModalVisible}
         requests={requests}

@@ -23,15 +23,17 @@ interface Props {
   convAvatar:   string | null;
   participants: ChatUser[];
   myId:         number | null;
+  recentMedia?: MediaItem[];
   onViewProfile:  (userId: number) => void;
   onConvUpdated:  (name: string, avatarUrl: string | null) => void;
 }
 
 type Tab = 'info' | 'media' | 'search';
+const EMPTY_MEDIA: MediaItem[] = [];
 
 export function ConversationInfoSheet({
   visible, onClose, convId, isGroup, convName,
-  convAvatar, participants, myId, onViewProfile, onConvUpdated,
+  convAvatar, participants, myId, onViewProfile, onConvUpdated, recentMedia = EMPTY_MEDIA,
 }: Props) {
   const { theme } = useTheme();
   const slideAnim = useRef(new Animated.Value(SCREEN_H)).current;
@@ -39,6 +41,11 @@ export function ConversationInfoSheet({
   const [tab,            setTab]            = useState<Tab>('info');
   const [media,          setMedia]          = useState<MediaItem[]>([]);
   const [mediaLoading,   setMediaLoading]   = useState(false);
+  const [mediaError, setMediaError] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const mediaRequest = useRef(0);
+  const mergedMedia = Array.from(new Map([...media, ...recentMedia].map(item => [`${item.messageId}:${item.url}`, item])).values())
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [searchQuery,    setSearchQuery]    = useState('');
   const [searchResults,  setSearchResults]  = useState<SearchResult[]>([]);
   const [searchLoading,  setSearchLoading]  = useState(false);
@@ -58,16 +65,25 @@ export function ConversationInfoSheet({
   }, [slideAnim, visible]);
 
   const fetchMedia = useCallback(async () => {
+    const request = ++mediaRequest.current;
     setMediaLoading(true);
+    setMediaError(false);
     try {
       const nextMedia = await queryClient.fetchQuery({
         queryKey: ['chat', 'conversation-media', convId],
         queryFn: ({ signal }) => apiRequest<MediaItem[]>(`/chat/conversations/${convId}/media`, { signal, priority: 'visible' }),
-        staleTime: 60_000,
+        staleTime: 0,
       });
-      setMedia(nextMedia);
-    } catch {}
-    finally { setMediaLoading(false); }
+      if (!Array.isArray(nextMedia)) throw new Error('Invalid media response');
+      if (request === mediaRequest.current) setMedia(nextMedia);
+    } catch { if (request === mediaRequest.current) setMediaError(true); }
+    finally { if (request === mediaRequest.current) setMediaLoading(false); }
+  }, [convId]);
+
+  useEffect(() => {
+    setMedia([]);
+    setPreviewUrl(null);
+    return () => { mediaRequest.current += 1; };
   }, [convId]);
 
   const fetchFriendStatuses = useCallback(async () => {
@@ -92,7 +108,7 @@ export function ConversationInfoSheet({
   useEffect(() => {
     if (!visible || tab !== 'media') return;
     void fetchMedia();
-  }, [fetchMedia, tab, visible]);
+  }, [fetchMedia, tab, visible, recentMedia]);
 
   const handleFriendAction = async (userId: number) => {
     const status = friendStatuses[userId];
@@ -306,15 +322,18 @@ export function ConversationInfoSheet({
         {/* MEDIA */}
         {tab === 'media' && (
           <View style={{ flex: 1 }}>
-            {mediaLoading
+            {mediaLoading && mergedMedia.length === 0
               ? <ActivityIndicator color={theme.primary} style={{ marginTop: 40 }} />
-              : media.length === 0
+              : mergedMedia.length === 0
               ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10 }}>
                   <MaterialCommunityIcons name="image-off-outline" size={40} color={theme.border3} />
-                  <Text style={{ color: theme.textFaint, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>Brak multimediów</Text>
+                  <Text style={{ color: theme.textFaint, fontFamily: 'Manrope_600SemiBold', fontSize: 12 }}>{mediaError ? 'Nie udało się pobrać multimediów' : 'Brak multimediów'}</Text>
+                  {mediaError && <TouchableOpacity onPress={() => void fetchMedia()}><Text style={{ color: theme.primary }}>Spróbuj ponownie</Text></TouchableOpacity>}
                 </View>
-              : <FlatList data={media} keyExtractor={(_, i) => String(i)} numColumns={3}
-                  renderItem={({ item }) => <Image source={{ uri: item.url }} style={{ width: THUMB, height: THUMB, margin: 1, borderRadius: 4 }} resizeMode="cover" />}
+              : <FlatList data={mergedMedia} keyExtractor={item => `${item.messageId}:${item.url}`} numColumns={3}
+                  refreshing={mediaLoading} onRefresh={() => void fetchMedia()}
+                  ListHeaderComponent={mediaError ? <Text style={{ color: theme.textDim, padding: 12 }}>Nie udało się pobrać starszych zdjęć. Przeciągnij w dół, aby ponowić.</Text> : null}
+                  renderItem={({ item }) => <TouchableOpacity accessibilityLabel="Otwórz zdjęcie" onPress={() => setPreviewUrl(item.url)}><Image source={{ uri: item.url }} style={{ width: THUMB, height: THUMB, margin: 1, borderRadius: 4 }} resizeMode="cover" /></TouchableOpacity>}
                   contentContainerStyle={{ padding: 2 }}
                 />
             }
@@ -363,6 +382,10 @@ export function ConversationInfoSheet({
           </View>
         )}
       </Animated.View>
+      {previewUrl && <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000', justifyContent: 'center' }]}>
+        <Image source={{ uri: previewUrl }} style={{ width: '100%', height: '85%' }} resizeMode="contain" />
+        <TouchableOpacity accessibilityLabel="Zamknij zdjęcie" onPress={() => setPreviewUrl(null)} style={{ position: 'absolute', top: 50, right: 20, padding: 14 }}><Feather name="x" size={28} color="#fff" /></TouchableOpacity>
+      </View>}
       </KeyboardAvoidingView>
     </Modal>
   );

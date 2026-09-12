@@ -121,6 +121,7 @@ export default function ChatScreen() {
 
   const listRef = useRef<FlatList>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingExpiry = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const draftHydratedRef = useRef(false);
   const draftKey = `@vroom/chat_draft:v1:${convId}`;
 
@@ -130,6 +131,8 @@ export default function ChatScreen() {
     () => messages.map(mapDmMessageToUnified),
     [messages],
   );
+  const recentMedia = useMemo(() => messages.filter(message => message.id > 0).flatMap(message =>
+    (message.photos || []).map(url => ({ url, messageId: message.id, createdAt: message.createdAt, sender: message.sender.username }))), [messages]);
 
   useEffect(() => {
     let active = true;
@@ -175,14 +178,16 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!isFocused) return;
     let disposed = false;
-    const cleanups: Array<() => void> = [];
+    const cleanups: (() => void)[] = [];
+    const expiryTimers = typingExpiry.current;
+    let sessionUserId: number | null = null;
     const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
       setConv(prev => {
         if (!prev) return prev;
         const uid = Number(userId);
         return {
           ...prev,
-          online: prev.participants.some(p => p.id === uid) ? online : prev.online,
+          online: !prev.isGroup && uid !== sessionUserId && prev.participants.some(p => p.id === uid) ? online : prev.online,
           participants: prev.participants.map(p => p.id === uid ? { ...p, online } : p),
         };
       });
@@ -193,7 +198,8 @@ export default function ChatScreen() {
       if (raw) {
         try {
           const user = JSON.parse(raw) as { id?: number; userId?: number };
-          setMyId(Number(user.userId ?? user.id) || null);
+          sessionUserId = Number(user.userId ?? user.id) || null;
+          setMyId(sessionUserId);
         } catch { /* session bootstrap will refresh malformed local data */ }
       }
       if (disposed) return;
@@ -230,14 +236,27 @@ export default function ChatScreen() {
               : message
           )));
         }),
-        subscribeSharedSocket<{ isTyping: boolean; username?: string }>('chat:typing', ({ isTyping, username }) => {
-          if (!username) return;
+        subscribeSharedSocket<{ conversationId: number; userId: number; isTyping: boolean }>('chat:typing', ({ conversationId, userId, isTyping }) => {
+          if (Number(conversationId) !== convId) return;
+          const uid = Number(userId);
+          const oldTimer = typingExpiry.current.get(uid);
+          if (oldTimer) clearTimeout(oldTimer);
           setTypingUsers(prev => {
             const next = { ...prev };
-            if (isTyping) next[username] = true;
-            else delete next[username];
+            if (isTyping) next[String(uid)] = true;
+            else delete next[String(uid)];
             return next;
           });
+          if (isTyping) typingExpiry.current.set(uid, setTimeout(() => {
+            typingExpiry.current.delete(uid);
+            setTypingUsers(prev => { const next = { ...prev }; delete next[String(uid)]; return next; });
+          }, 5000));
+          else typingExpiry.current.delete(uid);
+        }),
+        subscribeSharedSocket('connect', () => { void fetchConv(); }),
+        subscribeSharedSocket('disconnect', () => {
+          setTypingUsers({});
+          setConv(prev => prev ? { ...prev, online: false, participants: prev.participants.map(p => ({ ...p, online: false })) } : prev);
         }),
         subscribeSharedSocket<{ userId: number; online: boolean }>('presence:update', applyPresence),
         subscribeSharedSocket<{ userId: number; online: boolean }>('user:online', applyPresence),
@@ -273,6 +292,10 @@ export default function ChatScreen() {
 
     return () => {
       disposed = true;
+      currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: false });
+      expiryTimers.forEach(timer => clearTimeout(timer));
+      expiryTimers.clear();
+      setTypingUsers({});
       cleanups.forEach(cleanup => cleanup());
       unsubscribeQueue();
       if (typingTimer.current) clearTimeout(typingTimer.current);
@@ -346,6 +369,7 @@ export default function ChatScreen() {
     };
     setMessages(prev => mergeMessage(prev, optimistic));
     setText('');
+    currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: false });
     setPhotos([]);
     setReplyTo(null);
     void AsyncStorage.removeItem(draftKey);
@@ -396,8 +420,8 @@ export default function ChatScreen() {
     }
   }, [text, photos, replyTo, convId, draftKey, conv, myId]);
 
-  const emitTyping = useCallback(() => {
-    currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: true });
+  const emitTyping = useCallback((value: string) => {
+    currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: Boolean(value.trim()) });
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
       currentSharedSocket()?.emit('chat:typing', { conversationId: convId, isTyping: false });
@@ -464,7 +488,10 @@ export default function ChatScreen() {
   const convAvatar = conv?.isGroup ? conv.avatarUrl : (otherParticipant?.avatarUrl ?? null);
   const convOnline = !conv?.isGroup ? (otherParticipant?.online ?? false) : false;
 
-  const typingNames = Object.keys(typingUsers).filter(u => u !== convName || conv?.isGroup);
+  const typingNames = Object.keys(typingUsers)
+    .filter(uid => Number(uid) !== myId)
+    .map(uid => conv?.participants.find(p => p.id === Number(uid))?.username)
+    .filter((name): name is string => Boolean(name));
   const typingText = typingNames.length === 1
     ? `${typingNames[0]} pisze...`
     : typingNames.length > 1
@@ -594,10 +621,10 @@ export default function ChatScreen() {
       footer={
         <ChatComposer
           text={text}
-          onChangeText={t => { setText(t); emitTyping(); }}
+          onChangeText={t => { setText(t); emitTyping(t); }}
           onSend={handleSend}
           onAttach={handlePickPhoto}
-          onClear={() => { setText(''); setReplyTo(null); }}
+          onClear={() => { setText(''); setReplyTo(null); emitTyping(''); }}
           attachments={photos}
           onRemoveAttachment={i => setPhotos(prev => prev.filter((_, j) => j !== i))}
           replyTo={replyTo ? { username: replyTo.sender.username, preview: replyTo.content || '📷 Zdjęcie' } : null}
@@ -637,6 +664,7 @@ export default function ChatScreen() {
         convAvatar={convAvatar}
         participants={conv?.participants ?? []}
         myId={myId}
+        recentMedia={recentMedia}
         onViewProfile={userId => router.push(`/profile/${userId}` as any)}
         onConvUpdated={(name, avatar) => setConv(prev => prev ? { ...prev, name, avatarUrl: avatar } : prev)}
       />

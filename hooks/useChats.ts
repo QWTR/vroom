@@ -3,6 +3,7 @@ import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { apiRequest } from '../lib/api/client';
 import { currentSharedSocket, subscribeSharedSocket } from '../lib/sharedSocket';
 import type { PremiumVisual } from '../components/user/PremiumIdentity';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API = '/chat';
 
@@ -174,17 +175,22 @@ export function useChat(options: UseChatOptions = {}) {
     if (!realtime) return undefined;
     let disposed = false;
     let unsubscribe: (() => void)[] = [];
-    const onNotification = ({ conversationId, message }: any) => {
+    let myId: number | null = null;
+    void AsyncStorage.getItem('user').then(raw => {
+      try { const user = JSON.parse(raw || '{}'); myId = Number(user.userId ?? user.id) || null; } catch { /* invalid session */ }
+    });
+    const onNotification = ({ conversationId, message, isMe }: any) => {
+      if (!message) return;
       setConversations((previous) => previous
         .map((conversation) => conversation.id === conversationId ? {
           ...conversation,
-          unread: conversation.unread + 1,
+          unread: conversation.unread + (isMe ? 0 : 1),
           lastMessage: {
             content: message.content,
             photos: [],
             createdAt: new Date().toISOString(),
             senderName: message.senderName,
-            isMe: false,
+            isMe: Boolean(isMe),
           },
         } : conversation)
         .sort((left, right) => (right.lastMessage?.createdAt ?? '').localeCompare(left.lastMessage?.createdAt ?? '')));
@@ -202,7 +208,7 @@ export function useChat(options: UseChatOptions = {}) {
       setFriends((previous) => previous.map((friend) => friend.id === id ? { ...friend, online } : friend));
       setConversations((previous) => previous.map((conversation) => ({
         ...conversation,
-        online: !conversation.isGroup && conversation.participants.some((participant) => participant.id === id) ? online : conversation.online,
+        online: !conversation.isGroup && myId !== null && id !== myId && conversation.participants.some((participant) => participant.id === id) ? online : conversation.online,
         participants: conversation.participants.map((participant) => participant.id === id ? { ...participant, online } : participant),
       })));
     };
@@ -212,6 +218,11 @@ export function useChat(options: UseChatOptions = {}) {
       subscribeSharedSocket('friend:request', onFriendRequest),
       subscribeSharedSocket('friend:accepted', () => { void fetchFriends(); }),
       subscribeSharedSocket('presence:update', applyPresence),
+      subscribeSharedSocket('connect', () => { void fetchConversations(); void fetchFriends(); }),
+      subscribeSharedSocket('disconnect', () => {
+        setFriends(previous => previous.map(friend => ({ ...friend, online: false })));
+        setConversations(previous => previous.map(conversation => ({ ...conversation, online: false, participants: conversation.participants.map(p => ({ ...p, online: false })) })));
+      }),
       subscribeSharedSocket('user:online', applyPresence),
     ]).then((cleanups) => {
       if (disposed) cleanups.forEach((cleanup) => cleanup());
