@@ -16,7 +16,7 @@ import { LiveCountdownText } from '../../components/home/LiveCountdownText';
 import { hasTimedPassOffer, seasonRequest } from '../../lib/seasonApi';
 
 type SeasonDetails = {
-  season: { id: string; number: number; calendarYear?: number; kind?: string; name: string; description?: string | null; imageUrl?: string | null; rules?: unknown; startsAt: string; endsAt: string } | null;
+  season: { id: string; number: number; calendarYear?: number; kind?: string; parentSeasonId?: string | null; splitKey?: string | null; name: string; description?: string | null; imageUrl?: string | null; rules?: unknown; startsAt: string; endsAt: string } | null;
   stats: Record<string, number> | null;
   rewards: { id: string; placeFrom: number; placeTo: number; type: string; name: string; description?: string | null; amount?: number | null }[];
   achievements: { id: string; icon: string; label: string; description?: string; rarity: string; points?: number; currentValue: number; conditionValue: number; progress: number; unlocked: boolean; active: boolean }[];
@@ -64,19 +64,18 @@ export default function CurrentSeasonScreen() {
     if (!silent) setLoading(true);
     setError('');
     setPassError('');
-    setPassData(null);
+    if (!silent) setPassData(null);
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-      const [currentResult, passResult] = await Promise.allSettled([
-        seasonRequest(`${API_URL}/api/seasons/current`, { headers }),
-        seasonRequest(`${API_URL}/api/seasons/pass`, { headers }),
-      ]);
-      if (currentResult.status === 'rejected') throw currentResult.reason;
-      if (!('season' in currentResult.value)) throw new Error('Nie udało się pobrać sezonu. Spróbuj ponownie.');
-      setData(currentResult.value);
-      if (passResult.status === 'rejected') setPassError(passResult.reason instanceof Error ? passResult.reason.message : 'Nie udało się pobrać Passa.');
-      else if (!('pass' in passResult.value)) setPassError('Nie udało się pobrać Passa. Spróbuj ponownie.');
+      const passRequest = seasonRequest(`${API_URL}/api/seasons/pass`, { headers })
+        .then((value) => ({ value, error: null }), (error) => ({ value: null, error }));
+      const payload = await seasonRequest(`${API_URL}/api/seasons/current`, { headers });
+      if (!('season' in payload)) throw new Error('Nie udało się pobrać sezonu. Spróbuj ponownie.');
+      setData(payload); setLoading(false); setRefreshing(false);
+      const passResult = await passRequest;
+      if (passResult.error) setPassError(passResult.error instanceof Error ? passResult.error.message : 'Nie udało się pobrać Passa.');
+      else if (!passResult.value || !('pass' in passResult.value)) setPassError('Nie udało się pobrać Passa. Spróbuj ponownie.');
       else setPassData(passResult.value);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Nie udało się pobrać sezonu');
@@ -133,7 +132,7 @@ export default function CurrentSeasonScreen() {
         {error ? <View style={[styles.notice, { borderColor: theme.primary }]}><Text style={{ color: theme.primary }}>{error}</Text></View> : null}
         {passError ? <View style={[styles.notice, { borderColor: theme.primary }]}><Text style={{ color: theme.primary }}>{passError}</Text></View> : null}
         <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/profile/seasons')} style={[styles.secondaryAction, { borderColor: theme.border }]}><MaterialCommunityIcons name="calendar-multiple" size={20} color={theme.primary} /><Text style={[styles.secondaryActionText, { color: theme.text }]}>WSZYSTKIE SEZONY I SPLITY</Text></TouchableOpacity>
-        {season && (!season.kind || season.kind === 'legacy' || season.kind === 'beta') && now < Date.parse('2026-09-30T22:00:00Z') ? <Text style={[styles.body, { color: theme.textDim }]}>Beta trwa do 1 października 2026. Następnie rusza Jesień 2026 — pierwszy split. Statystyki bety pozostaną w historii sezonów.</Text> : null}
+        {season ? <View style={[styles.structureCard, { backgroundColor: theme.surface, borderColor: theme.border }]}><View style={[styles.structureIcon, { backgroundColor: theme.primaryBg }]}><MaterialCommunityIcons name="calendar-sync" size={22} color={theme.primaryText} /></View><View style={{ flex: 1 }}><Text style={[styles.structureTitle, { color: theme.text }]}>{season.kind === 'split' ? `SEZON ${season.calendarYear}  •  SPLIT ${season.name.toUpperCase()}` : 'BETA  •  PRZED STARTEM SPLITÓW'}</Text><Text style={[styles.structureText, { color: theme.textDim }]}>{season.kind === 'split' ? 'Rok składa się z czterech splitów: Zima, Wiosna, Lato i Jesień. Wynik splitu oraz wynik roczny są liczone osobno.' : '1 października ruszy Sezon 2026 i split Jesień. Od 2027 każdy sezon ma cztery splity: Zima, Wiosna, Lato i Jesień.'}</Text></View></View> : null}
         {!season ? <View style={styles.empty}><MaterialCommunityIcons name="calendar-blank-outline" size={48} color={theme.textDim} /><Text style={[styles.emptyTitle, { color: theme.text }]}>OBECNIE NIE TRWA SEZON</Text><Text style={[styles.body, { color: theme.textDim }]}>Informacja o kolejnym sezonie pojawi się tutaj po jego uruchomieniu.</Text></View> : <>
           <View style={[styles.hero, { borderColor: withAlpha(theme.primary, '66'), backgroundColor: theme.surface }]}>
             {image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFillObject} contentFit="cover" transition={220} cachePolicy="memory-disk" /> : <LinearGradient colors={[withAlpha(theme.primary, '55'), theme.surface, '#080808']} style={StyleSheet.absoluteFillObject} />}
@@ -223,6 +222,10 @@ const styles = StyleSheet.create({
   headerSub: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, letterSpacing: 1, marginTop: 3 },
   content: { padding: 16, paddingBottom: 60, gap: 12 },
   notice: { padding: 12, borderWidth: 1, borderRadius: 12 },
+  structureCard: { padding: 13, borderWidth: 1, borderRadius: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  structureIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  structureTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', letterSpacing: .5 },
+  structureText: { fontFamily: 'Satoshi', fontSize: 12, lineHeight: 18, marginTop: 4 },
   empty: { minHeight: 420, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 30 },
   emptyTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '900', textAlign: 'center' },
   hero: { height: 245, borderWidth: 1, borderRadius: 24, overflow: 'hidden' },

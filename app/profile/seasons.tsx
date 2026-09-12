@@ -1,1 +1,3 @@
-export { default } from '../../components/seasons/SeasonArchive';
+import SeasonArchive from '../../components/seasons/SeasonArchive';
+
+export default SeasonArchive;

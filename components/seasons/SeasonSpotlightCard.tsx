@@ -87,6 +87,7 @@ export function SeasonSpotlightCard({ active = true, compact = false, style }: {
 
   const season = data.season;
   const image = mediaUrl(season.imageUrl);
+  const periodLabel = season.kind === 'split' ? `SPLIT · SEZON ${season.calendarYear}` : season.kind === 'annual' ? `SEZON ${season.calendarYear}` : 'BETA';
   return (
     <TouchableOpacity
       activeOpacity={0.9}
@@ -109,13 +110,13 @@ export function SeasonSpotlightCard({ active = true, compact = false, style }: {
       <LinearGradient colors={compact ? ['rgba(0,0,0,.2)', 'rgba(0,0,0,.92)'] : ['rgba(0,0,0,.05)', 'rgba(0,0,0,.48)', 'rgba(0,0,0,.96)']} style={StyleSheet.absoluteFillObject} />
       <View style={compact ? styles.compactContent : styles.content}>
         <View style={[styles.topRow, expandedLayout && styles.topRowExpanded]}>
-          <View style={styles.livePill}><View style={styles.liveDot} /><Text style={styles.liveText}>{season.kind === 'split' ? 'SPLIT' : 'SEZON'} {season.calendarYear || season.number} TRWA</Text></View>
+          <View style={styles.livePill}><View style={styles.liveDot} /><Text style={styles.liveText}>{periodLabel} TRWA</Text></View>
           <Text style={styles.countdown}>{remainingLabel(season.endsAt, now)}</Text>
         </View>
         <View style={[styles.bottomRow, expandedLayout && styles.bottomRowExpanded]}>
           <View style={{ flex: 1 }}>
             <Text numberOfLines={expandedLayout ? undefined : 1} style={[compact ? styles.compactTitle : styles.title, { color: '#fff' }]}>{season.name}</Text>
-            {!compact && <Text numberOfLines={expandedLayout ? undefined : 2} style={styles.description}>{season.description || 'Rywalizuj, zdobywaj osiągnięcia i walcz o nagrody.'}</Text>}
+            {!compact && <Text numberOfLines={expandedLayout ? undefined : 2} style={styles.description}>{season.description || (season.kind === 'beta' ? 'Beta kończy się 1 października. Potem rusza Sezon 2026 i split Jesień.' : 'Zdobywaj wynik splitu i całego sezonu oraz odbieraj nagrody.')}</Text>}
             <View style={styles.metaRow}>
               <Text style={styles.meta}>{Number(data.stats?.points || 0).toLocaleString('pl-PL')} PKT</Text>
               <Text style={styles.meta}>{data.rewardCount || 0} NAGRÓD</Text>
