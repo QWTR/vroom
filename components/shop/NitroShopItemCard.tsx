@@ -52,13 +52,8 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
           <Text style={styles.featuredText}>POLECANE</Text>
         </View>
       ) : null}
-      {item.tagLine ? (
-        <View style={[styles.tagBadge, { backgroundColor: accent }]}>
-          <Text style={styles.tagText}>{item.tagLine}</Text>
-        </View>
-      ) : null}
       {item.maxSupply && !item.owned ? (
-        <View style={[styles.tagBadge, { backgroundColor: '#e33835', right: 8, top: (item.isFeatured || item.tagLine) ? 28 : 8 }]}>
+        <View style={[styles.tagBadge, { backgroundColor: '#e33835' }]}>
           <Text style={styles.tagText}>LIMIT {item.maxSupply}</Text>
         </View>
       ) : null}
@@ -94,6 +89,11 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
         >
           {item.name}
         </Text>
+        {item.tagLine ? (
+          <Text style={[styles.description, { color: theme.textDim }]} numberOfLines={3}>
+            {item.tagLine}
+          </Text>
+        ) : null}
         <View style={styles.footer}>
           {item.owned ? (
             <View style={[styles.statusPill, equipped ? styles.equippedPill : styles.ownedPill]}>
@@ -130,10 +130,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   featuredBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 3,
+    alignSelf: 'flex-start',
+    margin: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -144,10 +142,8 @@ const styles = StyleSheet.create({
   },
   featuredText: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
   tagBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    zIndex: 3,
+    alignSelf: 'flex-start',
+    margin: 8,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 8,
@@ -168,7 +164,8 @@ const styles = StyleSheet.create({
   previewImg: { width: '100%', height: '100%' },
   body: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 12, gap: 8 },
   name: { fontSize: 12, fontWeight: '800', lineHeight: 16, minHeight: 32 },
-  footer: { flexDirection: 'row', alignItems: 'center' },
+  description: { fontSize: 12, lineHeight: 18 },
+  footer: { flexDirection: 'row', alignItems: 'center', marginTop: 'auto', flexWrap: 'wrap' },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -58,6 +58,7 @@ export const AUTHENTICATED_ROUTES = [
   "premium-hub",
   "premium",
   "profile/achievements",
+  "profile/level",
   "profile/add-car",
   "profile/AvatarCircle",
   "profile/benefits",

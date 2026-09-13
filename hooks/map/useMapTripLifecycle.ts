@@ -7,6 +7,7 @@ import { useMapTick, MAP_TICK } from '../useMapTick';
 import { driveTraceHeartbeat } from '../../lib/driveSessionTrace';
 import { vroomGpsLog } from '../../lib/vroomGpsLog';
 import { haversineKm } from '../../scripts/navigationUtils';
+import { setAccountRewardTripActive } from '../../lib/accountRewardTripState';
 
 export type MapTripRefs = {
   isDrivingRef: MutableRefObject<boolean>;
@@ -39,6 +40,7 @@ const KEEP_AWAKE_TAG = 'vroom-map-nav';
 export function useMapTripLifecycle(params: UseMapTripLifecycleParams) {
   const { isDriving, isNavigating, isMapFocused = true, rerouteOrigin, refs } = params;
   const tripActive = isDriving || isNavigating;
+  useEffect(() => { setAccountRewardTripActive(tripActive); }, [tripActive]);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {

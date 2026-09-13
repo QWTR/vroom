@@ -49,10 +49,11 @@ export default function NitroShopScreen() {
 
   const balance = wallet?.nitroBalance ?? 0;
   const ranking = wallet?.rankingPoints ?? rankingPoints ?? 0;
-  const points = wallet?.spendablePoints ?? spendablePoints ?? ranking;
-  const pointsPerNitro = wallet?.exchange?.pointsPerNitro ?? wallet?.exchangeRate ?? 10;
+  const points = wallet?.spendablePoints ?? spendablePoints ?? 0;
+  const pointsPerNitro = wallet?.exchange?.pointsPerNitro ?? wallet?.exchangeRate ?? 0;
   const exchangeStep = wallet?.exchange?.stepPoints ?? pointsPerNitro;
-  const dailyCap = wallet?.exchange?.dailyPointsCap ?? wallet?.exchangeDailyRankingCap ?? 300;
+  const dailyCap = wallet?.exchange?.dailyPointsCap ?? wallet?.exchangeDailyRankingCap ?? 0;
+  const exchangeAvailable = wallet?.exchange?.enabled === true && pointsPerNitro > 0;
 
   const grouped = useMemo(() => {
     const map: Record<ShopItemCategory, CatalogItem[]> = {
@@ -212,17 +213,18 @@ export default function NitroShopScreen() {
               </View>
               <View style={styles.walletDivider} />
               <View>
-                <Text style={[styles.walletLabel, { color: theme.textDim }]}>Pkt rankingu</Text>
+                <Text style={[styles.walletLabel, { color: theme.textDim }]}>Punkty do wydania</Text>
                 <Text style={[styles.walletValueSm, { color: theme.text }]}>{points}</Text>
               </View>
             </View>
             <TouchableOpacity
-              style={styles.exchangeChip}
+              style={[styles.exchangeChip, !exchangeAvailable && { opacity: 0.5 }]}
+              disabled={!exchangeAvailable}
               activeOpacity={0.85}
               onPress={() => setExchangeOpen(true)}
             >
               <MaterialIcons name="swap-horiz" size={16} color={GOLD} />
-              <Text style={styles.exchangeChipText}>Wymień 10:1 · max 300/dzień</Text>
+              <Text style={styles.exchangeChipText}>{exchangeAvailable ? `Wymień ${pointsPerNitro}:1 · pozostało ${wallet?.exchange.remainingToday ?? 0} pkt dziś` : 'Wymiana niedostępna'}</Text>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -455,7 +457,7 @@ export default function NitroShopScreen() {
               placeholderTextColor={theme.textDim}
             />
             <Text style={[styles.previewExchange, { color: theme.textDim }]}>
-              Otrzymasz ~{Math.floor(Number(exchangePts || 0) / pointsPerNitro)} Nitro
+              Otrzymasz {pointsPerNitro > 0 ? Math.floor(Number(exchangePts || 0) / pointsPerNitro) : 0} Nitro
             </Text>
             <TouchableOpacity style={styles.modalBtn} onPress={onExchange}>
               <Text style={styles.modalBtnText}>Wymień</Text>

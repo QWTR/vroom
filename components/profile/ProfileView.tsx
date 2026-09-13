@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ScrollView, View, TouchableOpacity, RefreshControl, Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, FlatList, Alert, Platform } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
+import { AccountLevelCard } from './AccountLevelCard';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
 import Ionicons                     from '@expo/vector-icons/Ionicons';
@@ -831,6 +832,7 @@ export default function ProfileView({
             <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Wszystkie statystyki</Text><Text style={{ color: theme.textDim, fontSize: 13, marginTop: 4 }}>Dystans, prędkość i Twoje wyniki</Text></View>
             <MaterialIcons name="arrow-forward" size={20} color={theme.text} />
           </TouchableOpacity>
+          {isOwner && <AccountLevelCard />}
           {isOwner && <TouchableOpacity testID="profile-seasons" onPress={() => router.push('/profile/seasons')} style={{ ...widgetGlass(theme), padding: 18, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <MaterialCommunityIcons name="calendar-star" size={28} color={theme.text} />
             <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Sezony</Text><Text style={{ color: theme.textDim, marginTop: 4 }}>Beta, splity i historia Twoich wyników</Text></View>

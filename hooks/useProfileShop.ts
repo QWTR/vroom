@@ -57,7 +57,7 @@ export function useProfileShop() {
       setCatalog(Array.isArray(data?.items) ? data.items : []);
       setNitroBalance(Number(data?.nitroBalance ?? 0));
       setRankingPoints(Number(data?.rankingPoints ?? 0));
-      setSpendablePoints(Number(data?.spendablePoints ?? data?.rankingPoints ?? 0));
+      setSpendablePoints(Number(data?.spendablePoints ?? 0));
       setEquippedIds(data?.equipped ?? {});
     } finally {
       setLoading(false);

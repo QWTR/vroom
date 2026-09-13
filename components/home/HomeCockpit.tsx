@@ -13,6 +13,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useReadability } from '../../contexts/ReadabilityContext';
 import { withAlpha } from '../../constants/theme';
 import { allowNotificationCenterEntry } from '../../lib/notifications/notificationCenterAccess';
+import { useAccountProgression } from '../../hooks/useAccountProgression';
+import { AccountRewardModal } from '../profile/AccountRewardModal';
 
 type Props = {
   user: {
@@ -29,6 +31,7 @@ const number = (value: unknown) => Math.max(0, Number(value) || 0).toLocaleStrin
 
 export function HomeCockpit({ user, topInset, onlineCount, unread, premium, premiumBadge, streak, active, reduceMotion }: Props) {
   const router = useRouter();
+  const { data: progression } = useAccountProgression();
   const { theme: t, isDark } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { textScale } = useReadability();
@@ -52,6 +55,7 @@ export function HomeCockpit({ user, topInset, onlineCount, unread, premium, prem
 
   return (
     <View testID="home-cockpit" style={{ paddingTop: topInset + 12, paddingBottom: 22 }}>
+      <AccountRewardModal />
       <View style={[s.topBar, expanded && s.wrap]}>
         <View style={s.brandRow}>
           <View style={[s.brandMark, { backgroundColor: t.primary }]}><MaterialCommunityIcons name="car-sports" size={23} color="#fff" /></View>
@@ -106,7 +110,10 @@ export function HomeCockpit({ user, topInset, onlineCount, unread, premium, prem
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Zobacz ranking" onPress={() => router.push('/Community/Ranks/stats')} style={[s.stat, expanded ? s.statWide : s.statDivider, { borderColor: border }]}>
             <MaterialIcons name="leaderboard" size={17} color={t.primary} /><Text style={[s.statValue, { color: t.text }]}>{user.position > 0 ? '#' + number(user.position) : '—'}</Text><Text style={[s.micro, { color: t.textDim }]}>POZYCJA</Text>
           </TouchableOpacity>
-          <View style={[s.stat, expanded ? s.statWide : s.statDivider, { borderColor: border }]}><MaterialIcons name="stars" size={17} color={t.primary} /><Text style={[s.statValue, { color: t.text }]}>{number(user.points)}</Text><Text style={[s.micro, { color: t.textDim }]}>PUNKTY</Text></View>
+          <TouchableOpacity onPress={() => progression?.enabled && router.push('/profile/level' as any)} disabled={!progression?.enabled} style={[s.stat, expanded ? s.statWide : s.statDivider, { borderColor: border }]}>
+            <MaterialIcons name="stars" size={17} color={t.primary} /><Text style={[s.statValue, { color: t.text }]}>{number(progression?.enabled ? progression.level : user.points)}</Text><Text style={[s.micro, { color: t.textDim }]}>{progression?.enabled ? 'POZIOM' : 'PUNKTY'}</Text>
+            {progression?.enabled && <><View style={{ width: '80%', height: 4, backgroundColor: border, borderRadius: 2 }}><View style={{ width: `${Math.min(100, progression.progress * 100)}%`, height: 4, backgroundColor: t.primary }} /></View><Text style={{ color: t.textDim, fontSize: 10 }}>{progression.xpToNextLevel} XP do awansu</Text></>}
+          </TouchableOpacity>
           <View style={[s.stat, expanded && s.statWide]}>{streak}</View>
         </View>
 
