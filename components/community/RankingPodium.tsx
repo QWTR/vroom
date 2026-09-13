@@ -19,6 +19,7 @@ export interface RankingUser {
   isWinner?: boolean;
   nickColor?: string | null;
   premiumVisual?: PremiumVisual | null;
+  accountLevel?: number;
 }
 
 const MEDALS = {
@@ -120,6 +121,7 @@ function PodiumPlace({
             </Text>
           </View>
           <PremiumName user={{ ...user, avatarUrl: user.avatar }} suffix={isMe ? ' · TY' : ''} style={[styles.podiumName, { color: user.nickColor || theme.text }, isWinner && styles.winnerName]} />
+          {user.accountLevel ? <View style={[styles.levelPill, { borderColor: `${config.color}55`, backgroundColor: `${config.color}18` }]}><Text style={[styles.levelText, { color: config.color }]}>LVL {user.accountLevel}</Text></View> : null}
           <Text numberOfLines={1} style={[styles.podiumScore, { color: config.color }]}>
             {formatRankingScore(user.score, scoreLabel)} <Text style={styles.podiumUnit}>{scoreLabel}</Text>
           </Text>
@@ -257,6 +259,7 @@ export function RankingListRow({
           {user.isPremium ? (
             <View style={styles.premiumPill}><Text style={styles.premiumText}>PREMIUM</Text></View>
           ) : null}
+          {user.accountLevel ? <View style={[styles.levelPill, { borderColor: `${theme.primary}45`, backgroundColor: `${theme.primary}14` }]}><Text style={[styles.levelText, { color: theme.primary }]}>LVL {user.accountLevel}</Text></View> : null}
         </View>
         <Text style={[styles.sub, { color: theme.textDim }]} numberOfLines={1}>{user.sub}</Text>
       </View>
@@ -305,6 +308,8 @@ const styles = StyleSheet.create({
   username: { flexShrink: 1, fontFamily: 'Manrope_600SemiBold', fontSize: 12, fontWeight: '800' },
   premiumPill: { borderRadius: 7, borderWidth: 1, borderColor: '#FFD70040', backgroundColor: '#FFD70018', paddingHorizontal: 5, paddingVertical: 2 },
   premiumText: { fontFamily: 'Manrope_600SemiBold', fontSize: 12, color: '#FFD700', fontWeight: '800' },
+  levelPill: { alignSelf: 'center', borderRadius: 7, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4 },
+  levelText: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   sub: { fontSize: 12, marginTop: 4 },
   scoreBox: { alignItems: 'flex-end', minWidth: 58 },
   score: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '900' },

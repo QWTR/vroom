@@ -240,7 +240,7 @@ export default function StatsScreen() {
     <View style={styles.headerContent}>
       <CommunitySegmentTabs
         tabs={[
-          { key: 'points', label: 'PUNKTY', icon: 'star' },
+          { key: 'points', label: 'PKT RANKINGU', icon: 'star' },
           { key: 'distance', label: 'DYSTANS', icon: 'speed' },
           { key: 'referrals', label: 'ZAPROSZENIA', icon: 'group-add' },
         ]}
@@ -248,6 +248,13 @@ export default function StatsScreen() {
         onChange={(key) => setCategory(key as RankCategory)}
         compact
       />
+
+      {category === 'points' ? (
+        <View style={[styles.levelInfo, { backgroundColor: theme.surface, borderColor: theme.border2 }]}>
+          <View style={[styles.levelInfoIcon, { backgroundColor: '#E3383518' }]}><MaterialIcons name="stars" size={18} color={theme.primary} /></View>
+          <View style={{ flex: 1 }}><Text style={[styles.levelInfoTitle, { color: theme.text }]}>POZIOM KONTA + PUNKTY RANKINGOWE</Text><Text style={[styles.levelInfoText, { color: theme.textDim }]}>LVL przy nazwie to cały dorobek konta. Wynik rankingu liczy aktywność w wybranym okresie.</Text></View>
+        </View>
+      ) : null}
 
       {category === 'referrals' && competition ? (
         <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
@@ -424,6 +431,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Satoshi',
     fontSize: 12,
   },
+  levelInfo: { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  levelInfoIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  levelInfoTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 11, fontWeight: '900', letterSpacing: 0.4 },
+  levelInfoText: { fontFamily: 'Satoshi', fontSize: 11, lineHeight: 16, marginTop: 3 },
   seasonCard: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   rewardList: { gap: 7 },
   rewardPill: { minHeight: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
