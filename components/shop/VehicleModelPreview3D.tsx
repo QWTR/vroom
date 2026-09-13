@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, PanResponder, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, PanResponder, Platform, StyleSheet, View } from 'react-native';
 import { AppText as Text } from '../ui/AppText';
 import { Image } from 'expo-image';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber/native';
@@ -102,15 +102,26 @@ function VehicleModel({
   );
 }
 
-function PreviewFallback({ item, isDark }: { item: CatalogItem; isDark: boolean }) {
-  const preview = normalizeMediaUri(item.previewUrl ?? item.assetUrl);
+function PreviewFallback({
+  item,
+  isDark,
+  height,
+  label = 'PODGLĄD 3D NIEDOSTĘPNY',
+}: {
+  item: CatalogItem;
+  isDark: boolean;
+  height: number;
+  label?: string;
+}) {
+  const preview = normalizeMediaUri(item.previewUrl);
+  const imagePreview = preview && !/\.(?:glb|gltf)(?:\?|$)/i.test(preview) ? preview : null;
   return (
-    <View style={[styles.fallback, { backgroundColor: isDark ? '#0b0b0c' : '#f0f0f2' }]}>
-      {preview ? (
-        <Image source={{ uri: preview }} style={StyleSheet.absoluteFill} contentFit="cover" />
+    <View style={[styles.fallback, { height, backgroundColor: isDark ? '#0b0b0c' : '#f0f0f2' }]}>
+      {imagePreview ? (
+        <Image source={{ uri: imagePreview }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : null}
       <View style={styles.fallbackBadge}>
-        <Text style={styles.fallbackText}>PODGLAD 3D NIEDOSTEPNY</Text>
+        <Text style={styles.fallbackText}>{label}</Text>
       </View>
     </View>
   );
@@ -128,7 +139,10 @@ function touchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>): nu
 }
 
 export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
-  useHeavySurface('three:vehicle-preview');
+  // Expo GL can terminate the Android process below React's error boundary.
+  // Vehicle models still render on the map through the native Mapbox renderer.
+  const interactivePreviewEnabled = Platform.OS !== 'android';
+  useHeavySurface('three:vehicle-preview', interactivePreviewEnabled);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const rotationYRef = useRef(0);
@@ -199,8 +213,19 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
     [],
   );
 
+  if (!interactivePreviewEnabled) {
+    return (
+      <PreviewFallback
+        item={item}
+        isDark={isDark}
+        height={height}
+        label="MODEL 3D · PODGLĄD PO ZAŁOŻENIU"
+      />
+    );
+  }
+
   if (!modelUrl || failed) {
-    return <PreviewFallback item={item} isDark={isDark} />;
+    return <PreviewFallback item={item} isDark={isDark} height={height} />;
   }
 
   return (
@@ -216,7 +241,7 @@ export function VehicleModelPreview3D({ item, height = 220, isDark }: Props) {
     >
       <PreviewErrorBoundary
         resetKey={`${item.id}:${modelUrl}`}
-        fallback={<PreviewFallback item={item} isDark={isDark} />}
+        fallback={<PreviewFallback item={item} isDark={isDark} height={height} />}
         onError={() => {
           setLoading(false);
           setFailed(true);
