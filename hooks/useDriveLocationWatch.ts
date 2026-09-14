@@ -754,6 +754,10 @@ export function useDriveLocationWatch({
 
   const stop = useCallback(() => {
     teardownSubscription();
+    // A native provider may have owned the trip before the app went to the
+    // background. Once this watcher is deliberately stopped, that ownership
+    // must be re-checked on start instead of blocking the watchdog forever.
+    nativeProviderActiveRef.current = false;
     speedRef.current = 0;
     lastEmitRef.current = null;
     lastValidFixAtRef.current = 0;

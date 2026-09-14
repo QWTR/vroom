@@ -292,6 +292,8 @@ import {
   resolveResumeSpeedKmh,
   shouldAcceptResumeSource,
 } from '../../lib/mapScreen/resumeRecovery';
+import { shouldContinueFreeDriveAfterNavigationStop } from '../../lib/mapScreen/navigationStopPolicy';
+import { shouldRestartGpsAfterForegroundResume } from '../../lib/driveLocation/foregroundResume';
 import {
   clearTripSessionLedger,
   loadTripSessionLedger,
@@ -1091,6 +1093,7 @@ function MapScreenInner() {
   const gpsDbgLastAcceptedRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
   const driveSessionGuardRef    = useRef(new DriveSessionGuard());
   const isDrivingRef          = useRef(false);
+  const navigationStartedFromFreeDriveRef = useRef(false);
   const drivingSinceRef       = useRef(0);
   const drivingManualModeRef  = useRef(false);
   const lastDrivingToggleAtRef = useRef(0);
@@ -10496,6 +10499,17 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     }
 
     const tripActiveNow = isDrivingRef.current || isNavigatingRef.current;
+    const foregroundWatcherWasStopped = foregroundGpsIntentionallyStoppedRef.current;
+    if (foregroundWatcherWasStopped) {
+      foregroundGpsIntentionallyStoppedRef.current = false;
+      if (shouldRestartGpsAfterForegroundResume({
+        tripActive: tripActiveNow,
+        foregroundGpsIntentionallyStopped: true,
+        forceWatcherRestart: opts?.forceWatcherRestart === true,
+      })) {
+        startGPS();
+      }
+    }
     const longTripResume = tripActiveNow && bgPauseMs >= GPS_BACKGROUND_STALE_MS;
     if (longTripResume) {
       beginResumeRecovery(resumeRecoveryRef.current, {
@@ -12255,6 +12269,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       priority: 'high',
       properties: { offroad: isOffroadRef.current },
     });
+    navigationStartedFromFreeDriveRef.current = false;
     isNavigatingRef.current = false;
     navigationBootstrapTokenRef.current += 1;
     setNavigationUiReady(false);
@@ -12764,6 +12779,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   // ── beginNavigation ───────────────────────────────────────
   const beginNavigation = useCallback(() => {
+    const switchedFromFreeDrive = isDrivingRef.current && !isNavigatingRef.current;
     const hadActiveTrip = isDrivingRef.current || isNavigatingRef.current;
     const livePose = readLiveTripPose();
     const fallbackLoc = userLocation
@@ -12771,6 +12787,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       : null;
     const pose = livePose ?? fallbackLoc;
     if (!pose) return;
+    navigationStartedFromFreeDriveRef.current = switchedFromFreeDrive;
     void warnIfBackgroundTrackingUnavailable();
 
     // Nie wołaj pełnego exitDrivingMode (finishTrip + reset silnika) — to kasowało trip
@@ -13014,10 +13031,27 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async (opts?: { silent?: boolean; clearRoute?: boolean }) => {
     track({ eventName: 'ui_action', screenName: 'map', surface: 'route_navigation', priority: 'medium', properties: { action: 'navigation_stopped', silent: !!opts?.silent } });
+    if (shouldContinueFreeDriveAfterNavigationStop({
+      navigationStartedFromFreeDrive: navigationStartedFromFreeDriveRef.current,
+      isNavigating: isNavigatingRef.current,
+    })) {
+      navigationStartedFromFreeDriveRef.current = false;
+      await continueTripWithoutNavigationRef.current('user_cancel');
+      onNavigationCancel();
+      if (!opts?.silent) {
+        Toast.show({
+          type: 'info',
+          text1: 'NAWIGACJA ZATRZYMANA',
+          text2: 'Jazda swobodna trwa dalej — zachowuję dystans przejazdu.',
+        });
+      }
+      return;
+    }
     driveTraceSession('nav_end', { reason: 'user_stop' });
     const wasApproaching = approachingRouteStartRef.current;
     const hadActiveTrip = isNavigatingRef.current || isDrivingRef.current;
     const finalStats = finishTrip();
+    navigationStartedFromFreeDriveRef.current = false;
     tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
 
     isNavigatingRef.current = false;
@@ -13126,8 +13160,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   const stopNavigationRef = useRef(stopNavigation);
   stopNavigationRef.current = stopNavigation;
 
-  const continueTripWithoutNavigation = useCallback(async (reason: 'drop_claimed' | 'native_free_drive') => {
+  const continueTripWithoutNavigationRef = useRef<(
+    reason: 'drop_claimed' | 'native_free_drive' | 'user_cancel',
+  ) => Promise<void>>(async () => {});
+
+  const continueTripWithoutNavigation = useCallback(async (
+    reason: 'drop_claimed' | 'native_free_drive' | 'user_cancel',
+  ) => {
     if (!isNavigatingRef.current && isDrivingRef.current) return;
+    navigationStartedFromFreeDriveRef.current = false;
     driveTraceSession('nav_end', { reason, tripContinues: true });
     navigationBootstrapTokenRef.current += 1;
     isNavigatingRef.current = false;
@@ -13168,6 +13209,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setEndLocation(null);
     setRouteInfo(null);
     setRouteEndpointImages({});
+    setConvoyNavigationMode(null);
+    setConvoyRouteRunning(false);
+    if (timerRunning) {
+      stopTimer();
+      resetTimer();
+    }
     if (userLocation) {
       startIsMyLocationRef.current = true;
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
@@ -13181,10 +13228,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setFollowMode,
     setTripCameraActive,
     stopSimulation,
+    resetTimer,
+    stopTimer,
+    timerRunning,
     userLocation,
   ]);
 
-  const continueTripWithoutNavigationRef = useRef(continueTripWithoutNavigation);
   continueTripWithoutNavigationRef.current = continueTripWithoutNavigation;
 
   useEffect(() => {
