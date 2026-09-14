@@ -2,6 +2,7 @@ package com.lexuuw.vroom.app.mapcamera
 
 import android.content.Context
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import android.graphics.Bitmap
@@ -102,7 +103,8 @@ internal fun mapCameraArrowPixelSize(logicalDp: Int, density: Float): Int =
  * Invisible Mapbox feature. Reanimated supplies the final pose; this display loop
  * writes camera + marker atomically at most once per frame.
  */
-class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Choreographer.FrameCallback {
+class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Choreographer.FrameCallback,
+  LifecycleEventListener {
   companion object {
     private const val MARKER_SOURCE_ID = "tripDriveMarkerSource"
     const val NATIVE_ARROW_IMAGE_ID = "vroom-location-arrow"
@@ -165,6 +167,71 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var arrowImageRegistered = false
   private var lastStyleIdentity = 0
   private var cachedArrowBitmap: Bitmap? = null
+  private var lifecycleRegistered = false
+
+  init {
+    registerLifecycleListener()
+  }
+
+  private fun registerLifecycleListener() {
+    if (lifecycleRegistered) return
+    val react = context as? ReactContext ?: return
+    react.addLifecycleEventListener(this)
+    lifecycleRegistered = true
+  }
+
+  private fun unregisterLifecycleListener() {
+    if (!lifecycleRegistered) return
+    (context as? ReactContext)?.removeLifecycleEventListener(this)
+    lifecycleRegistered = false
+  }
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    registerLifecycleListener()
+    dirty = true
+    scheduleFrame()
+  }
+
+  override fun onDetachedFromWindow() {
+    cancelFrame()
+    unregisterLifecycleListener()
+    super.onDetachedFromWindow()
+  }
+
+  override fun onHostPause() {
+    // Android can discard a pending Choreographer callback while the Activity
+    // is paused. Clear framePosted here so foreground updates can post again.
+    cancelFrame()
+    lastAppliedFrameNanos = 0L
+    lastFrameNanos = 0L
+  }
+
+  override fun onHostResume() {
+    post {
+      cancelFrame()
+      lastAppliedFrameNanos = 0L
+      lastFrameNanos = 0L
+      lastCameraValues = null
+      framingInitialized = false
+      poseInitialized = false
+      cameraReentry = true
+      reentryElapsedMs = 0.0
+      arrowImageRegistered = false
+      lastStyleIdentity = 0
+      lastMarkerLatitude = Double.NaN
+      lastMarkerLongitude = Double.NaN
+      lastMarkerHeading = Double.NaN
+      lastMarkerWorldHeading = Double.NaN
+      dirty = true
+      scheduleFrame()
+    }
+  }
+
+  override fun onHostDestroy() {
+    cancelFrame()
+    unregisterLifecycleListener()
+  }
 
   fun setFollowerEnabled(value: Boolean) {
     if (value && !enabled) {

@@ -64,6 +64,10 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('mapCameraArrowPixelSize');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('worldHeading');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('screenHeading');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('LifecycleEventListener');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('override fun onHostPause()');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('override fun onHostResume()');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('cancelFrame()');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('VroomMapCameraFollowerManager');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "cameraMode")');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "markerHeading")');
