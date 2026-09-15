@@ -577,15 +577,16 @@ export function useLiveMap(
         fixAgeMs: Math.max(0, Date.now() - previousFix.fixAt),
       } : {}),
     } : { protocolVersion: 2 });
-    // Older production sockets join the room but do not acknowledge the
-    // event. Treat the emit as an active legacy join; only an explicit
-    // `joined: false` is a rejection. REST remains the independent fallback.
-    liveJoinedRef.current = true;
-    setSharingStatus(isSharingRef.current ? 'on' : 'off');
+    // A snapshot also confirms membership for legacy servers without ACKs.
+    // A lost join must remain retryable instead of displaying a false ON.
     socket.timeout(5_000).emit('live:join', payload, (error: Error | null, ack?: { joined?: boolean }) => {
       if (joinAttempt !== liveJoinAttemptRef.current) return;
       liveJoinInFlightRef.current = false;
       if (socketRef.current !== socket || !socket.connected) return;
+      if (error) {
+        setSharingStatus(isSharingRef.current ? (liveJoinedRef.current ? 'on' : 'connecting') : 'off');
+        return;
+      }
       if (!error && ack?.joined === false) {
         liveJoinedRef.current = false;
         if (isSharingRef.current) setSharingStatus('error');
@@ -1060,6 +1061,8 @@ export function useLiveMap(
           console.log('[LIVE_SNAPSHOT] skipped — liveUsersEnabled is false');
           return;
         }
+        liveJoinedRef.current = true;
+        setSharingStatus(isSharingRef.current ? 'on' : 'off');
         console.log(
           '[LIVE_SNAPSHOT] parsed users=',
           users.length,
@@ -1353,6 +1356,8 @@ export function useLiveMap(
   // ── Toggle sharing ────────────────────────────────────
   const forceLocalSharingOff = useCallback(() => {
     isSharingRef.current = false;
+    pendingLocationPayloadRef.current = null;
+    latestOwnFixRef.current = null;
     latestOwnPayloadRef.current = null;
     setSharingStatus('off');
     const socket = socketRef.current;
@@ -1370,21 +1375,23 @@ export function useLiveMap(
       isSharingRef.current = true;
       setSharingStatus(connected && liveUsersEnabled && liveJoinedRef.current ? 'on' : 'connecting');
       if (!tokenRef.current) return true;
-      if (!socketRef.current?.connected) {
-        socketRef.current?.connect();
-      } else {
-        joinLiveMapRoom();
-      }
       const loc = userLocationRef.current;
-      if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-        await sendLiveLocation({
-            lat: loc.latitude,
-            lng: loc.longitude,
-            shareLocation: true,
-            source: 'sharing_enabled',
-          }, { force: true }).catch(() => {});
-        queueCurrentLocation('sharing_enabled');
+      const hasPosition = loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude);
+      try {
+        const result = await sendLiveLocation({
+          ...(hasPosition ? { lat: loc.latitude, lng: loc.longitude } : {}),
+          shareLocation: true,
+          source: 'sharing_enabled',
+        }, { force: true }) as { accepted?: boolean };
+        if (result?.accepted === false) throw new Error('LIVE_ENABLE_REJECTED');
+      } catch {
+        setSharingStatus('error');
+        return false;
       }
+      if (!isSharingRef.current) return false;
+      if (!socketRef.current?.connected) socketRef.current?.connect();
+      else joinLiveMapRoom();
+      if (hasPosition) queueCurrentLocation('sharing_enabled');
       await fetchInitialData(tokenRef.current);
       setSharingStatus(liveJoinedRef.current ? 'on' : 'connecting');
       return true;

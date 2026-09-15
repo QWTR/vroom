@@ -21,8 +21,13 @@ type AcceptedPacket = LiveLocationPacket & { sentAt: number; clientSequence: num
 
 let lastAccepted: AcceptedPacket | null = null;
 let lastSequence = Date.now() * 1000;
-let inFlight: Promise<unknown> | null = null;
-let pending: { packet: LiveLocationPacket; force: boolean } | null = null;
+type QueuedLocation = {
+  packet: LiveLocationPacket;
+  force: boolean;
+  waiters: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[];
+};
+let draining = false;
+const pending: QueuedLocation[] = [];
 
 function distanceMeters(a: LiveLocationPacket, b: LiveLocationPacket): number {
   if (![a.lat, a.lng, b.lat, b.lng].every(Number.isFinite)) return Number.POSITIVE_INFINITY;
@@ -83,20 +88,42 @@ async function flush(packet: LiveLocationPacket, force: boolean): Promise<unknow
 }
 
 export function sendLiveLocation(input: LiveLocationPacket, options: { force?: boolean } = {}): Promise<unknown> {
-  if (inFlight) {
-    pending = { packet: input, force: Boolean(options.force) };
-    return inFlight;
-  }
-  inFlight = flush(input, Boolean(options.force)).finally(async () => {
-    inFlight = null;
-    const next = pending;
-    pending = null;
-    if (next) await sendLiveLocation(next.packet, { force: next.force });
+  return new Promise((resolve, reject) => {
+    const last = pending[pending.length - 1];
+    // Sharing commands are ordered barriers. A GPS packet must never swallow
+    // OFF/ON, and each caller must receive the result of its own request.
+    if (last && last.packet.shareLocation === undefined && input.shareLocation === undefined) {
+      last.packet = input;
+      last.force ||= Boolean(options.force);
+      last.waiters.push({ resolve, reject });
+    } else {
+      pending.push({ packet: input, force: Boolean(options.force), waiters: [{ resolve, reject }] });
+    }
+    void drainPending();
   });
-  return inFlight;
+}
+
+async function drainPending(): Promise<void> {
+  if (draining) return;
+  draining = true;
+  try {
+    while (pending.length) {
+      const next = pending.shift()!;
+      try {
+        const result = await flush(next.packet, next.force);
+        next.waiters.forEach(({ resolve }) => resolve(result));
+      } catch (error) {
+        next.waiters.forEach(({ reject }) => reject(error));
+      }
+    }
+  } finally {
+    draining = false;
+  }
 }
 
 export function resetLiveLocationBroker(): void {
   lastAccepted = null;
-  pending = null;
+  for (const entry of pending.splice(0)) {
+    entry.waiters.forEach(({ resolve }) => resolve({ accepted: false, reason: 'client_reset' }));
+  }
 }
